@@ -52,7 +52,7 @@ final class StatusBar: NSObject, NSMenuDelegate {
         if !snapshot.waiting.isEmpty {
             menu.addItem(Self.label("在等你"))
             for w in snapshot.waiting {
-                let text = w.folder.isEmpty ? Watch.waitTitle(w.kind) : "\(w.folder) · \(Watch.waitTitle(w.kind))"
+                let text = w.folder.isEmpty ? w.title : "\(w.folder) · \(w.title)"
                 let row = NSMenuItem(title: text, action: #selector(openClaude(_:)), keyEquivalent: "")
                 row.target = self
                 row.toolTip = w.message

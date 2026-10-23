@@ -9,6 +9,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash|mcp__codex.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/route-codex.mjs\""
+          }
+        ]
       }
     ],
     "PostToolUse": [

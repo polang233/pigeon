@@ -24,7 +24,9 @@ const DEFAULTS = {
   imageTransparent: false,
   imageDir: 'assets/generated',
   showInCodex: true,
+  sessionMode: '', // 'keep' 保留到 Codex 应用 / 'temp' 临时任务；空着时按旧的 showInCodex
   autoOpen: false,
+  routeAll: true, // 直接跑 codex exec 时拦下来，改走包装层（见 route-codex.mjs）
   model: '',
   effort: '',
   sandbox: 'auto',
@@ -86,6 +88,18 @@ function codexBin() {
     try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {}
   }
   return null;
+}
+
+const keepOf = s => (s.sessionMode ? s.sessionMode !== 'temp' : s.showInCodex !== false);
+
+// Codex 默认用哪个模型：读 ~/.codex/config.toml 顶层的 model
+function defaultModel() {
+  try {
+    const home = process.env.CODEX_HOME || path.join(HOME, '.codex');
+    const text = fs.readFileSync(path.join(home, 'config.toml'), 'utf8');
+    const top = text.split(/^\[/m)[0];
+    return (/^model\s*=\s*"([^"]+)"/m.exec(top) || [])[1] || '';
+  } catch { return ''; }
 }
 
 function parseArgs(argv) {
@@ -179,21 +193,24 @@ async function run(args) {
     console.log(`Codex 排队超时：等了 ${s.timeoutMin} 分钟仍没有空位。`); return 2;
   }
 
+  // 这次任务保不保留会话：命令行 --temp / --keep 优先，其次是设置
+  const keep = args.temp ? false : args.keep ? true : keepOf(s);
+  const model = s.model || defaultModel();
   const prompt = buildPrompt(kind, brief, s, cwd);
   const lastFile = path.join(RUNS, `${taskId}.last.md`);
   const logFile = path.join(RUNS, `${taskId}.jsonl`);
   const cliArgs = ['exec', '--json', '--skip-git-repo-check', '-C', cwd, '-s', sandboxFor(kind, s), '-o', lastFile];
   if (s.model) cliArgs.push('-m', s.model);
   if (s.effort) cliArgs.push('-c', `model_reasoning_effort="${s.effort}"`);
-  if (!s.showInCodex) cliArgs.push('--ephemeral');
+  if (!keep) cliArgs.push('--ephemeral');
   cliArgs.push(prompt);
 
-  await report({ phase: 'start', task_id: taskId, title, kind, prompt: oneLine(brief, 160), cwd });
+  await report({ phase: 'start', task_id: taskId, title, kind, prompt: oneLine(brief, 160), cwd, model, temp: !keep });
   if (kind === 'image') report({ phase: 'activity', task_id: taskId, activity: 'image' });
 
   const log = fs.createWriteStream(logFile);
   // stdin 必须关掉，否则 codex exec 会一直等“更多输入”
-  const child = spawn(bin, cliArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+  const child = spawn(bin, cliArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MEERKAT_TASK_ID: taskId } }); // Codex 自己的 hook 靠它认出是哪个任务
   let threadId = null, lastMsg = '', usage = null, timedOut = false, buf = '';
   const errs = [];
   const killer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 5000); }, timeoutMs);
@@ -229,15 +246,15 @@ async function run(args) {
   const status = ok ? 'done' : 'failed';
   const summary = oneLine(timedOut ? `超时：${s.timeoutMin} 分钟内没完成` : ok ? lastMsg : (errs[0] || lastMsg || `codex 退出码 ${code}`), Number(s.summaryChars) || 300);
 
-  await report({ phase: 'end', task_id: taskId, status, summary, files, thread_id: threadId, usage });
-  if (ok && threadId && s.showInCodex && s.autoOpen) { try { execFileSync('open', [`codex://threads/${threadId}`]); } catch {} }
+  await report({ phase: 'end', task_id: taskId, status, summary, files, thread_id: threadId, usage, model });
+  if (ok && threadId && keep && s.autoOpen) { try { execFileSync('open', [`codex://threads/${threadId}`]); } catch {} }
 
   const lines = [
     `${ok ? 'Codex 完成' : timedOut ? 'Codex 超时' : 'Codex 出错'}（用时 ${fmtDur(Date.now() - t0)}）`,
     `摘要：${summary || '（没有回复）'}`,
   ];
   if (files.length) lines.push(`产出文件：\n${files.map(f => '  ' + f).join('\n')}`);
-  if (threadId) lines.push(s.showInCodex ? `Codex 会话：codex://threads/${threadId}（保留在 Codex 应用里，可以接着聊）` : 'Codex 会话：未保留（设置里关闭了“在 Codex 里显示对话”）');
+  if (threadId) lines.push(keep ? `Codex 会话：codex://threads/${threadId}（保留在 Codex 应用里，可以接着聊）` : 'Codex 会话：临时任务，没有保留');
   if (usage) lines.push(`用量：输入 ${usage.input_tokens}（缓存 ${usage.cached_input_tokens || 0}），输出 ${usage.output_tokens}`);
   lines.push(`完整记录：${logFile}`);
   if (!appOnline) lines.push('提示：Meerkat 应用没开，这次没有画面，设置用的是保存的值或默认值。');
@@ -274,7 +291,8 @@ async function settingsCmd() {
     `- 生图优先交给 Codex：${s.preferForImages ? '是' : '否'}`,
     `- 生图方式：${s.imageMode === 'api' ? `API（模型 ${s.imageModel}，质量 ${s.imageQuality}${process.env.OPENAI_API_KEY ? '' : '；但没检测到 OPENAI_API_KEY，会退回内置方式'}）` : '内置 image_gen（不需要 key，模型和质量不可选）'}`,
     `- 图片比例：${ASPECT[s.imageAspect] || s.imageAspect}${s.imageTransparent ? '，透明背景' : ''}；保存到项目的 ${s.imageDir}/`,
-    `- 在 Codex 应用里保留对话：${s.showInCodex ? '是' : '否'}${s.showInCodex && s.autoOpen ? '（完成后自动打开）' : ''}`,
+    `- 对话记录：${keepOf(s) ? '保留到 Codex 应用' : '临时任务，不保留'}${keepOf(s) && s.autoOpen ? '（完成后自动打开）' : ''}；单次可用 --temp / --keep 改`,
+    `- 统一走包装层：${s.routeAll !== false ? '是（直接跑 codex exec 会被拦下）' : '否'}`,
     `- 模型：${s.model || 'Codex 默认'}；推理档位：${s.effort || 'Codex 默认'}；沙箱：${s.sandbox === 'auto' ? '按任务类型自动' : s.sandbox}`,
     `- 超时 ${s.timeoutMin} 分钟；同时最多 ${s.maxConcurrent} 个；摘要最长 ${s.summaryChars} 字`,
   ];
