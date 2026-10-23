@@ -19,7 +19,8 @@
     if (mode === 'live') M.settings.saveScene(patch).catch(() => {});
   }
   const THEMES = {
-    studio: root => new M.Studio(root, { onLayout: layout => saveScene({ layout }) }),
+    studio: root => new M.Studio(root, { art: M.PixelArt, onLayout: layout => saveScene({ layout }) }),
+    illustrated: root => new M.Studio(root, { onLayout: layout => saveScene({ layout }) }),
     'pixel-studio': root => new M.PixelStudio(root),
   };
   let themeId = 'studio';
