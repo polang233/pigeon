@@ -21,7 +21,7 @@
     4: { main: [192, 200], seats: [[70, 158], [314, 158], [244, 128]], meerkat: [128, 122], tray: [22, H - 12] },
   };
   // 角色坐在显示器旁边，不然脸会被正对观众的显示器挡住：dx 是相对桌子中心的偏移（按桌宽比例），sit 是屁股离桌子底边多高（按桌高比例）
-  const FIT = { main: { dx: -0.3, sit: 0.62 }, seat: { dx: 0.27, sit: 0.62 }, side: { dx: 0.2, sit: 0.58 } };
+  const IMAGE_FIT = { main: { dx: -0.3, sit: 0.62 }, seat: { dx: 0.27, sit: 0.62 }, side: { dx: 0.2, sit: 0.58 } };
   const WALK_AHEAD = 9; // 走路时在桌子前面多少像素
   // 子代理边桌相对主人桌子的位置（按桌宽的比例 + 像素偏移）
   const SIDE = [[-0.5, -22, 4], [0.5, 22, 4], [-0.5, -22, 22]];
@@ -86,10 +86,11 @@
     return canvasOf(img, p => {
       for (let i = 0; i < p.length; i += 4) {
         const l = (p[i] + p[i + 1] + p[i + 2]) / 765;
-        const k = l > 0.82 ? 1 : 0.35 + l * 0.75; // 高光留白
-        p[i] = Math.min(255, lerp(r, 255, l > 0.82 ? 0.7 : 0) * k);
-        p[i + 1] = Math.min(255, lerp(g, 255, l > 0.82 ? 0.7 : 0) * k);
-        p[i + 2] = Math.min(255, lerp(b, 255, l > 0.82 ? 0.7 : 0) * k);
+        const hi = l > 0.96; // 高光留白
+        const k = hi ? 1 : 0.35 + l * 0.75;
+        p[i] = Math.min(255, lerp(r, 255, hi ? 0.7 : 0) * k);
+        p[i + 1] = Math.min(255, lerp(g, 255, hi ? 0.7 : 0) * k);
+        p[i + 2] = Math.min(255, lerp(b, 255, hi ? 0.7 : 0) * k);
       }
     });
   };
@@ -104,6 +105,9 @@
       this.ov = root.querySelector('.ov');
       this.now = performance.now();
       this.onLayout = opts.onLayout || (() => {});
+      // 美术包：不给就读 assets/scene 里的插画；给了 M.PixelArt 就用代码画的像素图
+      this.art = opts.art || null;
+      this.fit = (this.art && this.art.fit) || IMAGE_FIT;
       this.cardsOn = true;
       this.subLabelsOn = true;
 
@@ -147,9 +151,12 @@
     destroy() { cancelAnimationFrame(this.raf); this.dead = true; this.root.classList.remove('studio-3d'); }
 
     async loadImages() {
-      const imgs = await Promise.all(FILES.map(load));
-      this.img = {};
-      FILES.forEach((f, i) => { this.img[f] = imgs[i]; });
+      if (this.art) this.img = this.art.build();
+      else {
+        const imgs = await Promise.all(FILES.map(load));
+        this.img = {};
+        FILES.forEach((f, i) => { this.img[f] = imgs[i]; });
+      }
       this.greyImg = {};
       for (const id of ORDER) for (const f of ['idle', 'sleep']) {
         const im = this.img[`${id}-${f}`];
@@ -465,7 +472,7 @@
 
     /* ---------- 气泡 ---------- */
     // 角色的手（发出粒子的地方）和收件处（粒子落下的地方）
-    seatX(id) { const a = this.actors[id], k = this.keyOf(id); return a.x + FIT[k === 'main' ? 'main' : 'seat'].dx * this.deskW(k || 'seat0'); }
+    seatX(id) { const a = this.actors[id], k = this.keyOf(id); return a.x + this.fit[k === 'main' ? 'main' : 'seat'].dx * this.deskW(k || 'seat0'); }
     handPos(id) { const a = this.actors[id]; return a.onStage ? [this.seatX(id) + 6, a.y - 40] : this.spots().tray; }
     inboxPos(id) { const a = this.actors[id]; return a.onStage ? [this.seatX(id) - 8, a.y - 36] : this.spots().tray; }
     async typeBubble(id, text) {
@@ -730,7 +737,8 @@
     drawScene(c) {
       const items = [];
       for (const [k, d] of Object.entries(this.desks)) items.push({ y: d.y, draw: () => this.drawDesk(c, k, d) });
-      for (const a of Object.values(this.actors)) if (a.onStage) items.push({ y: a.y + (a.from ? WALK_AHEAD + 1 : 0.5), draw: () => this.drawActor(c, a) });
+      // 坐着的角色排在自己桌子前面画（桌子挡住下半身），走路的排在桌子后面画
+      for (const a of Object.values(this.actors)) if (a.onStage) items.push({ y: a.y + (a.from ? WALK_AHEAD + 1 : -0.5), draw: () => this.drawActor(c, a) });
       for (const [owner, list] of Object.entries(this.subs)) list.forEach((s, i) => {
         if (!s || !s.task) return;
         const [x, y] = this.sidePos(owner, i);
@@ -780,7 +788,8 @@
       if (this.drag && this.drag.live && this.drag.id === a.id) return;
       const frame = this.frameOf(a);
       const off = !a.status.running && frame !== 'work';
-      const name = `${a.id}-${frame}`;
+      // 干活时有第二帧就来回切，像在打字
+      const name = frame === 'work' && this.img[`${a.id}-work2`] && this.f(160) % 2 ? `${a.id}-work2` : `${a.id}-${frame}`;
       const im = (off && this.greyImg[name]) || this.img[name] || this.img[`${a.id}-idle`];
       if (!im) return;
       const key = this.keyOf(a.id);
@@ -788,10 +797,10 @@
       const deskH = desk ? desk.height : 30;
       const waiting = this.waitingFor(a.id).length > 0;
       const pop = this.now - a.recvAt < 220 ? -2 : 0;
-      const bob = frame === 'work' ? (this.f(140) % 2 ? -1 : 0) : frame === 'idle' && this.f(900) % 2 ? 1 : 0;
+      const bob = frame === 'work' ? (this.img[`${a.id}-work2`] ? 0 : this.f(140) % 2 ? -1 : 0) : frame === 'idle' && this.f(900) % 2 ? 1 : 0;
       const wave = waiting && !reduced ? -Math.abs(Math.round(Math.sin(this.now / 160) * 3)) : 0;
       const walking = !!a.from;
-      const fit = FIT[key === 'main' ? 'main' : 'seat'];
+      const fit = this.fit[key === 'main' ? 'main' : 'seat'];
       const deskW = desk ? desk.width : 60;
       // 走路时走在桌子前面、整个人露出来；到位后再坐回桌子后面
       const sitY = walking ? a.y + WALK_AHEAD : a.y - deskH * fit.sit;
@@ -817,8 +826,8 @@
         const rise = age < 240 ? Math.round(8 - (age / 240) * 8) : 0;
         const sink = s.leaving ? Math.round(((this.now - s.leaving) / 500) * 12) : 0;
         const deskH = side ? side.height : 14;
-        const ix = Math.round(x + FIT.side.dx * (side ? side.width : 30) - im.width / 2 + this.shakeX(s));
-        const iy = Math.round(y - deskH * FIT.side.sit - im.height + rise + sink + (s.act && this.f(300) % 2 ? -1 : 0));
+        const ix = Math.round(x + this.fit.side.dx * (side ? side.width : 30) - im.width / 2 + this.shakeX(s));
+        const iy = Math.round(y - deskH * this.fit.side.sit - im.height + rise + sink + (s.act && this.f(300) % 2 ? -1 : 0));
         c.drawImage(im, ix, iy);
         this.drawBadge(c, s.badge, ix + im.width - 2, iy - 8);
         if (s.act && !s.badge) this.drawCard(c, s.act, true, ix - 12, iy - 4, '#ffcf6b');
