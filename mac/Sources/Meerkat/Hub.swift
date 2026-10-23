@@ -105,7 +105,7 @@ final class Hub: @unchecked Sendable {
         switch (req.method, path) {
         case ("OPTIONS", _):
             conn.respond(status: 204, headers: Self.cors + [
-                ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                ("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS"),
                 ("Access-Control-Allow-Headers", "Content-Type"),
                 ("Access-Control-Max-Age", "600"),
             ], keepAlive: keepAlive)
@@ -126,6 +126,16 @@ final class Hub: @unchecked Sendable {
             }
         case (_, "/api/detect"):
             methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/settings"):
+            respondJSON(conn, Settings.load(), keepAlive: keepAlive)
+        case ("PUT", "/api/settings"):
+            handleSaveSettings(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/settings"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/codex/models"):
+            respondJSON(conn, (try? encoder.encode(Settings.codexModels())) ?? Data("[]".utf8), keepAlive: keepAlive)
+        case (_, "/api/codex/models"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", _), ("HEAD", _):
             if path.hasPrefix("/api/") {
                 conn.respond(status: 404, headers: Self.cors, body: Data(#"{"error":"not found"}"#.utf8),
@@ -143,6 +153,29 @@ final class Hub: @unchecked Sendable {
     private func methodNotAllowed(_ conn: HTTPConnection, keepAlive: Bool) {
         conn.respond(status: 405, headers: Self.cors, body: Data("Method Not Allowed".utf8),
                      contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+    }
+
+    private func respondJSON(_ conn: HTTPConnection, _ body: Data, keepAlive: Bool) {
+        conn.respond(status: 200, headers: Self.cors + [("Cache-Control", "no-store")], body: body,
+                     contentType: "application/json; charset=utf-8", keepAlive: keepAlive)
+    }
+
+    // MARK: 设置
+
+    private func handleSaveSettings(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
+        do {
+            try Settings.save(req.body)
+        } catch {
+            let (status, message) = switch error {
+            case .notObject: (400, "设置必须是一个 JSON 对象")
+            case let .io(e): (500, "保存设置失败：\(e.localizedDescription)")
+            }
+            conn.respond(status: status, headers: Self.cors, body: Data(message.utf8),
+                         contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+            return
+        }
+        respondJSON(conn, req.body, keepAlive: keepAlive)
+        broadcast(Self.envelope(type: "settings", key: "settings", json: Self.singleLine(req.body)))
     }
 
     // MARK: hook

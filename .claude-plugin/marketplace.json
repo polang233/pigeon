@@ -1,0 +1,11 @@
+{
+  "name": "meerkat",
+  "owner": { "name": "polang233" },
+  "plugins": [
+    {
+      "name": "meerkat",
+      "source": "./plugin",
+      "description": "Meerkat：可视化 Claude Code 的任务分派，规范交给 Codex 的活。"
+    }
+  ]
+}

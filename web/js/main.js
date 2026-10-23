@@ -11,11 +11,13 @@
 
   store.on((type, d) => {
     if (type === 'taskStart') theme.taskStart(d);
+    else if (type === 'taskUpdate') {}
     else if (type === 'taskEnd') theme.taskEnd(d);
     else if (type === 'activity') theme.activity(d);
     else if (type === 'activityEnd') theme.activityEnd(d);
+    else if (type === 'taskActivity') theme.taskActivity(d);
     else if (type === 'heard') { theme.heard(); if (!simOn) { everHeard = true; hint(false); } }
-    if (type !== 'activity' && type !== 'activityEnd' && type !== 'heard') renderTasks();
+    if (type !== 'activity' && type !== 'activityEnd' && type !== 'heard' && type !== 'taskActivity') renderTasks();
   });
 
   /* ---------- 任务列表 ---------- */
@@ -39,12 +41,16 @@
       seen.add(t.id);
       const dur = fmt((t.endedAt || Date.now()) - t.startedAt);
       const who = t.kind === 'subagent' ? `子代理 · ${t.subagentType}` : 'Codex';
-      li.innerHTML = `<i class="dot" aria-hidden="true"></i><div class="body"><div class="row"><b></b><em></em></div><div class="meta"></div><p></p></div>`;
+      li.innerHTML = `<i class="dot" aria-hidden="true"></i><div class="body"><div class="row"><b></b><em></em></div><div class="meta"></div><p></p><div class="links"></div></div>`;
       li.querySelector('b').textContent = t.title;
       li.querySelector('em').textContent = STATUS[t.status];
       li.querySelector('.meta').textContent = `${who}　${dur}`;
       li.querySelector('p').textContent = t.status === 'running' ? t.prompt : t.summary;
       li.title = t.prompt;
+      const links = li.querySelector('.links');
+      (t.files || []).forEach(f => { const s = document.createElement('code'); s.textContent = f.split('/').slice(-2).join('/'); s.title = f; links.appendChild(s); });
+      if (t.threadId) { const a = document.createElement('a'); a.href = `codex://threads/${t.threadId}`; a.textContent = '在 Codex 里打开'; links.appendChild(a); }
+      if (t.status === 'running' && t.realActivity && t.detail) li.querySelector('p').textContent = `正在：${t.detail}`;
       ol.appendChild(li);
     }
   }
@@ -70,11 +76,12 @@
     if (!/^https?:$/.test(location.protocol)) { setMode('offline'); setSim(true); return; }
     let opened = false;
     const es = new EventSource('/events');
-    es.onopen = () => { opened = true; setMode('live'); if (!everHeard && !simOn) hint(true); };
+    es.onopen = () => { opened = true; M.settings.setLive(true); setMode('live'); if (!everHeard && !simOn) hint(true); };
     es.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch (err) { return; }
       if (m.type === 'detect' && m.agents && !simOn) theme.setAgents(m.agents);
       if (m.type === 'hook' && !simOn) store.ingest(m.payload, m.ts);
+      if (m.type === 'settings') M.settings.applyRemote(m.settings);
     };
     es.onerror = () => {
       if (!opened) { es.close(); setMode('offline'); setSim(true); }

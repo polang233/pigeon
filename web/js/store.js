@@ -72,6 +72,7 @@
       if (p.session_id) this.sessions.set(p.session_id, { cwd: p.cwd, last: ts });
       this.emit('heard', { ts });
 
+      if (ev === 'MeerkatCodex') return this.codexEvent(p, ts);
       if (ev === 'SubagentStop') {
         // 后台子代理以这个事件为结束；同步子代理一般已在 Agent 的 PostToolUse 收尾。
         const t = this.ownerOf(p);
@@ -118,7 +119,27 @@
       return p.agent_type ? subs.find(x => x.subagentType === p.agent_type) || null : null;
     }
 
-    start(id, kind, p, ts) {
+    // 包装层 meerkat-codex 上报的 Codex 真实执行过程
+    codexEvent(p, ts) {
+      const id = p.task_id;
+      if (!id) return;
+      if (p.phase === 'start') {
+        return this.start(id, 'codex', { session_id: p.session_id, cwd: p.cwd, tool_input: { prompt: p.prompt } }, ts, {
+          title: p.title || 'Codex 任务', via: 'meerkat-codex', codexKind: p.kind,
+          activity: p.kind === 'image' ? 'image' : p.kind === 'review' ? 'read' : 'think',
+        });
+      }
+      const t = this.tasks.get(id);
+      if (!t) return;
+      if (p.phase === 'thread') { t.threadId = p.thread_id; this.emit('taskUpdate', t); }
+      else if (p.phase === 'activity') { t.activity = p.activity; t.realActivity = true; t.detail = p.detail || ''; this.emit('taskActivity', t); }
+      else if (p.phase === 'end') {
+        t.threadId = p.thread_id || t.threadId; t.files = p.files || []; t.usage = p.usage || null;
+        this.finish(t, { status: p.status === 'done' ? 'done' : 'failed', summary: oneLine(p.summary, 120) || (p.status === 'done' ? '完成' : '出错了') }, ts);
+      }
+    }
+
+    start(id, kind, p, ts, extra) {
       if (this.tasks.has(id)) return;
       const inp = p.tool_input || {};
       const prompt = kind === 'codex' ? (inp.prompt || inp.command || '') : (inp.prompt || '');
@@ -131,6 +152,7 @@
         title, prompt: oneLine(prompt, 120), status: 'running', startedAt: ts, endedAt: null, summary: '',
         activity: guessFromText(`${title} ${prompt}`),
       };
+      if (extra) Object.assign(t, extra);
       this.tasks.set(id, t);
       this.order.push(id);
       if (this.order.length > 60) this.tasks.delete(this.order.shift());
