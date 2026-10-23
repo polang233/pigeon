@@ -41,10 +41,19 @@ hooks/                    forward.sh 和示例配置
   - Claude 自己的 Grep 调用显示成“搜索”动作。
 - 模拟演示：浏览器直接打开（连不上服务时）自动进入；在应用里点按钮也能切换。剧本覆盖并行子代理、Codex、出错、挂机和检测。
 
+**真实会话验证**
+- 在本项目 `.claude/settings.local.json` 接上 hook，新开一个 Claude Code 会话派出真实的 Explore 子代理，跑了两轮，事件全部到达。
+- 真实事件里的发现，已据此修正：
+  - 子代理现在默认在后台跑：`Agent` 的 `PostToolUse` 在派出时就触发，`tool_response` 是 `{isAsync: true, status: "async_launched", agentId}`，真正结束是 `SubagentStop`。现在遇到这种情况会保持“进行中”，等 `SubagentStop` 再收尾。
+  - 子代理内部的工具调用带 `agent_id` 和 `agent_type`，按 `agent_id` 归到对应子代理头上。
+  - 子代理交回报告时会调用 `SubagentHandback`，`tool_input.message` 就是报告全文，用作结果摘要。
+  - 桌面应用自己的内部工具（`mcp__ccd_*`）不显示成动作。
+- 第二轮在画面上确认：子代理坐在前排干活约 19 秒，期间显示它自己的“跑命令”，结束后标成完成，摘要是它的真实报告。
+
 **没验证**
 - 应用窗口本身的样子：本机截屏和辅助功能权限受限，只确认了 WebKit 进程连上了 `/events`。
-- 在真实 Claude Code 会话里接 hook：转发脚本和格式已用仿真事件测过，还没在真实会话里跑。
-- 子代理内部工具调用的归属：依赖 hook 里有没有 `agent_type`，没在真实会话里确认。
+- 真实的 Codex MCP 调用：本机没有 codex CLI，Codex 任务只用仿真事件测过。
+- 同步（非后台）子代理的真实事件：这次两轮都是后台子代理。
 
 ## 已知问题
 
