@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/hooks/forward.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/hooks/forward.sh" }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/hooks/forward.sh" }] }
+    ]
+  }
+}
