@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh\""
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh\""
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/forward.sh\""
           }
         ]
       }
