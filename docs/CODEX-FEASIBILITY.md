@@ -70,7 +70,12 @@
 - 测试时改过的设置已恢复成默认值。
 
 **没验证**
-- 插件安装：这台机器上的 Claude Code 命令行是虚拟机里的 Linux 版本，没法在本机跑 `claude plugin validate`；清单格式按文档写，需要在 Claude Code 里实际 `/plugin install` 一次确认。
-- skill 的自动触发：要装好插件后，在新会话里提一个生图需求，看 Claude 会不会自己用上。
 - API 生图方式：没有 `OPENAI_API_KEY`，没测。
 - 应用窗口里点“在 Codex 里打开”能否跳转：在内置浏览器里只确认了链接正确。
+
+## 插件安装和 skill 触发（2026-10-24）
+
+- **安装**：桌面应用的对话框里执行 `/plugin` 不会真正安装。用桌面应用自带的 Claude Code 命令行（`~/Library/Application Support/Claude/claude-code/<版本>/.../claude`）执行 `plugin marketplace add` 和 `plugin install meerkat@meerkat` 后才装上，用户级，直接读 `meerkat/plugin` 源码。`plugin validate` 通过；发布到官方目录前还缺许可证（必须）和图标（建议）。
+- **skill 没被选中的原因**：装的技能太多，技能列表的说明有长度上限，`meerkat:codex-delegation` 排在后面只剩名字，Claude 看不到触发条件，前三次测试都选了“游戏素材”技能、自己写脚本画像素图。
+- **修法**：加 `UserPromptSubmit` hook（`scripts/prompt-hint.mjs`），消息涉及生图或 Codex、且设置为生图优先时补一句提醒，其他消息不加内容，耗时约 24 毫秒。
+- **第四次测试通过**：同样的需求，不提 Codex。新会话自己调用了 `meerkat:codex-delegation` → 读设置 → 写任务说明 → `meerkat-codex run --kind image`；Meerkat 收到 Codex 的每一步（读技能、找文件、复制图片、检查尺寸）；出图 1254×1254 存进 `assets/generated/`，会话检查后提交。
