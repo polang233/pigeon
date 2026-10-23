@@ -1,0 +1,6 @@
+.DS_Store
+/mac/.build/
+/mac/.swiftpm/
+/build/
+*.xcuserstate
+xcuserdata/

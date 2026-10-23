@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meerkat</title>
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="assets/logo.svg" alt="" width="34" height="34">
+      <div>
+        <h1>Meerkat</h1>
+        <p>看着你的 agent 们干活</p>
+      </div>
+    </div>
+    <div class="tools">
+      <span class="pill" id="mode" data-mode="connecting">连接中…</span>
+      <label class="theme">
+        <span class="sr">主题</span>
+        <select id="theme">
+          <option value="pixel-studio">像素工作室</option>
+          <option disabled>蚂蚁工坊（即将推出）</option>
+          <option disabled>叽里咕噜办公室（即将推出）</option>
+        </select>
+      </label>
+      <button class="btn" id="sim" aria-pressed="false">模拟演示</button>
+      <button class="btn primary" id="detect">检测连接</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage-wrap">
+      <div class="stage" id="stage"></div>
+      <div class="hint" id="hint" hidden>
+        <p>还没收到 Claude Code 的事件。按 README 接好 hook 后，Claude Code 一派活这里就会动起来。</p>
+        <button class="btn" id="hint-sim">先看模拟演示</button>
+      </div>
+    </section>
+
+    <aside class="log" aria-label="任务列表">
+      <div class="counts">
+        <div><b id="count-running">0</b><span>进行中</span></div>
+        <div><b id="count-done">0</b><span>完成</span></div>
+        <div><b id="count-failed">0</b><span>出错</span></div>
+      </div>
+      <ol id="tasks"></ol>
+    </aside>
+  </main>
+
+  <script src="js/sprites.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/simulator.js"></script>
+  <script src="js/theme-pixel.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
