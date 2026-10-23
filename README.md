@@ -32,7 +32,7 @@ Meerkat 通过 Claude Code 的 hooks 收事件，只需要一步：把 `hooks/se
 - 如果项目不在本机这个路径，改一下配置里 `forward.sh` 的绝对路径。
 - 想让 Claude 通过 Codex 干活，需要先在 Claude Code 里把 Codex 接成 MCP 服务（名字叫 `codex`，工具名就是 `mcp__codex__*`）；用 Bash 跑 `codex exec` 也能识别。
 
-接好后在那个项目里用 Claude Code 派一次子代理，画面就会动起来。
+hook 配置在会话打开时读取，所以改完后要**在那个项目里新开一个 Claude Code 会话**；之后派一次子代理，画面就会动起来。
 
 ## 目录
 

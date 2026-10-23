@@ -4,3 +4,4 @@
 /build/
 *.xcuserstate
 xcuserdata/
+/.claude/settings.local.json

@@ -73,8 +73,8 @@
       this.emit('heard', { ts });
 
       if (ev === 'SubagentStop') {
-        // 正常情况下 Agent 工具的 PostToolUse 已经收尾，这里只兜底。
-        const t = this.running('subagent').find(x => !p.agent_type || x.subagentType === p.agent_type);
+        // 后台子代理以这个事件为结束；同步子代理一般已在 Agent 的 PostToolUse 收尾。
+        const t = this.ownerOf(p);
         if (t) this.finish(t, { status: 'done', summary: t.summary || '子代理已结束' }, ts);
         return;
       }
@@ -84,15 +84,25 @@
       const name = p.tool_name;
       const kind = isSubagentTool(name) ? 'subagent' : (isCodexTool(name) || isCodexBash(p)) ? 'codex' : null;
 
+      if (/^mcp__ccd_/.test(name || '')) return; // 桌面应用自己的内部工具，不算动作
       if (ev === 'PreToolUse') {
         if (kind) return this.start(id, kind, p, ts);
-        // 子代理里的工具调用（hook 带 agent_type 时）记到对应子代理头上，其余算 Claude 自己的。
-        const owner = p.agent_type ? this.running('subagent').find(t => t.subagentType === p.agent_type) : null;
+        // 子代理里的工具调用（hook 带 agent_id / agent_type）记到对应子代理头上，其余算 Claude 自己的。
+        const owner = this.ownerOf(p);
+        if (name === 'SubagentHandback') {
+          if (owner) owner.summary = oneLine(p.tool_input?.message, 90);
+          return;
+        }
         this.emit('activity', { agent: owner ? owner.id : 'claude', activity: activityOf(p), tool: name, id });
         return;
       }
       // PostToolUse
       const t = this.tasks.get(id);
+      const resp = p.tool_response;
+      if (t && t.kind === 'subagent' && resp && (resp.isAsync || resp.status === 'async_launched')) {
+        t.agentId = resp.agentId || null; // 后台子代理：等 SubagentStop 再收尾
+        return;
+      }
       if (t) {
         const bad = failed(p.tool_response);
         const text = oneLine(textOf(p.tool_response), 90);
@@ -100,6 +110,12 @@
       } else if (!kind) {
         this.emit('activityEnd', { id });
       }
+    }
+
+    ownerOf(p) {
+      const subs = this.running('subagent');
+      if (p.agent_id) { const t = subs.find(x => x.agentId === p.agent_id); if (t) return t; }
+      return p.agent_type ? subs.find(x => x.subagentType === p.agent_type) || null : null;
     }
 
     start(id, kind, p, ts) {
