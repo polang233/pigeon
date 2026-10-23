@@ -42,6 +42,7 @@
     </section>
 
     <aside class="log" aria-label="任务列表">
+      <div class="waiting" id="waiting" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       <div class="counts">
         <div><b id="count-running">0</b><span>进行中</span></div>
         <div><b id="count-done">0</b><span>完成</span></div>
@@ -57,6 +58,14 @@
         <h2 id="settings-title">设置</h2>
         <button class="btn icon" value="close" aria-label="关闭">✕</button>
       </header>
+      <fieldset class="notify-settings">
+        <legend>提醒</legend>
+        <label class="row"><span>任务完成时通知<small>子代理或 Codex 交回结果时提醒你</small></span><input type="checkbox" name="notifyDone"></label>
+        <label class="row"><span>出错时通知</span><input type="checkbox" name="notifyFailed"></label>
+        <label class="row"><span>Claude 等你时通知<small>需要你批准工具或回复问题时提醒你</small></span><input type="checkbox" name="notifyWaiting"></label>
+        <label class="row"><span>Claude 说完一轮时通知<small>只在这一轮较长时，由 Mac 应用发出通知</small></span><input type="checkbox" name="notifyTurnEnd"></label>
+        <label class="row"><span>较长一轮的秒数<small>超过这个时间才提醒，10–3600 秒</small></span><input type="number" name="notifyTurnMinSec" min="10" max="3600" step="1"></label>
+      </fieldset>
       <nav class="agent-tabs" aria-label="选择 agent">
         <button type="button" class="on" aria-current="true">Codex</button>
         <button type="button" disabled title="以后加">Claude Code</button>

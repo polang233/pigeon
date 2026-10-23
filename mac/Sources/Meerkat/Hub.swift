@@ -17,6 +17,12 @@ final class Hub: @unchecked Sendable {
     private var lastAgents: Agents?
     private var timers: [DispatchSourceTimer] = []
     private var reportedFailure = false
+    private var watch = Watch()
+    private var notify = NotifyPrefs.load()
+    private var watching = false
+
+    /// 任务和等待状态变了、或者需要发通知时调用（在 queue 上）。
+    var onWatch: (@Sendable (Watch.Snapshot, Watch.Alert?) -> Void)?
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -83,9 +89,16 @@ final class Hub: @unchecked Sendable {
         let detect = DispatchSource.makeTimerSource(queue: queue)
         detect.schedule(deadline: .now() + 30, repeating: 30)
         detect.setEventHandler { [weak self] in self?.runDetection(forceBroadcast: false) }
+        let expire = DispatchSource.makeTimerSource(queue: queue)
+        expire.schedule(deadline: .now() + 60, repeating: 60)
+        expire.setEventHandler { [weak self] in
+            guard let self, self.watch.expire() else { return }
+            self.onWatch?(self.watch.snapshot, nil)
+        }
         heartbeat.resume()
         detect.resume()
-        timers = [heartbeat, detect]
+        expire.resume()
+        timers = [heartbeat, detect, expire]
     }
 
     func connectionClosed(_ conn: HTTPConnection) {
@@ -175,6 +188,7 @@ final class Hub: @unchecked Sendable {
             return
         }
         respondJSON(conn, req.body, keepAlive: keepAlive)
+        notify = NotifyPrefs.load()
         broadcast(Self.envelope(type: "settings", key: "settings", json: Self.singleLine(req.body)))
     }
 
@@ -192,6 +206,10 @@ final class Hub: @unchecked Sendable {
             guard let self else { return }
             self.lastHookAt = Date()
             self.broadcast(Self.envelope(type: "hook", key: "payload", json: Self.singleLine(body)))
+            if let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] {
+                let alert = self.watch.ingest(payload, notify: self.notify, watching: self.watching)
+                self.onWatch?(self.watch.snapshot, alert)
+            }
             if self.lastAgents?.claude.running != true {
                 self.runDetection(forceBroadcast: false)
             }
@@ -242,6 +260,11 @@ final class Hub: @unchecked Sendable {
     }
 
     // MARK: 检测
+
+    /// 用户是否正看着 Meerkat 窗口；看着时不发通知。
+    func setWatching(_ value: Bool) {
+        queue.async { [weak self] in self?.watching = value }
+    }
 
     /// 菜单「检测连接」调用：检测并广播，等同于 POST /api/detect。
     func detectNow() {

@@ -29,12 +29,14 @@
     [10400, pre('x1', 'Read', { file_path: `${CWD}/public/login-hero.png` }, { agent_type: 'code-reviewer' })],
     [12600, post('a2', 'Agent', { is_error: true, content: [{ type: 'text', text: '子代理超时：等待 10 分钟仍没有返回结果。' }] })],
     [13800, post('c1', 'mcp__codex__codex', text('已生成 public/login-hero.png（1200×800，184KB），顺手把旧的 hero.jpg 删了。'))],
-    [14600, pre('b1', 'Bash', { command: 'npm test -- login' })],
-    [17000, post('b1', 'Bash', text('3 passed'))],
-    [17600, pre('c2', 'mcp__codex__codex-reply', { prompt: '再帮我跑一遍登录页的端到端测试，看看插图有没有影响布局。' })],
-    [23000, post('c2', 'mcp__codex__codex-reply', text('端到端测试 6 项全部通过，插图在窄屏下会自动裁切。'))],
+    [14600, { hook_event_name: 'Notification', session_id: SID, cwd: CWD, notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }],
+    [19000, pre('b1', 'Bash', { command: 'npm test -- login' })],
+    [21400, post('b1', 'Bash', text('3 passed'))],
+    [22000, pre('c2', 'mcp__codex__codex-reply', { prompt: '再帮我跑一遍登录页的端到端测试，看看插图有没有影响布局。' })],
+    [27400, post('c2', 'mcp__codex__codex-reply', text('端到端测试 6 项全部通过，插图在窄屏下会自动裁切。'))],
+    [28800, { hook_event_name: 'Stop', session_id: SID, cwd: CWD }],
   ];
-  const LOOP = 27000;
+  const LOOP = 32000;
 
   const AGENTS = {
     claude: { installed: true, running: true, detail: '模拟：正在干活' },

@@ -1,13 +1,77 @@
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh" }] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh" }] }
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
     ],
     "SubagentStop": [
-      { "hooks": [{ "type": "command", "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/polang/Code/Projects/meerkat/plugin/scripts/forward.sh"
+          }
+        ]
+      }
     ]
   }
 }
