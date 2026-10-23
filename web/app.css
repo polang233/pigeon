@@ -72,6 +72,11 @@ select { padding: 5px 8px; color: var(--ink); background: var(--panel-2); border
 
 /* 任务列表 */
 .log { min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 2px solid var(--line); }
+.waiting { flex: none; max-height: 180px; overflow-y: auto; padding: 10px 12px; color: var(--warm); background: #302c22; border-bottom: 2px solid #6b5a2f; font-size: 12px; overflow-wrap: anywhere; }
+.waiting[hidden] { display: none; }
+.waiting p { margin: 0; }
+.waiting p + p { margin-top: 8px; padding-top: 8px; border-top: 1px solid #6b5a2f; }
+.waiting b { font-size: 13px; }
 .counts { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 2px solid var(--line); }
 .counts div { padding: 10px 12px; display: grid; }
 .counts div + div { border-left: 2px solid var(--line); }
@@ -122,6 +127,7 @@ select { padding: 5px 8px; color: var(--ink); background: var(--panel-2); border
 .agent-tabs + fieldset { border-top-color: var(--line); }
 .settings legend { padding: 12px 0 4px; font: 700 12px/1 var(--pixel); color: var(--warm); letter-spacing: .04em; }
 .settings form > fieldset:first-of-type { margin-top: 0; }
+.settings .notify-settings { border-top: none; padding-bottom: 12px; }
 .settings form { overflow: hidden; }
 .settings form > fieldset, .settings form > nav { flex: none; }
 .settings form { overflow-y: auto; }

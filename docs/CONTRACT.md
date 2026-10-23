@@ -16,7 +16,7 @@ Mac 应用（`mac/`）和前端（`web/`）之间只靠下面这几条接口沟�
 |---|---|
 | `POST /ev` | 请求体是 Claude Code hook 通过 stdin 传来的原始 JSON，不做改写。应用收到后立刻回 `204`，再异步广播。 |
 
-hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUse` / `SubagentStop`）、`session_id`、`cwd`、`tool_name`、`tool_use_id`、`tool_input`、`tool_response`。
+hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUse` / `SubagentStop` / `UserPromptSubmit` / `Notification` / `Stop`）、`message`、`notification_type`（`permission_prompt` / `idle_prompt` / `elicitation_dialog`）、`session_id`、`cwd`、`tool_name`、`tool_use_id`、`tool_input`、`tool_response`。
 
 ## 推送给页面
 
@@ -67,11 +67,12 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 | `PUT /api/settings` | 请求体是完整设置 JSON 对象，原样保存（写临时文件再改名），回 `200` 和保存后的内容，并通过 `/events` 广播 `{"type":"settings","settings":{...}}`。非对象回 `400`。 |
 | `GET /api/codex/models` | 读 `~/.codex/models_cache.json`，返回 `[{"slug","name","efforts":[...]}]`；读不到返回 `[]`。 |
 
-设置结构（目前只有 `codex`，以后加其他 agent）：
+设置结构（`notify` 是系统通知，由应用读取；`codex` 给包装层用，以后加其他 agent）：
 
 ```json
 {
   "version": 1,
+  "notify": { "done": true, "failed": true, "waiting": true, "turnEnd": true, "turnMinSec": 60 },
   "codex": {
     "preferForImages": true,
     "imageMode": "builtin",

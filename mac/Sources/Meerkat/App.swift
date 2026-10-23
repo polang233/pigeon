@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var window: NSWindow!
     private var webView: WKWebView!
     private var hub: Hub!
+    private var statusBar: StatusBar!
+    private var notifier: Notifier!
     private var serverReady = false
     private let night = NSColor(srgbRed: 0x1d / 255.0, green: 0x2b / 255.0, blue: 0x38 / 255.0, alpha: 1)
 
@@ -29,12 +31,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         buildMenu()
         buildWindow()
 
+        let show: () -> Void = { [weak self] in self?.showMainWindow(nil) }
+        statusBar = StatusBar(showWindow: show, detect: { [weak self] in self?.hub?.detectNow(); return })
+        notifier = Notifier(showWindow: show)
+
         hub = Hub(webRoot: Paths.resolveWebRoot())
+        hub.onWatch = { [weak self] snapshot, alert in
+            Task { @MainActor in
+                guard let self else { return }
+                self.statusBar.update(snapshot)
+                if let alert { self.notifier.post(alert) }
+            }
+        }
         hub.start(
             onReady: { [weak self] in Task { @MainActor in self?.serverDidStart() } },
             onFailure: { [weak self] message in Task { @MainActor in self?.serverDidFail(message) } }
         )
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didMiniaturizeNotification, NSApplication.didResignActiveNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(focusChanged(_:)), name: name, object: nil)
+        }
         NSApp.activate()
+    }
+
+    @objc private func focusChanged(_ note: Notification) {
+        // 通知回调时窗口状态可能还没切换完，下一轮再读
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hub?.setWatching(self.isWatching)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -107,7 +132,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     @objc private func showMainWindow(_ sender: Any?) {
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// 正盯着 Meerkat 窗口时画面已经在演了，不再弹通知
+    private var isWatching: Bool {
+        NSApp.isActive && window.isKeyWindow && !window.isMiniaturized
     }
 
     // MARK: 菜单

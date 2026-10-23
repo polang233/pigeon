@@ -16,6 +16,11 @@
     else if (type === 'activity') theme.activity(d);
     else if (type === 'activityEnd') theme.activityEnd(d);
     else if (type === 'taskActivity') theme.taskActivity(d);
+    else if (type === 'waiting' || type === 'waitingEnd' || type === 'reset') {
+      theme.setWaiting(store.waiting());
+      renderWaiting();
+    }
+    else if (type === 'turnEnd') theme.turnEnd(d);
     else if (type === 'heard') { theme.heard(); if (!simOn) { everHeard = true; hint(false); } }
     if (type !== 'activity' && type !== 'activityEnd' && type !== 'heard' && type !== 'taskActivity') renderTasks();
   });
@@ -25,6 +30,25 @@
   const STATUS = { running: '进行中', done: '完成', failed: '出错' };
   const seen = new Set();
   const fmt = ms => (ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} 秒` : `${Math.floor(ms / 60000)} 分 ${Math.round((ms % 60000) / 1000)} 秒`);
+  function renderWaiting() {
+    const box = $('#waiting');
+    const items = store.waiting();
+    box.replaceChildren();
+    box.hidden = !items.length;
+    for (const item of items) {
+      const row = document.createElement('p');
+      const title = document.createElement('b');
+      title.textContent = 'Claude 在等你';
+      const fallback = { permission: '等你批准', question: '有问题问你', idle: '轮到你了', other: '等你回复' }[item.kind];
+      const project = item.cwd.split(/[\\/]/).filter(Boolean).pop() || '未知项目';
+      // Claude Code 的提示是英文固定句，常见的翻成中文
+      const tool = /^Claude needs your permission to use (.+)$/.exec(item.message || '');
+      const text = item.kind === 'idle' ? fallback : tool ? `要用 ${tool[1]}` : M.oneLine(item.message, 64) || fallback;
+      row.append(title, ` · ${text} · ${project}`);
+      row.title = item.message || fallback;
+      box.appendChild(row);
+    }
+  }
   function renderTasks() {
     const list = store.list().slice().reverse();
     const n = { running: 0, done: 0, failed: 0 };
@@ -55,6 +79,7 @@
     }
   }
   setInterval(() => { if (store.running().length) renderTasks(); }, 1000);
+  setInterval(() => { theme.setWaiting(store.waiting()); renderWaiting(); }, 60000); // 过期的等待项按时消失
 
   /* ---------- 连接和模拟 ---------- */
   function setMode(m) {

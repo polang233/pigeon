@@ -58,19 +58,43 @@
       this.order = [];
       this.listeners = new Set();
       this.sessions = new Map();
+      this.waitingSessions = new Map();
     }
     on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
     emit(type, data) { for (const fn of this.listeners) fn(type, data); }
-    reset() { this.tasks.clear(); this.order = []; this.sessions.clear(); this.emit('reset'); }
+    reset() { this.tasks.clear(); this.order = []; this.sessions.clear(); this.waitingSessions.clear(); this.emit('reset'); }
 
     list() { return this.order.map(id => this.tasks.get(id)); }
     running(kind) { return this.list().filter(t => t.status === 'running' && (!kind || t.kind === kind)); }
+    // 6 小时还没解除的多半是会话被直接关掉了，和 Mac 应用的规则一致
+    waiting() { const now = Date.now(); return Array.from(this.waitingSessions.values()).filter(w => now - w.since < 6 * 3600e3); }
 
     ingest(p, ts = Date.now()) {
       if (!p || typeof p !== 'object') return;
       const ev = p.hook_event_name;
-      if (p.session_id) this.sessions.set(p.session_id, { cwd: p.cwd, last: ts });
+      const session = p.session_id || '';
+      const cwd = p.cwd || this.sessions.get(session)?.cwd || '';
+      if (session) this.sessions.set(session, { cwd, last: ts });
       this.emit('heard', { ts });
+
+      // 等用户与任务执行分开记录，Stop 只代表一轮结束。
+      if (ev === 'Notification') {
+        const type = p.notification_type || '';
+        const kind = type === 'permission_prompt' ? 'permission'
+          : type === 'idle_prompt' ? 'idle'
+          : type === 'elicitation_dialog' ? 'question' : !type ? 'other' : null;
+        // 登录成功、问询结束之类不是在等你；问询结束要把对应的等待清掉
+        if (!kind) { if (type.startsWith('elicitation_')) this.clearWaiting(session); return; }
+        const item = { session, cwd, message: p.message || '', kind, since: ts };
+        this.waitingSessions.set(session, item);
+        this.emit('waiting', item);
+        return;
+      }
+      // 子代理里的工具调用也带同一个 session_id，不能拿来判断主对话已经不等你了
+      if (ev === 'UserPromptSubmit' || ev === 'Stop' || (/^(PreToolUse|PostToolUse|PostToolUseFailure)$/.test(ev) && !p.agent_id)) {
+        this.clearWaiting(session);
+      }
+      if (ev === 'Stop') { this.emit('turnEnd', { session, cwd, ts }); return; }
 
       if (ev === 'MeerkatCodex') return this.codexEvent(p, ts);
       if (ev === 'SubagentStop') {
@@ -79,7 +103,7 @@
         if (t) this.finish(t, { status: 'done', summary: t.summary || '子代理已结束' }, ts);
         return;
       }
-      if (ev !== 'PreToolUse' && ev !== 'PostToolUse') return;
+      if (ev !== 'PreToolUse' && ev !== 'PostToolUse' && ev !== 'PostToolUseFailure') return;
 
       const id = p.tool_use_id || `${p.session_id}:${p.tool_name}:${ts}`;
       const name = p.tool_name;
@@ -97,9 +121,14 @@
         this.emit('activity', { agent: owner ? owner.id : 'claude', activity: activityOf(p), tool: name, id });
         return;
       }
-      // PostToolUse
+      // PostToolUse / PostToolUseFailure（工具失败走单独的事件，原因在 error 里）
       const t = this.tasks.get(id);
       const resp = p.tool_response;
+      if (ev === 'PostToolUseFailure') {
+        if (t) this.finish(t, { status: 'failed', summary: oneLine(textOf(p.error), 90) || '出错了' }, ts);
+        else if (!kind) this.emit('activityEnd', { id });
+        return;
+      }
       if (t && t.kind === 'subagent' && resp && (resp.isAsync || resp.status === 'async_launched')) {
         t.agentId = resp.agentId || null; // 后台子代理：等 SubagentStop 再收尾
         return;
@@ -111,6 +140,11 @@
       } else if (!kind) {
         this.emit('activityEnd', { id });
       }
+    }
+
+    clearWaiting(session) {
+      const item = this.waitingSessions.get(session);
+      if (item) { this.waitingSessions.delete(session); this.emit('waitingEnd', item); }
     }
 
     ownerOf(p) {

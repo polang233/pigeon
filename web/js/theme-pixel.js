@@ -22,6 +22,7 @@
     ping: ['#d9b382'],
   };
   const ACT_LABEL = { code: '写代码', read: '读文件', search: '搜索', image: '生图', look: '看图', tool: '调用工具', run: '跑命令', think: '思考', wait: '等你批准' };
+  const WAIT_LABEL = { permission: '等你批准', question: '有问题问你', idle: '轮到你了', other: '等你回复' };
   const ACCENT = { claude: '#e8784d', codex: '#7ff0c8', cursor: '#a3adbd', sub: '#ffcf6b' };
 
   const ease = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
@@ -53,6 +54,7 @@
       this.rings = [];
       this.markers = [];
       this.meerkat = { look: 0, lookUntil: 0, alert: false, blinkAt: this.now + 3000, shout: 0 };
+      this.waitingItems = [];
       this.typeQueue = Promise.resolve();
 
       this.labels = {};
@@ -91,6 +93,7 @@
     refreshLabels() {
       const st = (id) => {
         const a = this.agents[id];
+        if (id === 'claude' && this.waitingItems.length) return [WAIT_LABEL[this.waitingItems[this.waitingItems.length - 1].kind], 'busy'];
         if (!a.status.installed) return ['未安装', 'off'];
         if (a.badge && a.badge.until > this.now) return a.badge.ok ? ['完成', 'ok'] : ['出错', 'bad'];
         if (id === 'claude' && this.now < a.typingUntil) return ['派活中', 'busy'];
@@ -119,16 +122,18 @@
       return e;
     }
     async typeBubble(text) {
+      if (this.waitingItems.length) return;
       const b = this.bubble;
       b.textContent = '';
       b.classList.add('on');
       const chars = [...text];
       const step = reduced ? 0 : Math.max(28, Math.min(70, 700 / chars.length));
-      for (const ch of chars) { b.textContent += ch; if (step) await sleep(step); }
+      for (const ch of chars) { if (this.waitingItems.length) break; b.textContent += ch; if (step) await sleep(step); }
       await sleep(reduced ? 200 : 260);
       b.classList.remove('on');
     }
     say(text, ms = 2600) {
+      if (this.waitingItems.length) return; // 喊人的气泡持续保留，直到会话恢复。
       const b = this.mkBubble;
       b.textContent = text;
       b.classList.add('on');
@@ -203,6 +208,26 @@
       this.refreshLabels();
     }
     heard() { this.agents.claude.status = { ...this.agents.claude.status, installed: true, running: true }; }
+
+    setWaiting(items) {
+      const wasWaiting = this.waitingItems.length > 0;
+      this.waitingItems = items;
+      if (items.length) {
+        clearTimeout(this.sayT);
+        this.mkBubble.textContent = WAIT_LABEL[items[items.length - 1].kind];
+        this.mkBubble.classList.add('on');
+        this.bubble.classList.remove('on');
+      } else if (wasWaiting) {
+        this.mkBubble.classList.remove('on');
+      }
+      this.refreshLabels();
+    }
+    turnEnd() {
+      this.agents.claude.actUntil = 0;
+      this.agents.claude.typingUntil = 0;
+      this.meerkat.badge = { ok: true, until: this.now + 1400 };
+      this.refreshLabels();
+    }
 
     taskStart(t) {
       const v = { t, arrived: false, pendingEnd: false, slot: -1 };
@@ -386,16 +411,17 @@
 
     drawClaude(c) {
       const a = this.agents.claude, p = AGENT_POS.claude;
-      const sleepy = !a.status.running;
-      const typing = this.now < a.typingUntil || (a.act && this.now < a.actUntil);
+      const waiting = this.waitingItems.length > 0;
+      const sleepy = !a.status.running && !waiting;
+      const typing = !waiting && (this.now < a.typingUntil || (a.act && this.now < a.actUntil));
       const pop = this.now - a.recvAt < 220 ? -2 : 0;
-      const bob = !typing && !sleepy && this.f(900) % 2 ? 1 : 0;
+      const bob = !waiting && !typing && !sleepy && this.f(900) % 2 ? 1 : 0;
       const x = p.sx + this.shakeX(a), y = p.sy + bob + pop;
       draw(c, SP.claude, x, y, { grey: sleepy, scale: S });
       if (!sleepy && this.f(80) % 45 === 0) { c.fillStyle = '#e8784d'; c.fillRect(x + 5 * S, y + 2 * S, S, 2 * S); c.fillRect(x + 10 * S, y + 2 * S, S, 2 * S); }
       c.fillStyle = sleepy ? M.greyOf('#e8784d') : '#e8784d';
       const f = this.f(110) % 2;
-      const ly = typing ? (f ? 2 : 3) : 3, ry = typing ? (f ? 3 : 2) : 3;
+      const ly = typing ? (f ? 2 : 3) : 3, ry = waiting ? (reduced || this.f(600) % 2 ? -1 : 0) : typing ? (f ? 3 : 2) : 3;
       c.fillRect(x, y + ly * S, 2 * S, 2 * S);
       c.fillRect(x + 14 * S, y + ry * S, 2 * S, 2 * S);
       if (sleepy) this.drawZ(c, x + 30, y - 4);
@@ -403,7 +429,7 @@
     }
     drawClaudeScreen(c) {
       const a = this.agents.claude;
-      const busy = this.now < a.typingUntil || (a.act && this.now < a.actUntil);
+      const busy = !this.waitingItems.length && (this.now < a.typingUntil || (a.act && this.now < a.actUntil));
       if (!busy) { if (a.status.running) { c.fillStyle = '#2a4a58'; c.fillRect(86, 90, 3, 1); } return; }
       const f = this.f(90);
       c.fillStyle = '#7ff0c8';
@@ -486,7 +512,7 @@
     }
     drawBadge(c, b, x, y) {
       if (!b || b.until < this.now) return;
-      const pop = b.until - this.now > 1100 ? -1 : 0;
+      const pop = !reduced && b.until - this.now > 1100 ? -1 : 0;
       c.fillStyle = '#0e151d'; c.fillRect(x - 1, y - 1 + pop, 11, 10);
       c.fillStyle = b.ok ? '#7ff0c8' : '#ff6b5a';
       c.fillRect(x, y + pop, 9, 8);
@@ -498,6 +524,7 @@
 
     drawMeerkat(c) {
       const mk = this.meerkat;
+      const waiting = this.waitingItems.length > 0;
       let look = mk.look;
       const live = this.packets.filter(p => p.n > 1);
       if (live.length) {
@@ -510,7 +537,8 @@
         look = mk.look;
       }
       if (mk.alert) look = [-1, 0, 1, 0][this.f(260) % 4];
-      const up = mk.alert ? 2 : 0; // 站高几格
+      if (waiting) look = 0;
+      const up = waiting ? 1 : mk.alert ? 2 : 0; // 站高几格，等用户时持续朝外看。
       const x = MEERKAT.x, y = MEERKAT.y;
       const g = SP.meerkat;
       draw(c, g.slice(7), x, y + 7 * S, { scale: S });
@@ -527,10 +555,19 @@
         c.fillStyle = '#fff5d6';
         c.fillRect(x + ex[0] * S, hy + 3 * S + 1, 1, 1); c.fillRect(x + ex[1] * S, hy + 3 * S + 1, 1, 1);
       }
-      if (mk.shout > this.now) {
+      if (waiting) {
+        // 举着像素小牌子；减少动态效果时固定不动。
+        const sx = x + 26, sy = hy + (reduced ? 0 : this.f(800) % 2);
+        c.fillStyle = '#a8724e'; c.fillRect(sx + 4, sy + 10, 2, 10);
+        c.fillStyle = '#14202b'; c.fillRect(sx - 1, sy - 1, 12, 14);
+        c.fillStyle = '#ffcf6b'; c.fillRect(sx, sy, 10, 12);
+        c.fillStyle = '#302c22'; c.fillRect(sx + 4, sy + 2, 2, 5); c.fillRect(sx + 4, sy + 9, 2, 2);
+        c.fillStyle = '#b98652'; c.fillRect(sx, sy + 15, 5, 3);
+      } else if (mk.shout > this.now) {
         const yy = hy - 12 + (this.f(120) % 2);
         c.fillStyle = '#ff6b5a'; c.fillRect(x + 11, yy, 2, 6); c.fillRect(x + 11, yy + 8, 2, 2);
       }
+      this.drawBadge(c, mk.badge, x - 10, hy + 2);
     }
 
     drawPackets(c) {
@@ -600,7 +637,7 @@
 
     drawCards(c) {
       const a = this.agents;
-      if (a.claude.act && this.now < a.claude.actUntil) this.card(c, a.claude.act, 86, 66, ACCENT.claude);
+      if (!this.waitingItems.length && a.claude.act && this.now < a.claude.actUntil) this.card(c, a.claude.act, 86, 66, ACCENT.claude);
       if (a.codex.pile) {
         let act = a.codex.act;
         if (act === 'image' && !a.codex.realAct) act = ['image', 'image', 'look', 'tool'][this.f(1100) % 4]; // 没有真实动作时按内容猜
