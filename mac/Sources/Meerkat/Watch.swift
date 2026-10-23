@@ -12,6 +12,7 @@ struct Watch {
         var since: Date
     }
     struct Waiting: Sendable {
+        var title: String
         var session: String
         var folder: String
         var message: String
@@ -46,6 +47,10 @@ struct Watch {
         let event = p["hook_event_name"] as? String ?? ""
         let session = p["session_id"] as? String ?? ""
         let folder = Self.folder(p["cwd"] as? String)
+        if (p["source"] as? String) == "codex" {
+            let alert = codex(p, event: event, session: session, folder: folder, notify: notify, now: now)
+            return watching ? nil : alert
+        }
         // 子代理里的工具调用也带同一个 session_id，不能拿来判断主对话已经不等你了
         let fromMain = p["agent_id"] == nil
         dropStale(now)
@@ -64,7 +69,7 @@ struct Watch {
                 if (p["notification_type"] as? String)?.hasPrefix("elicitation_") == true { waiting[session] = nil }
                 return nil
             }
-            waiting[session] = Waiting(session: session, folder: folder, message: message, kind: kind, since: now)
+            waiting[session] = Waiting(title: Self.waitTitle(kind), session: session, folder: folder, message: message, kind: kind, since: now)
             // 刚提醒过"说完了"，紧跟着的空闲提醒就不再重复
             if kind == .idle, lastTurnAlert[session] != nil { return nil }
             alert = notify.waiting ? Alert(title: Self.waitTitle(kind), body: Self.join(folder, Self.waitBody(kind, message))) : nil
@@ -122,6 +127,39 @@ struct Watch {
             alert = nil
         }
         return watching ? nil : alert
+    }
+
+    /// Codex 自己的 hook 事件（Meerkat 装在 ~/.codex/hooks.json 里的）。
+    /// 包装层派的任务带 meerkat_task_id，开始和结束已经由包装层报过，这里只管"等你批准"。
+    /// 用户自己在 Codex 里聊的，每一轮算一件 Codex 的活。
+    private mutating func codex(_ p: [String: Any], event: String, session: String, folder: String,
+                                notify: NotifyPrefs, now: Date) -> Alert? {
+        let key = "codex:" + session
+        let viaWrapper = !((p["meerkat_task_id"] as? String) ?? "").isEmpty
+        switch event {
+        case "UserPromptSubmit":
+            waiting[key] = nil
+            guard !viaWrapper else { return nil }
+            let prompt = (p["prompt"] as? String ?? "").split(separator: "\n").first.map(String.init) ?? ""
+            let title = prompt.isEmpty ? "Codex 对话" : String(prompt.prefix(24))
+            running[key] = Running(id: key, title: title, kind: .codex, session: session, since: now)
+        case "PermissionRequest":
+            let tool = p["tool_name"] as? String ?? ""
+            let message = tool.isEmpty ? "Codex 等你批准" : "Codex 要用 \(tool)"
+            waiting[key] = Waiting(title: "Codex 等你批准", session: key, folder: folder, message: message, kind: .permission, since: now)
+            return notify.waiting ? Alert(title: "Codex 等你批准", body: Self.join(folder, message)) : nil
+        case "PreToolUse", "PostToolUse":
+            waiting[key] = nil
+        case "Stop":
+            waiting[key] = nil
+            guard let task = running.removeValue(forKey: key) else { return nil }
+            // 自己在 Codex 里聊的短回合很多，只有较长的一轮才提醒
+            guard now.timeIntervalSince(task.since) >= Double(notify.turnMinSec) else { return nil }
+            return finished(task, ok: true, folder: folder, notify: notify)
+        default:
+            break
+        }
+        return nil
     }
 
     /// 定时调用：会话直接关掉后不会再有事件，靠这里把过期状态清掉。返回状态是否变了。

@@ -20,6 +20,10 @@ final class Hub: @unchecked Sendable {
     private var watch = Watch()
     private var notify = NotifyPrefs.load()
     private var watching = false
+    private let usage = Usage()
+    private var lastUsage: Usage.Summary?
+    private var usagePending = false
+    private var lastCodexHookAt: Date?
 
     /// 任务和等待状态变了、或者需要发通知时调用（在 queue 上）。
     var onWatch: (@Sendable (Watch.Snapshot, Watch.Alert?) -> Void)?
@@ -95,6 +99,11 @@ final class Hub: @unchecked Sendable {
             guard let self, self.watch.expire() else { return }
             self.onWatch?(self.watch.snapshot, nil)
         }
+        let save = DispatchSource.makeTimerSource(queue: usage.queue)
+        save.schedule(deadline: .now() + 30, repeating: 30)
+        save.setEventHandler { [weak self] in self?.usage.saveIfNeeded() }
+        save.resume()
+        timers.append(save)
         heartbeat.resume()
         detect.resume()
         expire.resume()
@@ -124,6 +133,8 @@ final class Hub: @unchecked Sendable {
             ], keepAlive: keepAlive)
         case ("POST", "/ev"):
             handleHook(req, conn: conn, keepAlive: keepAlive)
+        case ("POST", "/ev/codex"):
+            handleHook(req, conn: conn, keepAlive: keepAlive, codexTask: req.header("x-meerkat-task") ?? "")
         case (_, "/ev"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/events"):
@@ -148,6 +159,20 @@ final class Hub: @unchecked Sendable {
         case ("GET", "/api/codex/models"):
             respondJSON(conn, (try? encoder.encode(Settings.codexModels())) ?? Data("[]".utf8), keepAlive: keepAlive)
         case (_, "/api/codex/models"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/codex/hooks"):
+            respondJSON(conn, (try? encoder.encode(CodexHooks.status(lastEventAt: lastCodexHookAt))) ?? Data("{}".utf8), keepAlive: keepAlive)
+        case ("POST", "/api/codex/hooks"):
+            handleCodexHooks(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/codex/hooks"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/usage"):
+            usage.queue.async { [weak self] in
+                guard let self else { return }
+                let body = (try? self.encoder.encode(self.usage.summary())) ?? Data("{}".utf8)
+                self.queue.async { self.respondJSON(conn, body, keepAlive: keepAlive) }
+            }
+        case (_, "/api/usage"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", _), ("HEAD", _):
             if path.hasPrefix("/api/") {
@@ -194,8 +219,16 @@ final class Hub: @unchecked Sendable {
 
     // MARK: hook
 
-    private func handleHook(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
-        let body = req.body
+    /// `codexTask` 不为 nil 表示这是 Codex 自己的 hook（/ev/codex）：给原文加上 source 和包装层任务 id 再广播。
+    private func handleHook(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool, codexTask: String? = nil) {
+        var raw = req.body
+        if let codexTask, var obj = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] {
+            obj["source"] = "codex"
+            obj["meerkat_task_id"] = codexTask
+            raw = (try? JSONSerialization.data(withJSONObject: obj)) ?? raw
+        }
+        let body = raw
+        if codexTask != nil { queue.async { [weak self] in self?.lastCodexHookAt = Date() } }
         guard (try? JSONSerialization.jsonObject(with: body)) is [String: Any] else {
             conn.respond(status: 400, headers: Self.cors, body: Data("body must be a JSON object".utf8),
                          contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
@@ -209,6 +242,7 @@ final class Hub: @unchecked Sendable {
             if let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] {
                 let alert = self.watch.ingest(payload, notify: self.notify, watching: self.watching)
                 self.onWatch?(self.watch.snapshot, alert)
+                self.trackUsage(body)
             }
             if self.lastAgents?.claude.running != true {
                 self.runDetection(forceBroadcast: false)
@@ -229,6 +263,69 @@ final class Hub: @unchecked Sendable {
         msg.append(json)
         msg.append(Data("}".utf8))
         return msg
+    }
+
+    // MARK: 用量
+
+    /// 从 hook 原文里找对话记录文件，交给 Usage 在自己的队列上读；有变化时（最多每 2 秒一次）广播摘要。
+    private func trackUsage(_ body: Data) {
+        usage.queue.async { [weak self] in
+            guard let self, let p = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return }
+            let event = p["hook_event_name"] as? String ?? ""
+            let fromCodex = (p["source"] as? String) == "codex"
+            let force = event == "Stop" || event == "SubagentStop"
+            var changed = false
+            if event == "MeerkatCodex", p["phase"] as? String == "end" {
+                // 包装层任务：优先读它的会话记录（和 Codex hook 读到的是同一份，不会重复计）；临时任务没有记录，用它报的总量
+                if let thread = p["thread_id"] as? String, let path = Usage.codexRollout(thread: thread) {
+                    changed = self.usage.scan(path: path, agent: "codex", kind: .codex, force: true)
+                } else if let u = p["usage"] as? [String: Any] {
+                    self.usage.add(agent: "codex", usage: u, model: p["model"] as? String)
+                    changed = true
+                }
+            } else if let path = p["transcript_path"] as? String, !path.isEmpty {
+                // 子代理的工具调用也带主对话的 transcript_path，算在 Claude 头上
+                changed = self.usage.scan(path: path, agent: fromCodex ? "codex" : "claude", kind: fromCodex ? .codex : .claude, force: force)
+            }
+            if event == "SubagentStop", let path = p["agent_transcript_path"] as? String {
+                changed = self.usage.scan(path: path, agent: "subagent", kind: .claude, force: true) || changed
+            }
+            if changed { self.queue.async { self.scheduleUsageBroadcast() } }
+        }
+    }
+
+    private func scheduleUsageBroadcast() {
+        guard !usagePending else { return }
+        usagePending = true
+        queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self else { return }
+            self.usagePending = false
+            self.usage.queue.async {
+                let summary = self.usage.summary()
+                self.queue.async {
+                    guard summary != self.lastUsage else { return }
+                    self.lastUsage = summary
+                    if let json = try? self.encoder.encode(summary) {
+                        self.broadcast(Self.envelope(type: "usage", key: "usage", json: json))
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Codex hook 安装
+
+    private func handleCodexHooks(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
+        let enable = ((try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any])?["enable"] as? Bool ?? true
+        do {
+            if enable { try CodexHooks.install() } else { try CodexHooks.uninstall() }
+        } catch {
+            let message = switch error { case let .io(m): m }
+            conn.respond(status: 500, headers: Self.cors, body: Data(message.utf8),
+                         contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+            return
+        }
+        respondJSON(conn, (try? encoder.encode(CodexHooks.status(lastEventAt: lastCodexHookAt))) ?? Data("{}".utf8), keepAlive: keepAlive)
     }
 
     // MARK: SSE

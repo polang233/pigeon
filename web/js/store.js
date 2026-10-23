@@ -1,4 +1,4 @@
-// 把 Claude Code 的 hook 事件整理成任务和动作，再通知主题去播放。
+// 把各个 agent 的 hook 事件整理成任务和动作，再通知主题去播放。
 (function () {
   const M = (window.Meerkat = window.Meerkat || {});
 
@@ -14,6 +14,10 @@
     if (/^(Grep|Glob|LS)$/.test(n)) return 'search';
     if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)) return 'code';
     if (n === 'Bash') return 'run';
+    if (/exec_command|shell|terminal/i.test(n)) return 'run';
+    if (/apply_patch|edit_file|write_file/i.test(n)) return 'code';
+    if (/read_file|view_image/i.test(n)) return /image/i.test(n) ? 'look' : 'read';
+    if (/search|grep|glob|list_dir/i.test(n)) return 'search';
     if (/^Web(Search|Fetch)$/.test(n)) return 'search';
     if (/Todo|plan/i.test(n)) return 'think';
     if (/image|imagegen|draw|paint/i.test(n)) return 'image';
@@ -45,6 +49,17 @@
     const t = String(s || '').replace(/\s+/g, ' ').trim();
     return t.length > n ? t.slice(0, n - 1) + '…' : t;
   };
+  // 命令只显示实际内容，不把启动 shell 的外壳带到任务旁边。
+  function detailOf(p) {
+    const inp = p.tool_input || {};
+    let command = inp.command || inp.cmd || '';
+    if (Array.isArray(command)) {
+      command = /(?:^|\/)zsh$/.test(command[0]) && command[1] === '-lc' ? command.slice(2).join(' ') : command.join(' ');
+    }
+    command = String(command).replace(/^\s*(?:\/bin\/)?zsh\s+-lc\s+/, '');
+    if (/^(['"])[\s\S]*\1$/.test(command)) command = command.slice(1, -1);
+    return oneLine(command || inp.file_path || inp.path || textOf(inp), 90);
+  }
   function failed(resp) {
     if (!resp) return false;
     if (resp.is_error || resp.isError || resp.error) return true;
@@ -66,11 +81,18 @@
 
     list() { return this.order.map(id => this.tasks.get(id)); }
     running(kind) { return this.list().filter(t => t.status === 'running' && (!kind || t.kind === kind)); }
+    byAgent() {
+      const groups = { claude: [], codex: [], subagent: [] };
+      for (const t of this.list()) if (groups[t.kind]) groups[t.kind].push(t);
+      return groups;
+    }
     // 6 小时还没解除的多半是会话被直接关掉了，和 Mac 应用的规则一致
     waiting() { const now = Date.now(); return Array.from(this.waitingSessions.values()).filter(w => now - w.since < 6 * 3600e3); }
 
     ingest(p, ts = Date.now()) {
       if (!p || typeof p !== 'object') return;
+      // Codex 自己的事件完全独立，不能解除 Claude 的等待或播放 Claude 的动作。
+      if (p.source === 'codex') { this.emit('heard', { ts }); return this.codexHook(p, ts); }
       const ev = p.hook_event_name;
       const session = p.session_id || '';
       const cwd = p.cwd || this.sessions.get(session)?.cwd || '';
@@ -85,7 +107,7 @@
           : type === 'elicitation_dialog' ? 'question' : !type ? 'other' : null;
         // 登录成功、问询结束之类不是在等你；问询结束要把对应的等待清掉
         if (!kind) { if (type.startsWith('elicitation_')) this.clearWaiting(session); return; }
-        const item = { session, cwd, message: p.message || '', kind, since: ts };
+        const item = { session, cwd, agent: 'claude', message: p.message || '', kind, since: ts };
         this.waitingSessions.set(session, item);
         this.emit('waiting', item);
         return;
@@ -153,13 +175,48 @@
       return p.agent_type ? subs.find(x => x.subagentType === p.agent_type) || null : null;
     }
 
+    // Codex 应用的一轮对话是一个任务；包装层派出的任务沿用原来的 id。
+    codexHook(p, ts) {
+      const ev = p.hook_event_name;
+      const session = p.session_id || '';
+      const key = `codex:${session}`;
+      const cwd = p.cwd || this.sessions.get(key)?.cwd || '';
+      this.sessions.set(key, { cwd, last: ts });
+      if (/^(PreToolUse|PostToolUse|Stop)$/.test(ev)) this.clearWaiting(key);
+      if (ev === 'PermissionRequest') {
+        const item = { session, cwd, agent: 'codex', message: `Codex 要用 ${p.tool_name || '工具'}`, kind: 'permission', since: ts };
+        this.waitingSessions.set(key, item);
+        this.emit('waiting', item);
+        return;
+      }
+      const wrapped = p.meerkat_task_id && this.tasks.get(p.meerkat_task_id);
+      let t = wrapped && wrapped.kind === 'codex' ? wrapped : this.running('codex').slice().reverse().find(x =>
+        x.via === 'codex-app' && x.session === session && (!p.turn_id || x.turnId === p.turn_id));
+      if (ev === 'UserPromptSubmit' && !wrapped) {
+        const id = `codex:${session}:${p.turn_id || ts}`;
+        this.start(id, 'codex', { session_id: session, cwd, tool_input: { prompt: p.prompt || '' } }, ts, {
+          via: 'codex-app', turnId: p.turn_id || '', model: p.model || '',
+          title: oneLine(String(p.prompt || '').split('\n')[0], 22) || 'Codex 对话',
+        });
+        return;
+      }
+      if (!t || t.status !== 'running') return;
+      if (p.model) t.model = p.model;
+      if (ev === 'PreToolUse' || ev === 'PostToolUse') {
+        t.activity = activityOf(p); t.realActivity = true; t.detail = detailOf(p);
+        this.emit('taskActivity', t);
+      } else if (ev === 'Stop' && t.via === 'codex-app') {
+        this.finish(t, { status: 'done', summary: oneLine(textOf(p.last_assistant_message), 120) || '完成' }, ts);
+      }
+    }
+
     // 包装层 meerkat-codex 上报的 Codex 真实执行过程
     codexEvent(p, ts) {
       const id = p.task_id;
       if (!id) return;
       if (p.phase === 'start') {
         return this.start(id, 'codex', { session_id: p.session_id, cwd: p.cwd, tool_input: { prompt: p.prompt } }, ts, {
-          title: p.title || 'Codex 任务', via: 'meerkat-codex', codexKind: p.kind,
+          title: p.title || 'Codex 任务', via: 'meerkat-codex', codexKind: p.kind, model: p.model || '',
           activity: p.kind === 'image' ? 'image' : p.kind === 'review' ? 'read' : 'think',
         });
       }
@@ -182,6 +239,7 @@
         : (oneLine(String(prompt).split('\n')[0].replace(/^codex\s+(exec\s+)?/, ''), 22) || 'Codex 任务');
       const t = {
         id, kind, session: p.session_id, cwd: p.cwd,
+        model: inp.model || '',
         subagentType: kind === 'subagent' ? (inp.subagent_type || 'general-purpose') : null,
         title, prompt: oneLine(prompt, 120), status: 'running', startedAt: ts, endedAt: null, summary: '',
         activity: guessFromText(`${title} ${prompt}`),

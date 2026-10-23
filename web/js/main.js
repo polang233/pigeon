@@ -3,8 +3,51 @@
   const $ = s => document.querySelector(s);
 
   const store = new M.Store();
-  const theme = new M.PixelStudio($('#stage'));
   const sim = new M.Simulator(store);
+
+  /* ---------- 主题 ---------- */
+  // 场景设置（工位数、谁坐哪）：连上应用时存在 settings.json；没连上时只记在本机浏览器里
+  let scene = null;
+  let lastAgents = null;
+  const localScene = () => { try { return JSON.parse(localStorage.getItem('meerkat-scene') || 'null'); } catch (e) { return null; } };
+  const keepLocal = patch => { try { localStorage.setItem('meerkat-scene', JSON.stringify({ ...(scene || {}), ...patch })); } catch (e) {} };
+  // 模拟演示里的换位不保存，免得带进真实画面
+  function saveScene(patch) {
+    scene = { ...(scene || {}), ...patch };
+    if (simOn && mode === 'live') return;
+    keepLocal(patch);
+    if (mode === 'live') M.settings.saveScene(patch).catch(() => {});
+  }
+  const THEMES = {
+    studio: root => new M.Studio(root, { onLayout: layout => saveScene({ layout }) }),
+    'pixel-studio': root => new M.PixelStudio(root),
+  };
+  let themeId = 'studio';
+  try { const t = localStorage.getItem('meerkat-theme'); if (THEMES[t]) themeId = t; } catch (e) {}
+  let theme = makeTheme(themeId);
+  function makeTheme(id) {
+    const root = $('#stage');
+    root.className = 'stage';
+    const t = THEMES[id](root);
+    $('#seat-switch').hidden = !t.setScene;
+    return t;
+  }
+  // 换主题后把当前状态补给新主题
+  function switchTheme(id) {
+    theme.destroy?.();
+    themeId = id;
+    theme = makeTheme(id);
+    if (lastAgents) theme.setAgents(lastAgents);
+    theme.setWaiting(store.waiting());
+    theme.setUsage?.(M.Usage?.get());
+    applyScene(scene || localScene() || {});
+  }
+  function applyScene(s) {
+    scene = { ...s };
+    theme.setScene?.(scene);
+    const n = String(scene.seats || 3);
+    document.querySelectorAll('#seat-switch button').forEach(b => b.setAttribute('aria-pressed', b.dataset.seats === n));
+  }
   let mode = 'connecting';
   let simOn = false;
   let everHeard = false;
@@ -64,7 +107,7 @@
       li.className = `task ${t.kind} ${t.status}${seen.has(t.id) ? '' : ' fresh'}`;
       seen.add(t.id);
       const dur = fmt((t.endedAt || Date.now()) - t.startedAt);
-      const who = t.kind === 'subagent' ? `子代理 · ${t.subagentType}` : 'Codex';
+      const who = (t.kind === 'subagent' ? `子代理 · ${t.subagentType}` : t.via === 'codex-app' ? 'Codex 应用' : 'Codex') + (t.model ? ` · ${t.model}` : '');
       li.innerHTML = `<i class="dot" aria-hidden="true"></i><div class="body"><div class="row"><b></b><em></em></div><div class="meta"></div><p></p><div class="links"></div></div>`;
       li.querySelector('b').textContent = t.title;
       li.querySelector('em').textContent = STATUS[t.status];
@@ -92,7 +135,7 @@
     simOn = on;
     $('#sim').setAttribute('aria-pressed', on);
     store.reset();
-    if (on) { theme.setAgents(M.SIM_AGENTS); sim.start(); hint(false); }
+    if (on) { lastAgents = M.SIM_AGENTS; theme.setAgents(M.SIM_AGENTS); sim.start(); hint(false); }
     else { sim.stop(); if (mode === 'live') detect(); if (!everHeard) hint(true); }
     setMode(mode);
     renderTasks();
@@ -101,10 +144,16 @@
     if (!/^https?:$/.test(location.protocol)) { setMode('offline'); setSim(true); return; }
     let opened = false;
     const es = new EventSource('/events');
-    es.onopen = () => { opened = true; M.settings.setLive(true); setMode('live'); if (!everHeard && !simOn) hint(true); };
+    es.onopen = () => {
+      opened = true; M.settings.setLive(true); setMode('live');
+      if (!everHeard && !simOn) hint(true);
+      // 启动时读一次设置，场景按存下的布局摆
+      fetch('/api/settings').then(r => r.json()).then(s => M.settings.applyRemote(s)).catch(() => {});
+    };
     es.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch (err) { return; }
-      if (m.type === 'detect' && m.agents && !simOn) theme.setAgents(m.agents);
+      if (m.type === 'detect' && m.agents && !simOn) { lastAgents = m.agents; theme.setAgents(m.agents); }
+      if (m.type === 'usage') { M.Usage?.apply(m.usage); theme.setUsage?.(m.usage); }
       if (m.type === 'hook' && !simOn) store.ingest(m.payload, m.ts);
       if (m.type === 'settings') M.settings.applyRemote(m.settings);
     };
@@ -126,11 +175,21 @@
     } finally { btn.disabled = false; }
   }
 
+  M.settings.onScene = s => { if (!simOn) applyScene(s); };
+  M.Usage?.on?.(u => theme.setUsage?.(u));
+  $('#usage-open').onclick = () => M.Usage?.open();
+  document.querySelectorAll('#seat-switch button').forEach(b => {
+    b.onclick = () => { const seats = Number(b.dataset.seats); applyScene({ ...(scene || {}), seats }); saveScene({ seats }); };
+  });
   $('#sim').onclick = () => setSim(!simOn);
   $('#detect').onclick = detect;
   $('#hint-sim').onclick = () => setSim(true);
-  try { const t = localStorage.getItem('meerkat-theme'); if (t) $('#theme').value = t; } catch (e) {}
-  $('#theme').onchange = e => { try { localStorage.setItem('meerkat-theme', e.target.value); } catch (err) {} };
+  $('#theme').value = themeId;
+  $('#theme').onchange = e => {
+    try { localStorage.setItem('meerkat-theme', e.target.value); } catch (err) {}
+    switchTheme(e.target.value);
+  };
+  applyScene(localScene() || {});
 
   renderTasks();
   connect();

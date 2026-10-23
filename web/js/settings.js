@@ -6,16 +6,22 @@
   const DEFAULTS = {
     preferForImages: true, imageMode: 'builtin', imageModel: 'gpt-image-2', imageQuality: 'medium',
     imageAspect: 'square', imageTransparent: false, imageDir: 'assets/generated',
-    showInCodex: true, autoOpen: false, model: '', effort: '', sandbox: 'auto',
+    sessionMode: 'keep', autoOpen: false, routeAll: true, model: '', effort: '', sandbox: 'auto',
     timeoutMin: 10, maxConcurrent: 2, summaryChars: 300,
   };
   const NOTIFY_DEFAULTS = { done: true, failed: true, waiting: true, turnEnd: true, turnMinSec: 60 };
+  const SCENE_DEFAULTS = { seats: 3, showSubLabels: true, hoverCards: true };
   const notifyField = k => 'notify' + k[0].toUpperCase() + k.slice(1);
   const EFFORT = { none: '不推理', minimal: '极少', low: '低', medium: '中', high: '高', xhigh: '很高', max: '最高', ultra: '超高' };
 
   let all = { version: 1 };
   let models = [];
   let live = false;
+  let loaded = false;
+  let writes = Promise.resolve();
+  let hookInstalled = false;
+  let hookReady = false;
+  let hookBusy = false;
   const dlg = $('#settings'), form = $('#settings-form');
   const field = n => form.elements[n];
 
@@ -61,7 +67,29 @@
     }
     return n;
   }
-  function fillAll() { fill({ ...DEFAULTS, ...(all.codex || {}) }, { ...NOTIFY_DEFAULTS, ...(all.notify || {}) }); }
+  function codexOf(c = {}) {
+    // 老版本只存了 showInCodex，换算成对话记录模式
+    const out = { ...DEFAULTS, ...c };
+    if (!c.sessionMode && c.showInCodex === false) out.sessionMode = 'temp';
+    return out;
+  }
+  function scene() {
+    const s = { ...SCENE_DEFAULTS, ...(all.scene || {}) };
+    s.seats = [2, 3, 4].includes(Number(s.seats)) ? Number(s.seats) : 3;
+    return s;
+  }
+  function sceneChanged() { M.settings.onScene?.(scene()); }
+  function fillAll() {
+    fill(codexOf(all.codex), { ...NOTIFY_DEFAULTS, ...(all.notify || {}) });
+    const s = scene();
+    field('sceneSeats').value = String(s.seats);
+    field('sceneShowSubLabels').checked = s.showSubLabels;
+    field('sceneHoverCards').checked = s.hoverCards;
+  }
+  function readScene() {
+    return { ...scene(), seats: Number(field('sceneSeats').value) || 3,
+      showSubLabels: field('sceneShowSubLabels').checked, hoverCards: field('sceneHoverCards').checked };
+  }
   function fillModels() {
     const sel = field('model');
     const cur = sel.value;
@@ -78,44 +106,113 @@
   function sync() {
     const api = field('imageMode').value === 'api';
     form.querySelectorAll('.api-only').forEach(el => { el.hidden = !api; });
-    field('autoOpen').disabled = !field('showInCodex').checked;
+    field('autoOpen').disabled = field('sessionMode').value === 'temp';
   }
   function state(text, tone = '') { const s = $('#save-state'); s.textContent = text; s.dataset.tone = tone; }
+  async function json(url, options) {
+    const r = await fetch(url, options);
+    if (!r.ok) throw new Error(await r.text() || `HTTP ${r.status}`);
+    return r.json();
+  }
+  function hookState(text, tone = '') {
+    const s = $('#codex-hooks-state'); s.textContent = text; s.dataset.tone = tone;
+    field('codexHooks').disabled = !live || !hookReady || hookBusy;
+  }
+  function applyHooks(s) {
+    hookInstalled = !!s.installed; hookReady = true;
+    field('codexHooks').checked = hookInstalled;
+    hookState(s.detail || (s.working ? '已收到 Codex 事件' : '还没收到 Codex 事件'));
+  }
+  async function loadHooks() {
+    if (hookBusy) return;
+    hookReady = false;
+    hookState(live ? '读取中…' : '没连上 Meerkat 应用');
+    if (!live) return;
+    try { applyHooks(await json('/api/codex/hooks')); }
+    catch (e) { hookState('读取失败：' + (e.message || e) + '，请重新打开设置重试', 'bad'); }
+  }
+  async function toggleHooks() {
+    const enable = field('codexHooks').checked;
+    if (!live || !hookReady || hookBusy) { field('codexHooks').checked = hookInstalled; return; }
+    hookBusy = true; hookState('更新中…');
+    try {
+      applyHooks(await json('/api/codex/hooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enable }) }));
+    } catch (e) {
+      field('codexHooks').checked = hookInstalled;
+      hookState('更新失败：' + (e.message || e) + '，请重试', 'bad');
+    } finally { hookBusy = false; field('codexHooks').disabled = !live || !hookReady; }
+  }
+
+  // 串行写完整设置，拖拽保存和面板保存不会互相覆盖。
+  function persist(update) {
+    const write = writes.catch(() => {}).then(async () => {
+      if (!live) throw new Error('没连上 Meerkat 应用');
+      if (!loaded) { all = await json('/api/settings'); loaded = true; }
+      all = await json('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(update(all)) });
+      loaded = true;
+      sceneChanged();
+      return scene();
+    });
+    writes = write;
+    return write;
+  }
 
   async function load() {
     if (!live) { fillAll(); state('没连上 Meerkat 应用，只能看，保存不了', 'warn'); return; }
     try {
-      const [s, m] = await Promise.all([fetch('/api/settings').then(r => r.json()), fetch('/api/codex/models').then(r => r.json()).catch(() => [])]);
+      const [s, m] = await Promise.all([json('/api/settings'), json('/api/codex/models').catch(() => [])]);
       all = s && typeof s === 'object' ? s : {};
+      loaded = true;
       models = Array.isArray(m) ? m : [];
       fillModels();
       fillAll();
+      sceneChanged();
       state('');
     } catch (e) { state('读取设置失败', 'bad'); }
   }
   async function save() {
     if (!live) return;
-    const next = { ...all, version: 1, codex: { ...(all.codex || {}), ...read() }, notify: { ...(all.notify || {}), ...readNotify() } };
+    const codex = read(), notify = readNotify(), s = readScene();
     state('保存中…');
     try {
-      const r = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) });
-      if (!r.ok) throw new Error(await r.text());
-      all = await r.json();
+      await persist(current => ({ ...current, version: 1,
+        codex: (({ showInCodex, ...rest }) => rest)({ ...(current.codex || {}), ...codex }),
+        notify: { ...(current.notify || {}), ...notify },
+        scene: { ...(current.scene || {}), ...s, ...(current.scene?.layout ? { layout: current.scene.layout } : {}) },
+      }));
       fillAll();
       state('设置已保存', 'ok');
     } catch (e) { state('保存失败：' + (e.message || e), 'bad'); }
   }
 
   form.addEventListener('change', e => {
+    if (e.target.name === 'codexHooks') { toggleHooks(); return; }
     if (e.target.name === 'model') fillEfforts(field('effort').value);
     sync();
     state('有改动，还没保存');
   });
   $('#save-settings').onclick = save;
-  $('#open-settings').onclick = () => { dlg.showModal(); load(); };
+  $('#open-settings').onclick = () => { dlg.showModal(); load(); loadHooks(); };
+  // 分页：通用 / 各个 agent
+  form.querySelectorAll('.agent-tabs [data-pane]').forEach(tab => {
+    tab.onclick = () => {
+      form.querySelectorAll('.agent-tabs [data-pane]').forEach(t => { t.classList.toggle('on', t === tab); t.setAttribute('aria-selected', t === tab); });
+      form.querySelectorAll('.pane').forEach(p => { p.hidden = p.dataset.pane !== tab.dataset.pane; });
+    };
+  });
 
   M.settings = {
-    setLive(v) { live = v; },
-    applyRemote(s) { if (s && typeof s === 'object') { all = s; if (dlg.open && !/还没保存/.test($('#save-state').textContent)) fillAll(); } },
+    setLive(v) { live = v; field('codexHooks').disabled = !live || !hookReady || hookBusy; },
+    scene,
+    saveScene(patch) {
+      return persist(current => ({ ...current, scene: { ...scene(), ...patch } }));
+    },
+    applyRemote(s) {
+      if (s && typeof s === 'object') {
+        all = s; loaded = true;
+        if (dlg.open && !/还没保存/.test($('#save-state').textContent)) fillAll();
+        sceneChanged();
+      }
+    },
   };
 })();

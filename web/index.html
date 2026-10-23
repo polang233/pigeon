@@ -6,6 +6,7 @@
 <title>Meerkat</title>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="usage.css">
 </head>
 <body>
   <header class="top">
@@ -21,12 +22,14 @@
       <label class="theme">
         <span class="sr">主题</span>
         <select id="theme">
-          <option value="pixel-studio">像素工作室</option>
+          <option value="studio">立体工作室</option>
+          <option value="pixel-studio">像素工作室（经典）</option>
           <option disabled>蚂蚁工坊（即将推出）</option>
           <option disabled>叽里咕噜办公室（即将推出）</option>
         </select>
       </label>
       <button class="btn" id="sim" aria-pressed="false">模拟演示</button>
+      <button class="btn" id="usage-open">用量</button>
       <button class="btn" id="open-settings">设置</button>
       <button class="btn primary" id="detect">检测连接</button>
     </div>
@@ -35,6 +38,12 @@
   <main class="layout">
     <section class="stage-wrap">
       <div class="stage" id="stage"></div>
+      <div class="seat-switch" id="seat-switch" role="group" aria-label="工位数">
+        <span>工位</span>
+        <button type="button" data-seats="2" aria-pressed="false">2</button>
+        <button type="button" data-seats="3" aria-pressed="true">3</button>
+        <button type="button" data-seats="4" aria-pressed="false">4</button>
+      </div>
       <div class="hint" id="hint" hidden>
         <p>还没收到 Claude Code 的事件。按 README 接好 hook 后，Claude Code 一派活这里就会动起来。</p>
         <button class="btn" id="hint-sim">先看模拟演示</button>
@@ -58,6 +67,14 @@
         <h2 id="settings-title">设置</h2>
         <button class="btn icon" value="close" aria-label="关闭">✕</button>
       </header>
+      <nav class="agent-tabs" role="tablist" aria-label="设置分页">
+        <button type="button" role="tab" data-pane="general" class="on" aria-selected="true">通用</button>
+        <button type="button" role="tab" data-pane="codex" aria-selected="false">Codex</button>
+        <button type="button" role="tab" disabled title="以后加">Claude Code</button>
+        <button type="button" role="tab" disabled title="以后加">Cursor</button>
+        <button type="button" role="tab" disabled title="以后加">DeepSeek</button>
+      </nav>
+      <div class="pane" data-pane="general" role="tabpanel">
       <fieldset class="notify-settings">
         <legend>提醒</legend>
         <label class="row"><span>任务完成时通知<small>子代理或 Codex 交回结果时提醒你</small></span><input type="checkbox" name="notifyDone"></label>
@@ -66,11 +83,19 @@
         <label class="row"><span>Claude 说完一轮时通知<small>只在这一轮较长时，由 Mac 应用发出通知</small></span><input type="checkbox" name="notifyTurnEnd"></label>
         <label class="row"><span>较长一轮的秒数<small>超过这个时间才提醒，10–3600 秒</small></span><input type="number" name="notifyTurnMinSec" min="10" max="3600" step="1"></label>
       </fieldset>
-      <nav class="agent-tabs" aria-label="选择 agent">
-        <button type="button" class="on" aria-current="true">Codex</button>
-        <button type="button" disabled title="以后加">Claude Code</button>
-        <button type="button" disabled title="以后加">Cursor</button>
-      </nav>
+      <fieldset>
+        <legend>场景</legend>
+        <div class="row"><span>工位数</span>
+          <div class="seg" role="radiogroup" aria-label="工位数">
+            <label><input type="radio" name="sceneSeats" value="2">2</label>
+            <label><input type="radio" name="sceneSeats" value="3" checked>3</label>
+            <label><input type="radio" name="sceneSeats" value="4">4</label>
+          </div></div>
+        <label class="row"><span>子代理桌旁显示简短任务名</span><input type="checkbox" name="sceneShowSubLabels" checked></label>
+        <label class="row"><span>鼠标悬停角色时显示模型和用量卡片</span><input type="checkbox" name="sceneHoverCards" checked></label>
+      </fieldset>
+      </div>
+      <div class="pane" data-pane="codex" role="tabpanel" hidden>
 
       <fieldset>
         <legend>生图</legend>
@@ -92,8 +117,14 @@
 
       <fieldset>
         <legend>对话</legend>
-        <label class="row"><span>在 Codex 里显示对话<small>关掉后不留会话记录，Codex 应用里看不到</small></span><input type="checkbox" name="showInCodex"></label>
+        <label class="row"><span>接收 Codex 自己的事件<small class="save-state" id="codex-hooks-state" role="status">打开设置时读取状态</small></span><input type="checkbox" name="codexHooks" aria-describedby="codex-hooks-state" disabled></label>
+        <div class="row"><span>对话记录<small>临时任务不留会话，Codex 应用里看不到；单次任务可以用 --temp / --keep 改</small></span>
+          <div class="seg" role="radiogroup" aria-label="对话记录">
+            <label><input type="radio" name="sessionMode" value="keep">保留到 Codex</label>
+            <label><input type="radio" name="sessionMode" value="temp">临时任务</label>
+          </div></div>
         <label class="row"><span>完成后自动打开对话<small>在 Codex 应用里跳到这段对话</small></span><input type="checkbox" name="autoOpen"></label>
+        <label class="row"><span>统一走 Meerkat 包装层<small>Claude 直接跑 codex exec 或用 Codex 的 MCP 派活时拦下来，改走包装层，这样都能看到进度、按这里的设置执行</small></span><input type="checkbox" name="routeAll"></label>
       </fieldset>
 
       <fieldset>
@@ -107,6 +138,7 @@
         <label class="row"><span>结果摘要最长（字）</span><input type="number" name="summaryChars" min="60" max="2000" step="20"></label>
       </fieldset>
 
+      </div>
       <footer>
         <span class="save-state" id="save-state" role="status"></span>
         <button class="btn primary" type="button" id="save-settings">保存</button>
@@ -114,11 +146,27 @@
     </form>
   </dialog>
 
+  <dialog class="settings usage" id="usage" aria-labelledby="usage-title">
+    <form method="dialog">
+      <header>
+        <h2 id="usage-title">用量统计</h2>
+        <button class="btn icon" value="close" aria-label="关闭">✕</button>
+      </header>
+      <div class="usage-content">
+        <p class="usage-state" id="usage-state" role="status">正在读取用量…</p>
+        <div class="usage-cards" id="usage-cards"></div>
+      </div>
+      <footer><small>数据来自 Claude Code 和 Codex 自己的对话记录，只在本机统计</small></footer>
+    </form>
+  </dialog>
+
   <script src="js/sprites.js"></script>
   <script src="js/store.js"></script>
   <script src="js/simulator.js"></script>
   <script src="js/theme-pixel.js"></script>
+  <script src="js/theme-studio.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/usage.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

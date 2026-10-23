@@ -42,6 +42,7 @@
     claude: { installed: true, running: true, detail: '模拟：正在干活' },
     codex: { installed: true, running: true, detail: '模拟：ChatGPT 应用内置 Codex' },
     cursor: { installed: true, running: false, detail: '模拟：已安装，没打开' },
+    deepseek: { installed: true, running: true, detail: '模拟：DeepSeek Harness 正在运行' },
   };
 
   class Simulator {
