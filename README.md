@@ -65,6 +65,7 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 | `web/` | 画面：事件整理、模拟演示、像素工作室主题 |
 | `plugin/` | Claude Code 插件：hook、`codex-delegation` skill、包装层 `meerkat-codex`、转发脚本 |
 | `hooks/` | 不装插件时手动接 hook 用的示例配置 |
+| `assets/brand/` | logo 原图（Codex 生成）和合成好的 1024 应用图标；`mac/scripts/compose-icon.swift` 负责合成 |
 | `docs/CODEX-FEASIBILITY.md` | Codex 接入实验和设置说明 |
 | `docs/PRD.md` | 需求 |
 | `docs/CONTRACT.md` | 应用和画面之间的接口 |
