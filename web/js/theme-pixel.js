@@ -262,7 +262,7 @@
         a.face = ok ? 'done' : 'fail'; a.faceUntil = this.now + 1400;
         a.badge = { ok, until: this.now + 1600 };
         if (!ok) a.shakeUntil = this.now + 450;
-        if (!a.pile) a.act = null;
+        if (!a.pile) { a.act = null; a.realAct = false; }
         const from = AGENT_POS.codex.inbox, to = AGENT_POS.claude.inbox;
         route = [from, [(from[0] + to[0]) / 2, 30], to];
         colors = ok ? COLORS.codexBack : COLORS.fail;
@@ -296,6 +296,12 @@
         if (s && s.arrivedAt) s.act = activity;
       }
       this.refreshLabels();
+    }
+    taskActivity(t) {
+      if (t.kind !== 'codex') return;
+      const a = this.agents.codex;
+      const v = this.vis.get(t.id);
+      if (v && v.arrived) { a.act = t.activity; a.realAct = true; this.refreshLabels(); }
     }
     activityEnd() {
       const c = this.agents.claude;
@@ -597,7 +603,7 @@
       if (a.claude.act && this.now < a.claude.actUntil) this.card(c, a.claude.act, 86, 66, ACCENT.claude);
       if (a.codex.pile) {
         let act = a.codex.act;
-        if (act === 'image') act = ['image', 'image', 'look', 'tool'][this.f(1100) % 4];
+        if (act === 'image' && !a.codex.realAct) act = ['image', 'image', 'look', 'tool'][this.f(1100) % 4]; // 没有真实动作时按内容猜
         this.card(c, act, 240, 66, ACCENT.codex);
       }
       this.slots.forEach(s => { if (s.task && s.arrivedAt && s.act && !s.badge) this.card(c, s.act, s.x + 10, 114, ACCENT.sub); });

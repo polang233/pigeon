@@ -26,6 +26,16 @@ enum Paths {
         return candidates.first(where: isDirectory) ?? candidates[0]
     }
 
+    static let settingsFile: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Meerkat/settings.json")
+
+    static var codexModelsCache: URL {
+        let home = ProcessInfo.processInfo.environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        let dir = home.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+        return dir.appendingPathComponent("models_cache.json")
+    }
+
     static func devIconURL() -> URL? {
         let url = packageDir.appendingPathComponent("Resources/AppIcon.icns")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil

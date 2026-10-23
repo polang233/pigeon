@@ -42,8 +42,35 @@
 | 同时最多几个任务 | 默认 2 | 超出就排队 |
 | 结果摘要长度 | 默认 300 字 | 完整日志存文件，只把摘要交给 Claude |
 
-## 下一步
+## Codex hook 能不能“同意一次全局都能用”
+
+- Codex 按**每一条 hook 记录**单独记信任：`config.toml` 里的 `[hooks.state."<文件>:<事件>:<序号>:<序号>"]` 存一个 `trusted_hash`。所以一次加了 5 条（实验里的 PreToolUse、PostToolUse、SessionStart、UserPromptSubmit、Stop），就会出现 5 个审查请求。那 5 条已经删掉，请求是过期的，直接选“不信任”或忽略即可，不要信任它们。
+- 审查弹窗本身有“全部信任并继续”，一次可以把当前待审的都信任掉。
+- 指纹算的是 hook 的定义（命令那一行），不是脚本内容。所以以后如果要装 Codex hook，只装**一条**、命令路径固定不变，用户信任一次就一直有效，后续升级只改脚本内容。
+- Codex 还有一个 `bypass_hook_trust` 开关，可以跳过所有 hook 的信任检查。这等于关掉安全确认，任何人往 `hooks.json` 里加的命令都会直接执行，不建议打开，我们也不会替用户打开。
+- 现在的方案根本不需要 Codex hook：包装层用 `exec --json` 拿到每一步，所以不会再产生审查请求。
+
+## 下一步（已完成，见下方）
 
 1. 写包装层 `meerkat-codex`：读 Meerkat 设置 → 拼 `codex exec` 参数 → 关 stdin、计时 → 解析 `--json` 事件并转发给 Meerkat → 处理生图产物 → 返回精简结果。
 2. 写 Claude Code 插件：自动装 hook、`codex-delegation` skill（什么活交给 Codex、任务说明模板、怎么调用包装层）。
 3. Meerkat 加设置页和 `/api/settings`，以及“在 Codex 里打开”按钮。
+
+## 实现情况（2026-10-23）
+
+- **包装层** `plugin/scripts/meerkat-codex.mjs`：`run` / `settings` / `doctor` / `open`。读设置 → 拼 `codex exec --json` 参数 → 关 stdin、计时、排队 → 把 `start`、`thread`、`activity`、`end` 报给 Meerkat → 生图产物复制进项目 → 输出精简结果。完整记录在 `~/.meerkat/runs/`。
+- **插件** `plugin/`：`.claude-plugin/plugin.json`、`hooks/hooks.json`（用 `${CLAUDE_PLUGIN_ROOT}`）、`skills/codex-delegation/SKILL.md`；仓库根目录的 `.claude-plugin/marketplace.json` 让它能用 `/plugin marketplace add` 安装。
+- **应用**：`GET/PUT /api/settings`、`GET /api/codex/models`（过滤掉 `visibility: hide` 的模型），设置保存在 `~/Library/Application Support/Meerkat/settings.json`。
+- **页面**：顶栏“设置”打开设置面板（Codex 一栏，Claude Code、Cursor 以后加）；Codex 任务显示真实动作（来自包装层），任务列表里有产出文件和“在 Codex 里打开”。
+
+**验证过**
+- 设置面板改动 → 保存到应用 → 包装层 `settings` 读到新值；API 方式时才显示模型和质量；模型的推理档位随模型变化。
+- 真实审查任务：1 分 4 秒完成，结果精简返回，会话保留在 Codex。
+- 真实生图任务：设置为横版时出图 1536×1024，自动存进项目的 `assets/generated/`；Meerkat 画面实时显示 Codex 在“生图”“读文件”，结束标成完成，带文件和 Codex 链接。
+- 测试时改过的设置已恢复成默认值。
+
+**没验证**
+- 插件安装：这台机器上的 Claude Code 命令行是虚拟机里的 Linux 版本，没法在本机跑 `claude plugin validate`；清单格式按文档写，需要在 Claude Code 里实际 `/plugin install` 一次确认。
+- skill 的自动触发：要装好插件后，在新会话里提一个生图需求，看 Claude 会不会自己用上。
+- API 生图方式：没有 `OPENAI_API_KEY`，没测。
+- 应用窗口里点“在 Codex 里打开”能否跳转：在内置浏览器里只确认了链接正确。

@@ -56,3 +56,49 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 ## 页面没有应用时
 
 前端在 `file://` 打开或连不上 `/events` 时，自动进入模拟模式，用内置剧本演示，不报错。
+
+## 设置
+
+设置由应用保存在 `~/Library/Application Support/Meerkat/settings.json`。插件里的包装层和页面都通过接口读写，应用没开时包装层用内置默认值。
+
+| 请求 | 说明 |
+|---|---|
+| `GET /api/settings` | 返回完整设置。文件不存在时返回 `{}`（默认值由读取方补齐）。 |
+| `PUT /api/settings` | 请求体是完整设置 JSON 对象，原样保存（写临时文件再改名），回 `200` 和保存后的内容，并通过 `/events` 广播 `{"type":"settings","settings":{...}}`。非对象回 `400`。 |
+| `GET /api/codex/models` | 读 `~/.codex/models_cache.json`，返回 `[{"slug","name","efforts":[...]}]`；读不到返回 `[]`。 |
+
+设置结构（目前只有 `codex`，以后加其他 agent）：
+
+```json
+{
+  "version": 1,
+  "codex": {
+    "preferForImages": true,
+    "imageMode": "builtin",
+    "imageModel": "gpt-image-2",
+    "imageQuality": "medium",
+    "imageAspect": "square",
+    "imageTransparent": false,
+    "imageDir": "assets/generated",
+    "showInCodex": true,
+    "autoOpen": false,
+    "model": "",
+    "effort": "",
+    "sandbox": "auto",
+    "timeoutMin": 10,
+    "maxConcurrent": 2,
+    "summaryChars": 300
+  }
+}
+```
+
+## 包装层上报的 Codex 事件
+
+包装层 `meerkat-codex` 把 Codex 的执行过程也发到 `POST /ev`，`hook_event_name` 固定为 `MeerkatCodex`：
+
+```json
+{ "hook_event_name": "MeerkatCodex", "phase": "start",    "task_id": "mk-…", "title": "…", "kind": "image", "prompt": "…", "cwd": "…" }
+{ "hook_event_name": "MeerkatCodex", "phase": "thread",   "task_id": "mk-…", "thread_id": "…" }
+{ "hook_event_name": "MeerkatCodex", "phase": "activity", "task_id": "mk-…", "activity": "run", "detail": "npm test" }
+{ "hook_event_name": "MeerkatCodex", "phase": "end",      "task_id": "mk-…", "status": "done", "summary": "…", "files": ["…"], "thread_id": "…", "usage": {…} }
+```

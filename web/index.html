@@ -27,6 +27,7 @@
         </select>
       </label>
       <button class="btn" id="sim" aria-pressed="false">模拟演示</button>
+      <button class="btn" id="open-settings">设置</button>
       <button class="btn primary" id="detect">检测连接</button>
     </div>
   </header>
@@ -50,10 +51,65 @@
     </aside>
   </main>
 
+  <dialog class="settings" id="settings" aria-labelledby="settings-title">
+    <form method="dialog" id="settings-form">
+      <header>
+        <h2 id="settings-title">设置</h2>
+        <button class="btn icon" value="close" aria-label="关闭">✕</button>
+      </header>
+      <nav class="agent-tabs" aria-label="选择 agent">
+        <button type="button" class="on" aria-current="true">Codex</button>
+        <button type="button" disabled title="以后加">Claude Code</button>
+        <button type="button" disabled title="以后加">Cursor</button>
+      </nav>
+
+      <fieldset>
+        <legend>生图</legend>
+        <label class="row"><span>生图优先交给 Codex<small>Claude 遇到生成位图的需求时，交给 Codex 来画</small></span><input type="checkbox" name="preferForImages"></label>
+        <label class="row"><span>生图方式<small>内置方式不需要 key；API 方式才能选模型和质量</small></span>
+          <select name="imageMode"><option value="builtin">内置 image_gen</option><option value="api">API（需要 OPENAI_API_KEY）</option></select></label>
+        <label class="row api-only"><span>图片模型</span><input name="imageModel" placeholder="gpt-image-2"></label>
+        <label class="row api-only"><span>图片质量</span>
+          <select name="imageQuality"><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+        <div class="row"><span>画面比例</span>
+          <div class="seg" role="radiogroup" aria-label="画面比例">
+            <label><input type="radio" name="imageAspect" value="square">方形</label>
+            <label><input type="radio" name="imageAspect" value="landscape">横版</label>
+            <label><input type="radio" name="imageAspect" value="portrait">竖版</label>
+          </div></div>
+        <label class="row"><span>透明背景</span><input type="checkbox" name="imageTransparent"></label>
+        <label class="row"><span>保存到项目里的<small>相对项目根目录</small></span><input name="imageDir" placeholder="assets/generated"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>对话</legend>
+        <label class="row"><span>在 Codex 里显示对话<small>关掉后不留会话记录，Codex 应用里看不到</small></span><input type="checkbox" name="showInCodex"></label>
+        <label class="row"><span>完成后自动打开对话<small>在 Codex 应用里跳到这段对话</small></span><input type="checkbox" name="autoOpen"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>运行</legend>
+        <label class="row"><span>模型</span><select name="model"><option value="">Codex 默认</option></select></label>
+        <label class="row"><span>推理档位</span><select name="effort"><option value="">Codex 默认</option></select></label>
+        <label class="row"><span>沙箱<small>自动：审查和其他任务只读，写代码和生图可写工作区</small></span>
+          <select name="sandbox"><option value="auto">按任务类型自动</option><option value="read-only">只读</option><option value="workspace-write">可写工作区</option></select></label>
+        <label class="row"><span>超时（分钟）</span><input type="number" name="timeoutMin" min="1" max="120"></label>
+        <label class="row"><span>同时最多几个任务</span><input type="number" name="maxConcurrent" min="1" max="8"></label>
+        <label class="row"><span>结果摘要最长（字）</span><input type="number" name="summaryChars" min="60" max="2000" step="20"></label>
+      </fieldset>
+
+      <footer>
+        <span class="save-state" id="save-state" role="status"></span>
+        <button class="btn primary" type="button" id="save-settings">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
   <script src="js/sprites.js"></script>
   <script src="js/store.js"></script>
   <script src="js/simulator.js"></script>
   <script src="js/theme-pixel.js"></script>
+  <script src="js/settings.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

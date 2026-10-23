@@ -1,0 +1,7 @@
+{
+  "name": "meerkat",
+  "version": "0.1.0",
+  "description": "把 Claude Code 派给子代理和 Codex 的任务实时显示在 Meerkat 应用里，并规范什么活交给 Codex、怎么交。",
+  "author": { "name": "polang233" },
+  "keywords": ["codex", "delegation", "subagent", "visualization"]
+}
