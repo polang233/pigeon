@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meerkat</title>
+<title>Pigeon</title>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="usage.css">
@@ -13,8 +13,8 @@
     <div class="brand">
       <img src="assets/logo.png" alt="" width="34" height="34">
       <div>
-        <h1>Meerkat</h1>
-        <p>看着你的 agent 们干活</p>
+        <h1>Pigeon</h1>
+        <p>agent 之间的信鸽，每张纸条看得见</p>
       </div>
     </div>
     <div class="tools">
@@ -22,11 +22,8 @@
       <label class="theme">
         <span class="sr">主题</span>
         <select id="theme">
-          <option value="studio">像素工作室</option>
-          <option value="illustrated">插画工作室（实验）</option>
+          <option value="loft">鸽舍</option>
           <option value="pixel-studio">像素工作室（旧版）</option>
-          <option disabled>蚂蚁工坊（即将推出）</option>
-          <option disabled>叽里咕噜办公室（即将推出）</option>
         </select>
       </label>
       <button class="btn" id="sim" aria-pressed="false">模拟演示</button>
@@ -39,26 +36,31 @@
   <main class="layout">
     <section class="stage-wrap">
       <div class="stage" id="stage"></div>
-      <div class="seat-switch" id="seat-switch" role="group" aria-label="工位数">
-        <span>工位</span>
-        <button type="button" data-seats="2" aria-pressed="false">2</button>
-        <button type="button" data-seats="3" aria-pressed="true">3</button>
-        <button type="button" data-seats="4" aria-pressed="false">4</button>
-      </div>
       <div class="hint" id="hint" hidden>
-        <p>还没收到 Claude Code 的事件。按 README 接好 hook 后，Claude Code 一派活这里就会动起来。</p>
+        <p>还没收到事件。按 README 接好 hook 后，Claude Code 一派活、一送纸条，这里就会动起来。</p>
         <button class="btn" id="hint-sim">先看模拟演示</button>
       </div>
     </section>
 
-    <aside class="log" aria-label="任务列表">
-      <div class="waiting" id="waiting" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-      <div class="counts">
-        <div><b id="count-running">0</b><span>进行中</span></div>
-        <div><b id="count-done">0</b><span>完成</span></div>
-        <div><b id="count-failed">0</b><span>出错</span></div>
+    <aside class="log" id="log" aria-label="飞行记录">
+      <header class="log-head">
+        <h2>飞行记录</h2>
+        <div class="log-tabs" role="tablist" aria-label="记录分类">
+          <button type="button" role="tab" data-tab="notes" aria-selected="true">纸条 <i id="tab-notes-n">0</i></button>
+          <button type="button" role="tab" data-tab="tasks" aria-selected="false">派活 <i id="tab-tasks-n">0</i></button>
+        </div>
+        <button type="button" class="log-toggle" id="log-toggle" aria-expanded="true" aria-controls="log-body">收起</button>
+      </header>
+      <div class="log-body" id="log-body">
+        <div class="waiting" id="waiting" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+        <div class="counts">
+          <div><b id="count-a">0</b><span id="count-a-l">在飞</span></div>
+          <div><b id="count-b">0</b><span id="count-b-l">归巢</span></div>
+          <div><b id="count-c">0</b><span id="count-c-l">被拒或迷路</span></div>
+        </div>
+        <ol id="notes" class="list" aria-label="纸条"></ol>
+        <ol id="tasks" class="list" aria-label="派活" hidden></ol>
       </div>
-      <ol id="tasks"></ol>
     </aside>
   </main>
 
@@ -70,32 +72,43 @@
       </header>
       <nav class="agent-tabs" role="tablist" aria-label="设置分页">
         <button type="button" role="tab" data-pane="general" class="on" aria-selected="true">通用</button>
+        <button type="button" role="tab" data-pane="post" aria-selected="false">送信</button>
         <button type="button" role="tab" data-pane="codex" aria-selected="false">Codex</button>
         <button type="button" role="tab" disabled title="以后加">Claude Code</button>
         <button type="button" role="tab" disabled title="以后加">Cursor</button>
-        <button type="button" role="tab" disabled title="以后加">DeepSeek</button>
       </nav>
       <div class="pane" data-pane="general" role="tabpanel">
       <fieldset class="notify-settings">
         <legend>提醒</legend>
-        <label class="row"><span>任务完成时通知<small>子代理或 Codex 交回结果时提醒你</small></span><input type="checkbox" name="notifyDone"></label>
-        <label class="row"><span>出错时通知</span><input type="checkbox" name="notifyFailed"></label>
+        <label class="row"><span>纸条归巢时通知<small>对方回信取回来时提醒你</small></span><input type="checkbox" name="notifyNoteHome"></label>
+        <label class="row"><span>纸条被拒或迷路时通知<small>不会自动重发，要不要再送由你决定</small></span><input type="checkbox" name="notifyNoteLost"></label>
+        <label class="row"><span>派活完成时通知<small>子代理或 Codex 交回结果时提醒你</small></span><input type="checkbox" name="notifyDone"></label>
+        <label class="row"><span>派活出错时通知</span><input type="checkbox" name="notifyFailed"></label>
         <label class="row"><span>Claude 等你时通知<small>需要你批准工具或回复问题时提醒你</small></span><input type="checkbox" name="notifyWaiting"></label>
         <label class="row"><span>Claude 说完一轮时通知<small>只在这一轮较长时，由 Mac 应用发出通知</small></span><input type="checkbox" name="notifyTurnEnd"></label>
         <label class="row"><span>较长一轮的秒数<small>超过这个时间才提醒，10–3600 秒</small></span><input type="number" name="notifyTurnMinSec" min="10" max="3600" step="1"></label>
       </fieldset>
       <fieldset>
-        <legend>场景</legend>
-        <div class="row"><span>工位数</span>
-          <div class="seg" role="radiogroup" aria-label="工位数">
-            <label><input type="radio" name="sceneSeats" value="2">2</label>
-            <label><input type="radio" name="sceneSeats" value="3" checked>3</label>
-            <label><input type="radio" name="sceneSeats" value="4">4</label>
-          </div></div>
-        <label class="row"><span>子代理桌旁显示简短任务名</span><input type="checkbox" name="sceneShowSubLabels" checked></label>
-        <label class="row"><span>鼠标悬停角色时显示模型和用量卡片</span><input type="checkbox" name="sceneHoverCards" checked></label>
+        <legend>画面</legend>
+        <label class="row"><span>鼠标停在鸽子上时显示卡片<small>模型、用量、纸条内容</small></span><input type="checkbox" name="sceneHoverCards" checked></label>
       </fieldset>
       </div>
+
+      <div class="pane" data-pane="post" role="tabpanel" hidden>
+      <fieldset>
+        <legend>送信</legend>
+        <label class="row"><span>中继站对话<small>本机 Codex 应用里专门用来转发的那条对话。往别的电脑送纸条都要经过它，每次转发跑一轮模型。留空就只能给本机的对话送</small></span><input name="postRelayThread" list="relay-options" placeholder="对话 id" autocomplete="off" spellcheck="false"></label>
+        <datalist id="relay-options"></datalist>
+        <label class="row"><span>往返上限<small>同一条链最多传几次，超过就拒发，免得 agent 之间来回没完。1–50</small></span><input type="number" name="postMaxHops" min="1" max="50" step="1"></label>
+        <label class="row"><span>等待超时（分钟）<small>这么久还没结果就记成迷路，不会自动重发。1–120</small></span><input type="number" name="postWaitTimeoutMin" min="1" max="120" step="1"></label>
+        <label class="row"><span>跨电脑发送前先问我<small>往别的电脑送纸条或新开对话前，在屏幕上弹框，点“放飞”才发。Codex 自己不会为这类发送弹审批，关掉后 agent 可以不经你同意往另一台电脑发消息</small></span><input type="checkbox" name="postConfirmRemote"></label>
+      </fieldset>
+      <fieldset>
+        <legend>栖木</legend>
+        <label class="row"><span>显示栖木<small>贴着刘海或屏幕上沿的小提醒条：几张纸条在飞、几件事在等你</small></span><input type="checkbox" name="perchEnabled"></label>
+      </fieldset>
+      </div>
+
       <div class="pane" data-pane="codex" role="tabpanel" hidden>
 
       <fieldset>
@@ -125,7 +138,7 @@
             <label><input type="radio" name="sessionMode" value="temp">临时任务</label>
           </div></div>
         <label class="row"><span>完成后自动打开对话<small>在 Codex 应用里跳到这段对话</small></span><input type="checkbox" name="autoOpen"></label>
-        <label class="row"><span>统一走 Meerkat 包装层<small>Claude 直接跑 codex exec 或用 Codex 的 MCP 派活时拦下来，改走包装层，这样都能看到进度、按这里的设置执行</small></span><input type="checkbox" name="routeAll"></label>
+        <label class="row"><span>统一走 Pigeon 包装层<small>Claude 直接跑 codex exec 或用 Codex 的 MCP 派活时拦下来，改走包装层，这样都能看到进度、按这里的设置执行</small></span><input type="checkbox" name="routeAll"></label>
       </fieldset>
 
       <fieldset>
@@ -165,8 +178,8 @@
   <script src="js/store.js"></script>
   <script src="js/simulator.js"></script>
   <script src="js/theme-pixel.js"></script>
-  <script src="js/pixel-art.js"></script>
-  <script src="js/theme-studio.js"></script>
+  <script src="js/loft-art.js"></script>
+  <script src="js/theme-loft.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/usage.js"></script>
   <script src="js/main.js"></script>

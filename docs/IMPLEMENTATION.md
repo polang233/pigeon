@@ -105,3 +105,69 @@ Codex 审查了这批改动，找出 7 个问题（漏了工具失败事件、�
 1. 在真实 Claude Code 会话里接上 hook 走一遍，校正子代理归属和结果摘要。
 2. Codex 在 Codex 里信任 hook 后，实测它自己的对话和子代理（SubagentStart）在画面里的表现。
 3. 置顶小窗。
+
+## 改版为 Pigeon（2026-11-11）
+
+### 为什么改
+
+Meerkat 只能"看"：看 Claude Code 把活派给谁，Codex 那边只能开一次性任务（`codex exec`）。实际用下来缺的是让 agent 之间真正传话：给 Codex 里已有的对话发消息、新开对话、读回复，而且要能够到 Codex 已连接的别的电脑。于是把核心换成"送纸条"，名字也跟着改成 Pigeon（信鸽）。原有的 hook 转发、子代理和 Codex 派活展示、用量统计、设置页、`run` 派活都保留。总方案和各模块之间的接口约定见 `PIGEON-PLAN.md`，接口的最终形态见 `CONTRACT.md`。
+
+### 验证过的技术事实（2026-11-11 实测）
+
+设计只依据这些，不再假设别的机制：
+
+1. `codex queue --thread <id> --message <text>` 能往本机已有的 Codex 对话排消息。Codex 桌面应用开着时，约 10～15 秒后自动接手执行。
+2. 对话的进展可以从 `~/.codex/sessions/年/月/日/rollout-*-<threadId>.jsonl` 读：`payload.type == "task_complete"` 表示一轮结束，`payload.last_agent_message` 是这一轮的最终回复。
+3. 本机对话列表在 `~/.codex/state_5.sqlite` 的 `threads` 表，只读访问，用 `sqlite3` 命令行。
+4. `codex exec` 建的对话审批策略是 `never`，而且拿不到 `codex_app` 工具；只有 Codex 桌面应用接手执行的那一轮才有 `mcp__codex_app__*` 工具。
+5. 远程设备上的对话只能通过 `codex_app` 工具操作（`list_threads`、`list_projects`、`send_message_to_thread`、`create_thread`、`wait_threads`、`read_thread`），所以跨设备要经过中继站：往中继站对话排一条指令，让它替我们调这些工具。
+6. 中继站必须是用户在 Codex 应用里手动建的对话（审批策略 `on-request`）；`never` 的对话会直接拒绝发送和新建。
+7. 在远程新开对话要指定远程主机上已保存的项目。
+8. 直接连桌面应用的工具 socket（`/tmp/codex-app-tools/*.sock`）会被立刻断开，不要尝试绕过。
+9. 每次经中继站转发都要跑一轮模型，有 token 成本；本机对话之间的发送不经过模型。
+10. 中继站对话收到带“我授权本次发送”的指令会直接照办，Codex 不弹审批（2026-11-11 实测，用户确认全程没有弹窗）。所以同意这一步由 Pigeon 自己做：`plugin/scripts/lib/confirm.mjs` 在排进中继站之前用 `osascript` 弹系统对话框，没同意就不发。
+
+没有验证、这一版不做的：往 Claude Code 的会话里投递消息、在栖木上直接审批。
+
+### 模块划分
+
+| 模块 | 目录 | 内容 |
+|---|---|---|
+| A 送信核心 | `plugin/` | `pigeon` 命令（`plugin/scripts/pigeon.mjs`）、飞行记录、中继、插件和 `pigeon-post` skill、`codex-delegation` skill 改文案 |
+| B Mac 应用 | `mac/` | 改名为 Pigeon、设置迁移、`/api/notes` 和 `/api/lofts`、对 `PigeonNote`/`PigeonRun` 的处理、栖木、菜单栏鸽子图标 |
+| C 画面 | `web/` | 鸽舍主题、飞行记录、设置页的"送信"和"栖木"、模拟演示里的送信剧本；旧的插画主题删除，像素工作室保留为"旧版" |
+| D 文档和收尾 | `docs/`、`README.md`、`.claude-plugin/`、`hooks/` | 文档改写、仓库级清单 |
+
+四个模块各管各的目录，只靠 `CONTRACT.md` 里的接口沟通。官网（`site/`）这一版没有动。
+
+### 实际做到了什么
+
+**送信核心（`plugin/`，插件版本 0.2.0）**
+- 命令入口 `plugin/scripts/pigeon.mjs`，实现拆在 `plugin/scripts/lib/`：`post.mjs`（送信和看护）、`relay.mjs`（中继站指令和回复解析）、`rollout.mjs`（读 Codex 对话记录）、`journal.mjs`、`lofts.mjs`、`codex-state.mjs`、`run.mjs`（派活）、`common.mjs`（路径、设置、环境变量）。`meerkat-codex.mjs` 保留成转发到 `pigeon.mjs` 的薄壳。
+- `send` 支持 `--reply-to`、`--wait`、`--file`；`log` 支持 `--json`；`lofts` 支持 `-n`。纸条末尾自动加一行说明（脚环和来源），用来在对方的记录里认出这一轮。
+- 本机 `new` 用 `codex exec` 新建对话（审批策略 `never`，所以不能当中继站）；远程 `new` 经中继站，必须指定项目，那台电脑只有一个项目时可省略。
+- 环境问题（Codex 应用没开、中继站没设置或审批策略是 `never`、找不到 `codex` 命令）只给提示，退出码 3，不记飞行记录。对方不存在、超过往返上限、对话已归档、排队失败，记一张"被拒收"。本机发送时 Codex 应用没开不拒发，纸条排着队，超时后标"迷路"。经中继站时，看护进程的截止时间是 `waitTimeoutMin + 3` 分钟。
+- `route-codex.mjs` 现在也会拦下直接的 `codex queue`；关掉"统一走包装层"就不拦。
+- 新增 skill `pigeon-post`；`codex-delegation` 改了文案。
+
+**Mac 应用（`mac/Sources/Pigeon/`）**
+- 改名为 Pigeon，设置在新文件不存在、旧文件存在时复制一次，不删旧的。新增 `GET /api/notes`、`GET /api/lofts`，认 `PigeonNote` 和 `PigeonRun`（旧名 `MeerkatCodex` 也认）。
+- `/ev/codex` 读请求头 `x-pigeon-task`（兼容 `x-meerkat-task`），转发的 payload 同时带 `pigeon_task_id` 和 `meerkat_task_id`。Codex 转发脚本的新位置是 `~/.pigeon/codex-hook.sh`，旧脚本仍算已安装，`GET /api/codex/hooks` 多一个 `legacy` 字段。
+- 栖木：贴刘海下沿，无刘海贴菜单栏下沿居中；收起是胶囊，空闲时几乎透明，悬停或点击展开，全屏应用下不自动隐藏；开关在设置、菜单栏菜单和"显示"菜单里。超过 2 小时没有任何消息的纸条视为过期，不再计数。
+
+**画面（`web/`）**
+- 主题 `loft`（默认，`web/js/theme-loft.js`）和 `pixel-studio`（旧版）；旧值 `studio`、`illustrated` 自动映射成 `loft`，插画主题已删除。前端命名空间改为 `window.Pigeon`，本地存储键 `pigeon-theme`、`pigeon-log-collapsed`（旧键 `meerkat-theme` 仍读）。
+- 侧栏"飞行记录"分"纸条"和"派活"两页；设置页有"送信"分页、"栖木"开关，通知里有 `noteHome`、`noteLost`。远处鸽舍最多画 4 个，同时恢复的纸条最多 10 张。模拟演示里有送纸条的剧本，包括一次跨鸽舍往返。
+
+### 验证了什么，还没验证什么
+
+- 插件的核心逻辑有 `node --test` 测试（参数解析、rollout 解析、中继回复解析、日志读写、防循环），测试里不调用真的 Codex。
+- 真实发送在集成时端到端实测过（2026-11-11，Mac 到 CHEN-Y9000P2023）：本机新开对话（10 秒归巢）、给本机已有对话送信（4 秒）、`lofts --refresh`（20 秒）、经中继站给远程对话送信（22 秒）、在远程新开对话（40 秒）。飞行记录里没有存正文。
+- 实测中发现并修掉两个问题：
+  - 排进队列的消息只有 Codex 桌面应用已经载入那条对话时才会被接手，没打开过的对话会一直排着。现在排队后会用 `codex://threads/wake/<id>` 唤醒（`open -g`，不把应用拉到前台）。
+  - `wait_threads` 的 `timeoutMs` 上限是 120000，传 600000 会被拒。现在每次等 120 秒，超时就带着 cursor 接着等。出问题的那张纸条已经送到但没取回回信，被标成迷路，没有重发。
+- 跨电脑确认框（`post.confirmRemote`，默认开）：放飞、拦下、没人点、弹不出来四种情况有自动测试（用假的确认程序）。真的系统对话框三条路都实测过（2026-11-11）：没人点按时超时；用户点“拦下”，纸条被拒收，中继站没有收到任何东西；用户点“放飞”，纸条发到 CHEN-Y9000P2023 并取回回信（共 40 秒，含等人点的时间）。
+- 没有实测的发送情形：对方超过 2 分钟才回复（需要多次等待）、Codex 桌面应用没开。
+- 栖木的真实屏幕效果（刘海位置、全屏下的行为、悬停展开）没有亲眼确认。
+- 开启"减少动态效果"时的画面没有在浏览器里看过。
+- 官网（`site/`）没有更新。

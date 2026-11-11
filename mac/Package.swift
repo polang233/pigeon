@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "Meerkat",
+    name: "Pigeon",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "Meerkat", path: "Sources/Meerkat")
+        .executableTarget(name: "Pigeon", path: "Sources/Pigeon")
     ]
 )

@@ -1,11 +1,11 @@
 {
-  "name": "meerkat",
+  "name": "pigeon",
   "owner": { "name": "polang233" },
   "plugins": [
     {
-      "name": "meerkat",
+      "name": "pigeon",
       "source": "./plugin",
-      "description": "Meerkat：可视化 Claude Code 的任务分派，规范交给 Codex 的活。"
+      "description": "Pigeon（信鸽）：让 Claude Code 给 Codex 等 agent 送纸条，跨工具也跨电脑；同时把派活过程转发给 Pigeon 应用，并规范交给 Codex 的活。"
     }
   ]
 }

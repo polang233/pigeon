@@ -1,6 +1,6 @@
 // 主题：像素工作室。画布是 288×162 的低分辨率像素，放大显示；文字用 DOM 叠在上面。
 (function () {
-  const M = (window.Meerkat = window.Meerkat || {});
+  const M = (window.Pigeon = window.Pigeon || {});
   const W = 288, H = 162;
   const SP = M.SPRITES, draw = M.drawGrid;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -346,7 +346,7 @@
       let res;
       try { res = await Promise.all([run(), sleep(1100)]).then(r => r[0]); }
       finally { clearInterval(ringT); mk.alert = false; }
-      if (!res) { this.say('检测失败，连不上 Meerkat 应用', 3200); return; }
+      if (!res) { this.say('检测失败，连不上 Pigeon 应用', 3200); return; }
       this.setAgents(res);
       const names = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };
       const parts = [];
