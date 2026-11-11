@@ -1,128 +1,57 @@
 #!/usr/bin/env swift
-// 生成 mac/Resources/AppIcon.icns：像素风站立的狐獴。
-// 用法：swift mac/scripts/make-icon.swift [输出路径.icns]
+// 生成 mac/Resources/AppIcon.icns：红底白鸽。
+// 底图是方形满版位图（默认 assets/generated/pigeon-mark.png），这里裁成标准 Mac 图标的样子：
+// 1024 画布，中间 824 的圆角方块，四角透明，加一圈很淡的内描边。各尺寸分别从原图重新缩放，小尺寸不至于糊成一团。
+// 用法：swift mac/scripts/make-icon.swift [底图.png] [输出.icns]
+// 环境变量 PIGEON_ICON_PREVIEW=<路径.png> 时顺便输出一张 1024 的预览。
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-// 每个字符是一个像素格；改这里就能调形象。
-// . 透明  D 深棕(背/耳)  T 沙色身体  C 奶油肚子  M 眼罩  K 黑(眼/鼻)  W 眼睛高光
-let meerkat = """
-....DDDDD........
-..DDTTTTTDD......
-.DTTTTTTTTTD.....
-DDTTTTTTTTTDD....
-DDMMMTTTMMMDD....
-.DMKMTTTMKMD.....
-.DMMMTTTMMMD.....
-..DTTTTTTTD......
-...DTTCTTD.......
-....DCCCD........
-.....DKD.........
-....DTCTD........
-...DTTCTTD.......
-..DTTCCCTTD......
-.DTTCCCCCTTD.....
-.DTDCCCCCDTD.....
-.DTDCCCCCDTD.....
-.DDTCCCCCTDD.....
-.DTTCCCCCTTD.....
-.DTTCCCCCTTD.....
-.DTTTCCCTTTD...MM
-..DTTTTTTTD...DTD
-..DTTDDDTTD..DTD.
-..DTD...DTD.DTTD.
-.DDDD...DDDDDD...
-"""
+let scriptDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let args = CommandLine.arguments
+let source = args.count > 1
+    ? URL(fileURLWithPath: args[1])
+    : scriptDir.appendingPathComponent("../../assets/generated/pigeon-mark.png").standardizedFileURL
+let output = args.count > 2
+    ? URL(fileURLWithPath: args[2])
+    : scriptDir.appendingPathComponent("../Resources/AppIcon.icns").standardizedFileURL
 
-// 背景：32×32 格，meerkat 叠加在上面
-let scene = """
-.................s..............
-..........s.....................
-.............................s..
-...s...................fffff....
-.......................fyfyf....
-.......................fffff....
-.......................fyfyf....
-.......................fffff....
-................................
-................................
-..s.............................
-............................s...
-................................
-................................
-................................
-................................
-.....s..........................
-................................
-..............................s.
-................................
-................................
-................................
-......s.........................
-................................
-................................
-................................
-................................
-................................
-gggggggggggggggggggggggggggggggg
-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
-"""
-
-func rgb(_ hex: UInt32) -> CGColor {
-    CGColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
-            blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+guard let src = NSImage(contentsOf: source),
+      let art = src.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    FileHandle.standardError.write("读不了底图：\(source.path)\n".data(using: .utf8)!)
+    exit(66)
 }
 
-let palette: [Character: CGColor] = [
-    "D": rgb(0xa87b4f), "T": rgb(0xd9b382), "C": rgb(0xf3e2c0), "M": rgb(0x3b2a1e),
-    "K": rgb(0x111111), "W": rgb(0xffffff),
-    "s": rgb(0x4a6680), "f": rgb(0x8a5a2b), "y": rgb(0xffcf6b),
-    "g": rgb(0x3a5268), "G": rgb(0x283a4b),
-]
-let background = rgb(0x1d2b38)
-let gridSize = 32
-
-func rows(_ s: String) -> [[Character]] { s.split(separator: "\n").map { Array($0) } }
-
+/// 生成 size×size 的图标。比例按 1024 的标准模板：边距 100，圆角 185。
 func render(size: Int) -> CGImage {
+    let s = CGFloat(size)
+    let k = s / 1024
+    let inset = 100 * k, body = s - inset * 2, radius = 185 * k
     let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    let s = CGFloat(size)
-    let margin = (s * 100 / 1024).rounded()
-    let body = s - margin * 2
-    let rect = CGRect(x: margin, y: margin, width: body, height: body)
-    let path = CGPath(roundedRect: rect, cornerWidth: body * 0.2237, cornerHeight: body * 0.2237, transform: nil)
+    ctx.clear(CGRect(x: 0, y: 0, width: s, height: s))
+    let rect = CGRect(x: inset, y: inset, width: body, height: body)
+    let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
 
-    ctx.addPath(path)
-    ctx.setFillColor(background)
-    ctx.fillPath()
+    // 底图的四边有生成痕迹，稍微放大一点裁掉边缘
+    let bleed = body * 0.03
+    ctx.saveGState()
     ctx.addPath(path)
     ctx.clip()
-    ctx.setShouldAntialias(false)
-    ctx.interpolationQuality = .none
+    ctx.interpolationQuality = .high
+    ctx.draw(art, in: rect.insetBy(dx: -bleed, dy: -bleed))
+    ctx.restoreGState()
 
-    let cell = body / CGFloat(gridSize)
-    // 网格坐标 (列, 行) → 像素，行从上往下；四舍五入让边缘对齐像素
-    func fill(_ col: Int, _ row: Int, _ color: CGColor) {
-        let x0 = (margin + CGFloat(col) * cell).rounded(), x1 = (margin + CGFloat(col + 1) * cell).rounded()
-        let yTop0 = (margin + CGFloat(row) * cell).rounded(), yTop1 = (margin + CGFloat(row + 1) * cell).rounded()
-        ctx.setFillColor(color)
-        ctx.fill(CGRect(x: x0, y: s - yTop1, width: x1 - x0, height: yTop1 - yTop0))
-    }
-
-    for (r, line) in rows(scene).enumerated() {
-        for (c, ch) in line.enumerated() { if let color = palette[ch] { fill(c, r, color) } }
-    }
-    let art = rows(meerkat)
-    let offsetX = 9  // 身体（前 13 列）水平居中，尾巴伸到右边
-    let offsetY = 28 - art.count + 1  // 脚踩在地面那一行
-    for (r, line) in art.enumerated() {
-        for (c, ch) in line.enumerated() { if let color = palette[ch] { fill(c + offsetX, r + offsetY, color) } }
+    // 很淡的内描边，让红底在深色 Dock 上也有边
+    if size >= 64 {
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(gray: 0, alpha: 0.12))
+        ctx.setLineWidth(max(1, 4 * k))
+        ctx.strokePath()
     }
     return ctx.makeImage()!
 }
@@ -133,13 +62,8 @@ func writePNG(_ image: CGImage, to url: URL) {
     guard CGImageDestinationFinalize(dest) else { fatalError("写入失败：\(url.path)") }
 }
 
-let scriptDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let output = CommandLine.arguments.count > 1
-    ? URL(fileURLWithPath: CommandLine.arguments[1])
-    : scriptDir.appendingPathComponent("../Resources/AppIcon.icns").standardizedFileURL
-
 let fm = FileManager.default
-let iconset = fm.temporaryDirectory.appendingPathComponent("Meerkat-\(UUID().uuidString).iconset")
+let iconset = fm.temporaryDirectory.appendingPathComponent("Pigeon-\(UUID().uuidString).iconset")
 try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: iconset) }
 
@@ -147,7 +71,7 @@ for base in [16, 32, 128, 256, 512] {
     writePNG(render(size: base), to: iconset.appendingPathComponent("icon_\(base)x\(base).png"))
     writePNG(render(size: base * 2), to: iconset.appendingPathComponent("icon_\(base)x\(base)@2x.png"))
 }
-if let preview = ProcessInfo.processInfo.environment["MEERKAT_ICON_PREVIEW"] {
+if let preview = ProcessInfo.processInfo.environment["PIGEON_ICON_PREVIEW"] {
     writePNG(render(size: 1024), to: URL(fileURLWithPath: preview))
 }
 

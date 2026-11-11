@@ -1,6 +1,6 @@
 // 用量只读本机统计；SSE 的 usage 消息由 main.js 转给 apply。
 (function () {
-  const M = (window.Meerkat = window.Meerkat || {});
+  const M = (window.Pigeon = window.Pigeon || {});
   const dlg = document.querySelector('#usage');
   const cards = document.querySelector('#usage-cards');
   const state = document.querySelector('#usage-state');
@@ -25,7 +25,7 @@
   }
   function render() {
     cards.replaceChildren();
-    if (!connected) { state.textContent = pending ? '正在读取用量…' : '没连上 Meerkat 应用'; return; }
+    if (!connected) { state.textContent = pending ? '正在读取用量…' : '没连上 Pigeon 应用'; return; }
     const agents = Object.entries(latest.agents || {}).filter(([, data]) => data && typeof data === 'object');
     // 已知 agent 保持固定顺序，新增的 agent 也能直接显示。
     const order = Object.keys(NAMES);

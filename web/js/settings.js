@@ -1,6 +1,7 @@
-// 设置面板：读写 Meerkat 应用的 /api/settings，包含系统提醒和 Codex 的设置。
+// 设置面板：读写 Pigeon 应用的 /api/settings，包含提醒、送信、栖木和 Codex 的设置。
+// 保存时只覆盖面板里有的字段，别的模块写的、这里不认识的字段原样保留。
 (function () {
-  const M = (window.Meerkat = window.Meerkat || {});
+  const M = (window.Pigeon = window.Pigeon || {});
   const $ = s => document.querySelector(s);
 
   const DEFAULTS = {
@@ -9,8 +10,13 @@
     sessionMode: 'keep', autoOpen: false, routeAll: true, model: '', effort: '', sandbox: 'auto',
     timeoutMin: 10, maxConcurrent: 2, summaryChars: 300,
   };
-  const NOTIFY_DEFAULTS = { done: true, failed: true, waiting: true, turnEnd: true, turnMinSec: 60 };
-  const SCENE_DEFAULTS = { seats: 3, showSubLabels: true, hoverCards: true };
+  const NOTIFY_DEFAULTS = { done: true, failed: true, waiting: true, turnEnd: true, turnMinSec: 60, noteHome: true, noteLost: true };
+  const SCENE_DEFAULTS = { theme: 'loft', hoverCards: true };
+  const POST_DEFAULTS = { relayThread: '', maxHops: 10, waitTimeoutMin: 10 };
+  const POST_CONFIRM_DEFAULT = true; // 跨电脑发送前弹框确认，单独处理（它是开关，不是输入框）
+  const POST_LIMITS = { maxHops: [1, 50], waitTimeoutMin: [1, 120] };
+  const PERCH_DEFAULTS = { enabled: true };
+  const postField = k => 'post' + k[0].toUpperCase() + k.slice(1);
   const notifyField = k => 'notify' + k[0].toUpperCase() + k.slice(1);
   const EFFORT = { none: '不推理', minimal: '极少', low: '低', medium: '中', high: '高', xhigh: '很高', max: '最高', ultra: '超高' };
 
@@ -73,22 +79,39 @@
     if (!c.sessionMode && c.showInCodex === false) out.sessionMode = 'temp';
     return out;
   }
-  function scene() {
-    const s = { ...SCENE_DEFAULTS, ...(all.scene || {}) };
-    s.seats = [2, 3, 4].includes(Number(s.seats)) ? Number(s.seats) : 3;
-    return s;
-  }
+  function scene() { return { ...SCENE_DEFAULTS, ...(all.scene || {}) }; }
+  function post() { return { ...POST_DEFAULTS, ...(all.post || {}) }; }
+  function perch() { return { ...PERCH_DEFAULTS, ...(all.perch || {}) }; }
   function sceneChanged() { M.settings.onScene?.(scene()); }
   function fillAll() {
     fill(codexOf(all.codex), { ...NOTIFY_DEFAULTS, ...(all.notify || {}) });
-    const s = scene();
-    field('sceneSeats').value = String(s.seats);
-    field('sceneShowSubLabels').checked = s.showSubLabels;
-    field('sceneHoverCards').checked = s.hoverCards;
+    field('sceneHoverCards').checked = scene().hoverCards !== false;
+    const p = post();
+    for (const k of Object.keys(POST_DEFAULTS)) field(postField(k)).value = p[k];
+    field('postConfirmRemote').checked = (all.post || {}).confirmRemote !== false && POST_CONFIRM_DEFAULT;
+    field('perchEnabled').checked = perch().enabled !== false;
   }
-  function readScene() {
-    return { ...scene(), seats: Number(field('sceneSeats').value) || 3,
-      showSubLabels: field('sceneShowSubLabels').checked, hoverCards: field('sceneHoverCards').checked };
+  function readScene() { return { hoverCards: field('sceneHoverCards').checked }; }
+  function readPost() {
+    const out = { relayThread: field('postRelayThread').value.trim(), confirmRemote: field('postConfirmRemote').checked };
+    for (const [k, [lo, hi]] of Object.entries(POST_LIMITS)) {
+      const raw = field(postField(k)).value.trim();
+      const n = raw ? Math.round(Number(raw)) : NaN;
+      out[k] = Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : POST_DEFAULTS[k];
+    }
+    return out;
+  }
+  // 中继站候选：本机鸽舍里的 Codex 对话
+  function fillRelayOptions(lofts) {
+    const list = $('#relay-options');
+    const local = (lofts && Array.isArray(lofts.lofts) ? lofts.lofts : []).find(l => l.id === 'local');
+    list.replaceChildren();
+    for (const s of (local && local.sessions) || []) {
+      if (s.agent && s.agent !== 'codex') continue;
+      const o = document.createElement('option');
+      o.value = s.id; o.label = (s.relay ? '★ ' : '') + (s.title || s.id);
+      list.appendChild(o);
+    }
   }
   function fillModels() {
     const sel = field('model');
@@ -126,7 +149,7 @@
   async function loadHooks() {
     if (hookBusy) return;
     hookReady = false;
-    hookState(live ? '读取中…' : '没连上 Meerkat 应用');
+    hookState(live ? '读取中…' : '没连上 Pigeon 应用');
     if (!live) return;
     try { applyHooks(await json('/api/codex/hooks')); }
     catch (e) { hookState('读取失败：' + (e.message || e) + '，请重新打开设置重试', 'bad'); }
@@ -146,7 +169,7 @@
   // 串行写完整设置，拖拽保存和面板保存不会互相覆盖。
   function persist(update) {
     const write = writes.catch(() => {}).then(async () => {
-      if (!live) throw new Error('没连上 Meerkat 应用');
+      if (!live) throw new Error('没连上 Pigeon 应用');
       if (!loaded) { all = await json('/api/settings'); loaded = true; }
       all = await json('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(update(all)) });
       loaded = true;
@@ -158,7 +181,7 @@
   }
 
   async function load() {
-    if (!live) { fillAll(); state('没连上 Meerkat 应用，只能看，保存不了', 'warn'); return; }
+    if (!live) { fillAll(); state('没连上 Pigeon 应用，只能看，保存不了', 'warn'); return; }
     try {
       const [s, m] = await Promise.all([json('/api/settings'), json('/api/codex/models').catch(() => [])]);
       all = s && typeof s === 'object' ? s : {};
@@ -172,13 +195,15 @@
   }
   async function save() {
     if (!live) return;
-    const codex = read(), notify = readNotify(), s = readScene();
+    const codex = read(), notify = readNotify(), s = readScene(), p = readPost(), pc = { enabled: field('perchEnabled').checked };
     state('保存中…');
     try {
       await persist(current => ({ ...current, version: 1,
         codex: (({ showInCodex, ...rest }) => rest)({ ...(current.codex || {}), ...codex }),
         notify: { ...(current.notify || {}), ...notify },
-        scene: { ...(current.scene || {}), ...s, ...(current.scene?.layout ? { layout: current.scene.layout } : {}) },
+        scene: { ...(current.scene || {}), ...s },
+        post: { ...(current.post || {}), ...p },
+        perch: { ...(current.perch || {}), ...pc },
       }));
       fillAll();
       state('设置已保存', 'ok');
@@ -203,9 +228,10 @@
 
   M.settings = {
     setLive(v) { live = v; field('codexHooks').disabled = !live || !hookReady || hookBusy; },
-    scene,
+    scene, post, perch,
+    setLofts: fillRelayOptions,
     saveScene(patch) {
-      return persist(current => ({ ...current, scene: { ...scene(), ...patch } }));
+      return persist(current => ({ ...current, scene: { ...(current.scene || {}), ...patch } }));
     },
     applyRemote(s) {
       if (s && typeof s === 'object') {

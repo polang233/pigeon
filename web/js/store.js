@@ -1,6 +1,6 @@
 // 把各个 agent 的 hook 事件整理成任务和动作，再通知主题去播放。
 (function () {
-  const M = (window.Meerkat = window.Meerkat || {});
+  const M = (window.Pigeon = window.Pigeon || {});
 
   const isSubagentTool = n => n === 'Agent' || n === 'Task';
   const isCodexTool = n => /^mcp__codex/i.test(n || '');
@@ -74,10 +74,11 @@
       this.listeners = new Set();
       this.sessions = new Map();
       this.waitingSessions = new Map();
+      this.notes = new Map();
     }
     on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
     emit(type, data) { for (const fn of this.listeners) fn(type, data); }
-    reset() { this.tasks.clear(); this.order = []; this.sessions.clear(); this.waitingSessions.clear(); this.emit('reset'); }
+    reset() { this.tasks.clear(); this.order = []; this.sessions.clear(); this.waitingSessions.clear(); this.notes.clear(); this.emit('reset'); }
 
     list() { return this.order.map(id => this.tasks.get(id)); }
     running(kind) { return this.list().filter(t => t.status === 'running' && (!kind || t.kind === kind)); }
@@ -94,6 +95,8 @@
       // Codex 自己的事件完全独立，不能解除 Claude 的等待或播放 Claude 的动作。
       if (p.source === 'codex') { this.emit('heard', { ts }); return this.codexHook(p, ts); }
       const ev = p.hook_event_name;
+      // 纸条和别的事件无关，不碰会话和等待
+      if (ev === 'PigeonNote') { this.emit('heard', { ts }); return this.noteEvent(p, ts); }
       const session = p.session_id || '';
       const cwd = p.cwd || this.sessions.get(session)?.cwd || '';
       if (session) this.sessions.set(session, { cwd, last: ts });
@@ -118,7 +121,8 @@
       }
       if (ev === 'Stop') { this.emit('turnEnd', { session, cwd, ts }); return; }
 
-      if (ev === 'MeerkatCodex') return this.codexEvent(p, ts);
+      // 包装层派活：新名 PigeonRun，旧名 MeerkatCodex
+      if (ev === 'PigeonRun' || ev === 'MeerkatCodex') return this.codexEvent(p, ts);
       if (ev === 'SubagentStop') {
         // 后台子代理以这个事件为结束；同步子代理一般已在 Agent 的 PostToolUse 收尾。
         const t = this.ownerOf(p);
@@ -189,7 +193,8 @@
         this.emit('waiting', item);
         return;
       }
-      const wrapped = p.meerkat_task_id && this.tasks.get(p.meerkat_task_id);
+      const taskId = p.pigeon_task_id || p.meerkat_task_id;
+      const wrapped = taskId && this.tasks.get(taskId);
       let t = wrapped && wrapped.kind === 'codex' ? wrapped : this.running('codex').slice().reverse().find(x =>
         x.via === 'codex-app' && x.session === session && (!p.turn_id || x.turnId === p.turn_id));
       if (ev === 'UserPromptSubmit' && !wrapped) {
@@ -210,13 +215,13 @@
       }
     }
 
-    // 包装层 meerkat-codex 上报的 Codex 真实执行过程
+    // 包装层（pigeon run，原 meerkat-codex）上报的 Codex 真实执行过程
     codexEvent(p, ts) {
       const id = p.task_id;
       if (!id) return;
       if (p.phase === 'start') {
         return this.start(id, 'codex', { session_id: p.session_id, cwd: p.cwd, tool_input: { prompt: p.prompt } }, ts, {
-          title: p.title || 'Codex 任务', via: 'meerkat-codex', codexKind: p.kind, model: p.model || '',
+          title: p.title || 'Codex 任务', via: 'pigeon-run', codexKind: p.kind, model: p.model || '',
           activity: p.kind === 'image' ? 'image' : p.kind === 'review' ? 'read' : 'think',
         });
       }
@@ -257,6 +262,75 @@
     }
   }
 
+  /* ---------- 纸条 ---------- */
+  const NOTE_STATES = ['queued', 'flying', 'delivered', 'home', 'refused', 'lost'];
+  const TERMINAL = new Set(['home', 'refused', 'lost']);
+  const MAX_NOTES = 100;
+  const endpoint = (o, old = {}) => {
+    const v = o && typeof o === 'object' ? o : {};
+    const out = { ...old };
+    for (const k of ['loft', 'loft_name', 'agent', 'session', 'title']) if (v[k] != null && v[k] !== '') out[k] = String(v[k]);
+    out.loft = out.loft || 'local';
+    out.agent = out.agent || '';
+    out.session = out.session || '';
+    out.title = out.title || '';
+    return out;
+  };
+  function mergeNote(prev, p, ts) {
+    const n = prev ? { ...prev } : {
+      band: p.band, chain: p.band, count: 1, kind: 'send', via: '', state: 'queued',
+      from: endpoint(), to: endpoint(), preview: '', answer_preview: '', error: '', created: ts, updated: ts, fingerprint: '',
+    };
+    for (const k of ['chain', 'kind', 'via', 'reply_to', 'fingerprint']) if (p[k]) n[k] = String(p[k]);
+    if (Number(p.count) > 0) n.count = Number(p.count);
+    if (p.from) n.from = endpoint(p.from, n.from);
+    if (p.to) n.to = endpoint(p.to, n.to);
+    if (p.preview) n.preview = oneLine(p.preview, 80);
+    if (p.answer_preview) n.answer_preview = oneLine(p.answer_preview, 160);
+    if (p.error != null && p.state) n.error = String(p.error || '');
+    if (p.created) n.created = Number(p.created);
+    if (!prev && !p.created) n.created = Number(p.ts) || ts;
+    n.updated = Math.max(Number(p.updated || p.ts) || ts, prev ? prev.updated : 0);
+    const st = NOTE_STATES.includes(p.state) ? p.state : null;
+    // 已经归巢、被拒或迷路的纸条不会再回到路上；迟到的旧事件只补字段
+    if (st && !(prev && TERMINAL.has(prev.state) && !TERMINAL.has(st))) n.state = st;
+    return n;
+  }
+  Object.assign(Store.prototype, {
+    noteEvent(p, ts) {
+      if (!p.band) return;
+      const prev = this.notes.get(p.band) || null;
+      const n = mergeNote(prev, p, ts);
+      n.prevState = prev ? prev.state : null;
+      this.notes.set(n.band, n);
+      this.trimNotes();
+      this.emit('noteUpdate', n);
+    },
+    // 页面加载时从 /api/notes 恢复：不播动画，已有的纸条保留事件里带的预览
+    loadNotes(list) {
+      if (!Array.isArray(list)) return;
+      for (const raw of list) {
+        if (!raw || !raw.band) continue;
+        const prev = this.notes.get(raw.band) || null;
+        const n = mergeNote(prev, { ...raw, ts: raw.updated }, Number(raw.updated) || Date.now());
+        if (prev && prev.updated > n.updated) continue;
+        n.prevState = prev ? prev.state : null;
+        this.notes.set(n.band, n);
+      }
+      this.trimNotes();
+      this.emit('notesLoaded', this.noteList());
+    },
+    trimNotes() {
+      if (this.notes.size <= MAX_NOTES) return;
+      const old = this.noteList().slice(MAX_NOTES);
+      for (const n of old) this.notes.delete(n.band);
+    },
+    noteList() { return Array.from(this.notes.values()).sort((a, b) => b.updated - a.updated); },
+    note(band) { return this.notes.get(band) || null; },
+    flyingNotes() { return this.noteList().filter(n => !TERMINAL.has(n.state)); },
+  });
+
   M.Store = Store;
+  M.NOTE_TERMINAL = TERMINAL;
   M.oneLine = oneLine;
 })();

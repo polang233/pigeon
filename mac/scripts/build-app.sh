@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 构建 build/Meerkat.app（release + ad-hoc 签名）。可重复运行。
+# 构建 build/Pigeon.app（release + ad-hoc 签名）。可重复运行。
 set -euo pipefail
 
 MAC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$(cd "$MAC_DIR/.." && pwd)"
-APP="$ROOT_DIR/build/Meerkat.app"
+APP="$ROOT_DIR/build/Pigeon.app"
 CONTENTS="$APP/Contents"
 
 cd "$MAC_DIR"
@@ -13,7 +13,7 @@ BIN_DIR="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
-cp "$BIN_DIR/Meerkat" "$CONTENTS/MacOS/Meerkat"
+cp "$BIN_DIR/Pigeon" "$CONTENTS/MacOS/Pigeon"
 
 if [ -d "$ROOT_DIR/web" ]; then
   rsync -a --delete --exclude '.DS_Store' "$ROOT_DIR/web/" "$CONTENTS/Resources/web/"
@@ -37,15 +37,15 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleExecutable</key>
-    <string>Meerkat</string>
+    <string>Pigeon</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.polang.meerkat</string>
+    <string>dev.polang.pigeon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Meerkat</string>
+    <string>Pigeon</string>
     <key>CFBundleDisplayName</key>
-    <string>Meerkat</string>
+    <string>Pigeon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

@@ -1,23 +1,25 @@
 ---
 name: codex-delegation
-description: 用户电脑上装了 Codex（OpenAI 的编程 agent），它有真正的 AI 生图能力。只要用户要你“画一张图”“做个插图/插画/配图/头图/像素图/图标/头像/背景图/贴图/素材”，或者编辑、抠图现有图片，在动手前先用这个 skill：按 Meerkat 设置决定交给 Codex 生成，而不是自己写脚本逐像素画、也不是用 SVG 凑。另外在这些情况也用：用户提到 Codex、让 Codex 做或问 Codex 意见；需要独立的第二意见代码审查；有边界清楚、能独立完成的较大编码任务想并行交出去。
+description: 用户电脑上装了 Codex（OpenAI 的编程 agent），它有真正的 AI 生图能力。只要用户要你“画一张图”“做个插图/插画/配图/头图/像素图/图标/头像/背景图/贴图/素材”，或者编辑、抠图现有图片，在动手前先用这个 skill：按 Pigeon 设置决定交给 Codex 生成，而不是自己写脚本逐像素画、也不是用 SVG 凑。另外在这些情况也用：用户提到 Codex、让 Codex 做或问 Codex 意见；需要独立的第二意见代码审查；有边界清楚、能独立完成的较大编码任务想并行交出去。要给 Codex 已有的对话或另一台电脑上的对话传话时，用 pigeon-post skill。
 ---
 
 # 把活交给 Codex
 
-Codex 是用户电脑上的另一个编程 agent。所有调用都走包装层 `meerkat-codex`：它按用户在 Meerkat 应用里的设置拼参数，处理 Codex 的老毛病（stdin 卡死、超时、输出噪音、图片不在项目里），把过程实时显示在 Meerkat 里，只把精简结果交还给你。
+Codex 是用户电脑上的另一个编程 agent。所有派活都走 Pigeon 的 `run` 命令：它按用户在 Pigeon 应用里的设置拼参数，处理 Codex 的老毛病（stdin 卡死、超时、输出噪音、图片不在项目里），把过程实时显示在 Pigeon 里，只把精简结果交还给你。
 
-包装层在这个 skill 目录往上两级的 `scripts/meerkat-codex.mjs`。下面用 `MK` 指代它的绝对路径（用本 skill 的 Base directory 拼出来，例如 `<base>/../../scripts/meerkat-codex.mjs`）。
+命令在这个 skill 目录往上两级的 `scripts/pigeon.mjs`。下面用 `PG` 指代它的绝对路径（用本 skill 的 Base directory 拼出来，例如 `<base>/../../scripts/pigeon.mjs`）。旧入口 `scripts/meerkat-codex.mjs` 还能用，效果一样。
+
+`run` 是开一个新的一次性任务。要给 Codex 里**已有的**对话传话、在另一台电脑上开对话、或者等对方回信，用 `pigeon-post` skill（`pigeon send` / `pigeon new`）。
 
 ## 先看设置
 
 第一次交活前，先跑一次：
 
 ```bash
-node "MK" settings
+node "PG" settings
 ```
 
-它会列出用户的偏好，比如“生图优先交给 Codex”是否打开、图片比例和保存目录、是否在 Codex 应用里保留对话。按这些偏好决定要不要交给 Codex。拿不准 Codex 能不能用时，跑 `node "MK" doctor`。
+它会列出用户的偏好，比如“生图优先交给 Codex”是否打开、图片比例和保存目录、是否在 Codex 应用里保留对话。按这些偏好决定要不要交给 Codex。拿不准 Codex 能不能用时，跑 `node "PG" doctor`。
 
 ## 什么活交给 Codex
 
@@ -37,26 +39,26 @@ Codex 看不到这段对话，任务说明必须自成一体。写到一个临�
 2. **背景**：项目是什么、相关约定（让它先读哪些文件，比如 AGENTS.md）。
 3. **范围**：只允许改哪些文件；明确哪些不能碰。
 4. **完成标准**：怎样算做完，要跑什么检查。
-5. 生图任务写清楚画面内容、风格、用途；比例、透明背景和保存位置由包装层按设置自动补上，不用重复写。
+5. 生图任务写清楚画面内容、风格、用途；比例、透明背景和保存位置由 Pigeon 按设置自动补上，不用重复写。
 
 ## 怎么调用
 
 ```bash
-node "MK" run --kind image --title "登录页插图" --cwd <项目目录> --brief-file <任务说明文件>
+node "PG" run --kind image --title "登录页插图" --cwd <项目目录> --brief-file <任务说明文件>
 ```
 
 - `--kind`：`image`（生图）、`code`（写代码，可写工作区）、`review`（审查，只读）、`general`（其他，只读）。
-- `--title`：十几个字的短标题，会显示在 Meerkat 画面和任务列表里。
+- `--title`：十几个字的短标题，会显示在 Pigeon 画面和任务列表里。
 - `--temp` / `--keep`：这次是临时任务（不在 Codex 应用里留对话）还是保留，不写就按设置。一次性的小查询、审查适合 `--temp`；用户之后可能想接着聊的（生图、较大的编码）保留。
 - 不要直接跑 `codex exec` 或调用 Codex 的 MCP 派活工具：设置开着"统一走包装层"时会被拦下。
 - 任务通常要一两分钟，长的可能十分钟；用 Bash 的后台运行（`run_in_background`），等完成通知再继续，不要轮询。
-- 同时交出多个任务时，包装层会按设置的并发上限自动排队。
+- 同时交出多个任务时，Pigeon 会按设置的并发上限自动排队。
 
 ## 拿到结果后
 
-包装层输出：完成或出错、用时、摘要、产出文件、Codex 会话链接、完整记录的路径。
+`run` 输出：完成或出错、用时、摘要、产出文件、Codex 会话链接、完整记录的路径。
 
 - **一定要自己检查产出**：看图片（用 Read 打开）、看 diff、跑检查。Codex 的结论不能直接当成事实转述给用户。
 - 生图结果在设置的图片目录里（默认项目的 `assets/generated/`），告诉用户路径，按需要再移动或改名。
 - 出错时先看摘要；需要细节再读完整记录（JSONL，很长，只读你需要的部分）。超时或 Codex 不可用时，改为自己做或交给子代理，并告诉用户原因。
-- 如果会话保留在 Codex 应用里，可以把 `codex://threads/<id>` 链接给用户，他能在 Codex 里接着这段对话聊。
+- 如果会话保留在 Codex 应用里，可以把 `codex://threads/<id>` 链接给用户，他能在 Codex 里接着这段对话聊；之后要接着给这条对话传话，用 `pigeon send --to <id>`。

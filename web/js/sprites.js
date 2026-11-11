@@ -1,6 +1,6 @@
 // 像素精灵：每个角色是一张字符网格，字符对应调色板里的颜色，'.' 是透明。
 (function () {
-  const M = (window.Meerkat = window.Meerkat || {});
+  const M = (window.Pigeon = window.Pigeon || {});
 
   const PAL = {
     // Claude Code：橙色小生物
