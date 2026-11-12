@@ -7,6 +7,8 @@
 //   relay-ok      对中继站排队：写一轮带 send_message_to_thread / wait_threads 的记录
 //   relay-never   对中继站排队：send_message_to_thread 因审批策略 never 失败
 //   relay-lofts   对中继站排队：写 list_projects / list_threads 的记录
+//   relay-lost    对中继站排队：纸条发出了，但 wait_threads 超时，没等到回信
+//   relay-fetch   对中继站排队：补取回信，写 wait_threads / read_thread 的记录
 // 每次调用都追加一行到 $FAKE_CODEX_LOG，方便测试检查参数。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,6 +56,18 @@ if (cmd === 'queue') {
       ['send_message_to_thread', { threadId: target, hostId: HOST, prompt: '…' }, { threadId: target }],
       ['wait_threads', { targets: [{ threadId: target, hostId: HOST }] }, { timedOut: false, polls: [{ thread: { id: target }, latestTurn: { status: 'completed' }, latestAssistantMessage: { phase: 'final_answer', text: '远程收到了' } }] }],
     ], '```json\n' + JSON.stringify({ pigeon: band, sent: true, thread_id: target, host_id: HOST, timed_out: false, reply: '远程收到了', error: '' }) + '\n```');
+  } else if (mode === 'relay-lost') {
+    const target = (/threadId: ([^，,）)]+)/.exec(message) || [])[1] || 'remote-thread';
+    text = turn(thread, tid, message, [
+      ['send_message_to_thread', { threadId: target, hostId: HOST, prompt: '…' }, { threadId: target }],
+      ['wait_threads', { targets: [{ threadId: target, hostId: HOST }] }, { timedOut: true, polls: [] }],
+    ], '```json\n' + JSON.stringify({ pigeon: band, sent: true, thread_id: target, host_id: HOST, timed_out: true, reply: '', error: '' }) + '\n```');
+  } else if (mode === 'relay-fetch') {
+    const target = (/threadId: ([^，,）)]+)/.exec(message) || [])[1] || 'remote-thread';
+    text = turn(thread, tid, message, [
+      ['wait_threads', { targets: [{ threadId: target, hostId: HOST }] }, { timedOut: false, polls: [{ thread: { id: target }, latestTurn: { status: 'completed' } }] }],
+      ['read_thread', { threadId: target, hostId: HOST, turnLimit: 1 }, { turns: [{ status: 'completed', items: [{ type: 'agentMessage', text: '第二阶段做完了：' + target, phase: 'final_answer' }] }] }],
+    ], '```json\n' + JSON.stringify({ pigeon: band, sent: true, thread_id: target, host_id: HOST, timed_out: false, reply: '第二阶段做完了', error: '' }) + '\n```');
   } else if (mode === 'relay-never') {
     text = turn(thread, tid, message, [['send_message_to_thread', { threadId: 'x', hostId: HOST }, null, 'MCP tool call requires approval, but approval policy is never']], '没发出去');
   } else if (mode === 'relay-lofts') {
