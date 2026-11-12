@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs, clip, fingerprint, newBand, isBand } from '../scripts/lib/common.mjs';
-import { parseLines, readFrom, digest, localProgress, findRollout } from '../scripts/lib/rollout.mjs';
+import { parseLines, readFrom, digest, localProgress, findRollout, toolResult } from '../scripts/lib/rollout.mjs';
 import { parseRelayReply, relayProgress, loftsProgress, remoteLofts, sendInstruction, newInstruction, fetchInstruction, toolFacts } from '../scripts/lib/relay.mjs';
 import { canMove, readJournal, addNote, patchNote, getNote, prune, recent, updateJournal, KEEP_MS } from '../scripts/lib/journal.mjs';
 import { chainFor, overHops, makeNote, eventOf, footer } from '../scripts/lib/post.mjs';
@@ -165,6 +165,18 @@ test('中继指令：写明授权、脚环、正文边界、等待时限和回�
   assert.match(m, /thinking 写「high」/);
   assert.doesNotMatch(m, /不要指定 model/);
   assert.match(newInstruction({ band: BAND, projectId: 'p1', title: '新', body: 'b', waitMin: 2, effort: 'medium' }), /不要指定 model，thinking 写「medium」/);
+});
+
+test('toolResult：多包了一层 content 的返回也能拆开', () => {
+  const inner = { turns: [{ status: 'completed', items: [{ type: 'agentMessage', text: '做完了', phase: 'final_answer' }] }] };
+  const wrapped = { content: [{ type: 'text', text: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(inner) }], isError: false }) }] };
+  const r = toolResult(wrapped);
+  assert.deepEqual(r.json, inner);
+  assert.equal(r.isError, false);
+  const f = toolFacts([{ tool: 'read_thread', arguments: {}, status: 'completed', result: r }]);
+  assert.equal(f.reply, '做完了');
+  assert.equal(toolResult({ content: [{ type: 'text', text: '{"content":"不是包装","x":1}' }] }).json.x, 1, '只拆真正的包装层');
+  assert.equal(toolResult({ content: [{ type: 'text', text: JSON.stringify({ content: [{ type: 'text', text: '出错了' }], isError: true }) }] }).isError, true);
 });
 
 test('补取回信的指令：只读，等一次再读一次，不发消息', () => {
