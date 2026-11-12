@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from './lib/common.mjs';
 import { run, settingsCmd, doctor } from './lib/run.mjs';
-import { sendCmd, newCmd, waitCmd, readCmd, logCmd, loftsCmd, relayCmd, watch } from './lib/post.mjs';
+import { sendCmd, newCmd, waitCmd, readCmd, fetchCmd, logCmd, loftsCmd, relayCmd, watch } from './lib/post.mjs';
 
 const HELP = `Pigeon（信鸽）：让 agent 互相传纸条，跨工具，也跨电脑。
 
@@ -13,8 +13,11 @@ const HELP = `Pigeon（信鸽）：让 agent 互相传纸条，跨工具，也�
   pigeon send --to <对话> "<话>"          给已有对话送一张纸条；远程对话写成 <对话>@<鸽舍名或id>
        [--reply-to <脚环>] [--wait] [--file <纸条文件>]
   pigeon new --loft <鸽舍> [--project <项目>] --title "<标题>" "<话>"   新开一个对话
+       [--model <模型>] [--effort <推理档位>]   指定新对话的模型和推理档位（比如 --model gpt-6-luna --effort high），
+                                              不写就用对方的默认设置；已有对话换不了，只能新开
   pigeon wait <脚环> [--timeout 分钟]     等到归巢或迷路，打印回信
   pigeon read <脚环>                      读回信
+  pigeon fetch <脚环> [--wait-min 分钟]   远程纸条送到了但迷路（没等到回信）时，请中继站再等一次、补取回信（只读）
   pigeon log [-n 20] [--json]             最近的飞行记录
   pigeon relay [use <对话id|latest> | check]   查看、设置或检查中继站
 
@@ -41,6 +44,7 @@ export async function main(argv) {
     case 'new': return newCmd(args);
     case 'wait': return waitCmd(args);
     case 'read': return readCmd(args);
+    case 'fetch': return fetchCmd(args);
     case 'log': return logCmd(args);
     case 'relay': return relayCmd(args);
     case '_watch': return watch(args._[0]);

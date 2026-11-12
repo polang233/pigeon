@@ -222,6 +222,8 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
       "count": 1,
       "kind": "send",
       "reply_to": "",
+      "model": "",
+      "effort": "",
       "from": { "loft": "local", "agent": "claude", "session": "…", "title": "" },
       "to":   { "loft": "remote-control:env_…", "loft_name": "CHEN-Y9000P2023", "agent": "codex", "session": "01a1c898-…", "title": "问候" },
       "via": "relay",
@@ -238,6 +240,7 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 - `band` 是脚环，形如 `b-` 加 10 位十六进制。
 - `chain` 是链首纸条的脚环，`count` 是这是链上第几次传递。回信沿用同一条链，`count` 加一；超过设置里的 `post.maxHops`（默认 10）就拒发，状态 `refused`。
 - `kind` 是 `send`（给已有对话送）或 `new`（新开对话）；`via` 是 `queue`（本机直接排队）或 `relay`（经中继站）。
+- `model` 和 `effort` 是 `pigeon new --model / --effort` 指定的新对话模型和推理档位；没指定是空串，表示用对方的默认设置。`send` 给已有对话送信时总是空串，已有对话换不了模型。
 - `state` 取六个值，见下表。时间戳是毫秒。
 - 正文不写进文件。
 - 每条纸条还有一个内部用的 `track` 对象（看护进程的截止时间、中继站对话和记录文件的位置等）。它是额外字段，读取方应忽略不认识的字段。
@@ -272,7 +275,7 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 | `delivered` | 已送达 | 对方开始处理 |
 | `home` | 已归巢 | 对方这一轮结束，回信已取回 |
 | `refused` | 被拒收 | 发送被拒（用户在确认框里拦下或没人确认、对方不存在、超过往返上限） |
-| `lost` | 迷路 | 超时没有结果。不自动重发 |
+| `lost` | 迷路 | 超时没有结果。不自动重发。经中继站送到了、只是没等到回信的，可以 `pigeon fetch <脚环>` 补取，取到后改成 `home` |
 
 ### `PigeonNote` 事件
 
