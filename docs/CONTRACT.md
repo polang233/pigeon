@@ -325,6 +325,112 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 
 这些和现有的 `notify`、`scene`、`codex` 平级。读取方给缺失的字段补默认值，保存时保留不认识的字段。
 
+## 新界面要的数据（重构时实现，还没做）
+
+2026-11-13 按新界面原型定的，取舍见 `REDESIGN.md` 的"重构前定下的事"。现有字段不变，下面都是新增。读取方照旧忽略不认识的字段。
+
+### 指挥
+
+设置里新增 `lead`：
+
+```json
+{ "lead": { "kind": "agent", "agent": "claude", "loft": "local" } }
+{ "lead": { "kind": "you" } }
+```
+
+- `kind: "agent"` 时，这个 agent 最近一次派活的那个对话画在指挥台中心。
+- `kind: "you"` 时由用户在 Pigeon 里派活，纸条的 `from.agent` 是 `you`，回信只进任务页和刘海，不送回任何对话。
+- 默认 `{ "kind": "agent", "agent": "claude", "loft": "local" }`。
+
+### 纸条的状态和原因
+
+在原来六个状态上加一个 `asking`，被拒和迷路加原因：
+
+| `state` | 界面上叫 | 说明 |
+|---|---|---|
+| `asking` | 等你确认 | 新增。排在等你处理的一队里 |
+| `queued` | 排队 | 不变 |
+| `flying` | 进行中 | 不变 |
+| `delivered` | 已送达 | 不变 |
+| `home` | 已回信 | 不变 |
+| `refused` | 没发出 | 新增 `reason`：`blocked` 你拦下、`timeout` 没人理、`no_target` 对方不在了、`max_hops` 来回超过上限、`offline` 那台连不上 |
+| `lost` | 没回音 | 不变。界面上给"重发"：新纸条带 `retry_of`，值是原来的脚环 |
+
+- 暂停不是一个状态：纸条上 `paused: true`，叠在 `queued` 或 `asking` 上。
+- 拦下和超时以前都只是 `refused`，靠 `reason` 分开。
+
+### 为什么给它、交出去多少
+
+纸条新增两个对象，派活工具从指挥那里收到：
+
+```json
+"why": { "kind": "rule", "rule": "r3", "suggested": { "agent": "codex", "loft": "…" }, "reason": "指挥写的一句理由" },
+"ctx": { "tokens": 61000, "window": 200000, "files": ["mac/Sources/Pigeon/Settings.swift"] }
+```
+
+- `why.kind`：`rule` 照规则、`quota` 额度不够改派、`override` 指挥没照建议、`lead` 没有规则命中由指挥判断。
+- `ctx.tokens` 是估算；装了 magpie 时可以用它的 `/v1/messages/count_tokens` 数。`window` 是对方模型的上下文长度。
+
+### 对话的状态和在做什么
+
+对话（`lofts.json` 的 sessions）新增：
+
+| 字段 | 说明 |
+|---|---|
+| `state` | `run` 在干活、`wait` 等你、`idle` 空闲、`done` 刚完成，新增 `error` 出错 |
+| `error` | 出错时的一句话（连不上、额度用完、进程退出），界面上显示并给"重试" |
+| `activity` | 在做什么，给形象挑动作。由应用按 hook 算，不让页面去猜标题 |
+
+`activity` 的取值和来源：
+
+| 值 | 来源 |
+|---|---|
+| `thinking` | `UserPromptSubmit` 之后、还没调工具 |
+| `reading` | 调 Read、Grep、Glob、WebFetch 这类读的工具 |
+| `typing` | 调 Edit、Write 这类改文件的工具 |
+| `building` | 调 Bash，命令像构建（build、make、cargo、xcodebuild…） |
+| `testing` | 调 Bash，命令像测试（test、pytest、jest…） |
+| `delegating` | 派活给别的 agent，或开了子代理 |
+| `waiting` | 在等你批准或回答 |
+
+### 等你处理的一队
+
+| 请求 | 说明 |
+|---|---|
+| `GET /api/queue` | `{ "items": [...] }`，按时间从旧到新 |
+| `POST /api/queue/<id>` | 请求体 `{ "action": "release" \| "block" \| "release_masked" }`。`release_masked` 是打码后放飞 |
+| `POST /api/ask` | 插件用：把一件要问的事排进队列，挂着等结果再返回 `{ "action": … }`。应用没开时插件退回系统对话框 |
+
+SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
+
+一条：
+
+```json
+{ "id": "q1", "kind": "cross", "band": "b-…", "from": { "loft": "local", "agent": "claude", "session": "…" },
+  "to": { "loft": "…", "agent": "claude", "session": "" }, "preview": "…", "rule": "r3",
+  "created": 1794370024000, "deadline": 1794370114000, "secrets": ["npm token"] }
+```
+
+- `kind`：`cross` 跨设备发送、`relay` 接活的 agent 往下转派、`split` 指挥拆活（带 `parts`：`[{ "to": {...}, "preview": "…" }]`）。
+- `deadline` 只有 `cross` 有，默认创建后 90 秒。
+- `secrets` 是发送前查到的疑似密钥类别，没有就不带。
+
+### 设置再新增
+
+```json
+{
+  "post":   { "askRelay": true, "askSplit": true, "crossTimeoutSec": 90 },
+  "perch":  { "notch": true },
+  "quota":  { "show": "hover", "low": 20 },
+  "secrets":{ "mode": "warn" }
+}
+```
+
+- `post.askRelay`：接活的 agent 往下转派前问不问；`post.askSplit`：指挥一次拆 3 件以上时问不问；`post.crossTimeoutSec`：跨设备发送等几秒没人点就不发。
+- `perch.notch`：用刘海还是菜单栏图标。
+- `quota.show`：`hover` 悬停时看、`always` 一直显示；`quota.low`：额度改派的阈值。
+- `secrets.mode`：`warn` 提醒、`mask` 自动打码、`off` 关。
+
 ## 改名和兼容
 
 | 项目 | 旧（Meerkat） | 新（Pigeon） | 兼容情况 |
