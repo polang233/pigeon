@@ -5,3 +5,6 @@
 *.xcuserstate
 xcuserdata/
 /.claude/settings.local.json
+
+# 原型里临时用的、没有授权的图（从本机应用里取的），不提交
+prototype/art/local/
