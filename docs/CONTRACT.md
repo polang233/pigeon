@@ -223,6 +223,8 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
       "count": 1,
       "kind": "send",
       "reply_to": "",
+      "model": "",
+      "effort": "",
       "from": { "loft": "local", "agent": "claude", "session": "…", "title": "" },
       "to":   { "loft": "remote-control:env_…", "loft_name": "CHEN-Y9000P2023", "agent": "codex", "session": "01a1c898-…", "title": "问候" },
       "via": "relay",
@@ -239,6 +241,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 - `band` 是编号，形如 `b-` 加 10 位十六进制。
 - `chain` 是链首消息的编号，`count` 是这是链上第几次传递。回信沿用同一条链，`count` 加一；超过设置里的 `post.maxHops`（默认 10）就拒发，状态 `refused`。
 - `kind` 是 `send`（给已有对话送）或 `new`（新开对话）；`via` 是 `queue`（本机直接排队）或 `relay`（经中继站）。
+- `model` 和 `effort` 是 `pigeon new --model / --effort` 指定的新对话模型和思考强度；没指定是空串，表示用对方的默认设置。本机经 `codex exec` 的 `-m` 和 `model_reasoning_effort` 生效，远程经中继站写进 `create_thread` 的 `model` 和 `thinking` 生效。`send` 给已有对话发时总是空串，已有对话换不了模型。
 - `state` 取六个值，见下表。时间戳是毫秒。
 - 正文不写进文件。
 - 每条消息还有一个内部用的 `track` 对象（后台进程的截止时间、中继站对话和记录文件的位置等）。它是额外字段，读取方应忽略不认识的字段。
@@ -273,7 +276,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 | `delivered` | 已送达 | 已送达 | 对方开始处理 |
 | `home` | 已回信 | 已归巢 | 对方这一轮结束，回信已取回 |
 | `refused` | 没发出 | 被拒收 | 发送被拒（用户拦下或没人确认、对方不存在、超过往返上限）。原因见下面的 `reason` |
-| `lost` | 没回音 | 迷路 | 超时没有结果。不自动重发 |
+| `lost` | 没回音 | 迷路 | 超时没有结果。不自动重发。经中继站送到了、只是没等到回信的，可以 `pigeon fetch <编号>` 补取，取到后改成 `home` |
 
 "旧叫法"是旧界面和旧文档里的说法，现在只在这里留作对照。第一版另加 `asking`（界面上叫等你确认），见「新界面要的数据」。
 
@@ -527,7 +530,7 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 
 - `to.session` 为空是新开对话。跨设备的照样经 `/api/ask` 排进等你的一队：这时不等你点完，一排进去就回 `{ "ok": true, "band": "b-…", "state": "asking" }`，之后看消息的状态。
 - 命令跑起来了就回 `200`，发没发出看 `ok`；请求体不对、消息是空的、找不到要重发的原文回 `400`；找不到 `node` 或脚本回 `500`。
-- 别的电脑上新开对话指定不了模型和思考强度（中继站那一步不让指定），只记在消息上：`model`、`effort`、`model_applied: false`。
+- 新开对话指定的 `model`、`effort` 本机和别的电脑上都生效：别的电脑上由中继站写进 `create_thread` 的 `model` 和 `thinking`。能选哪些由对方主机决定，不支持的组合在建对话时被拒；`effort` 不是 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra` 之一时插件直接拒（退出码 64，不建消息）。给已有对话发不带这两个字段：已有对话换不了模型，`send` 带了会被拒。
 - 应用把自己发出去的原文留在内存里，`GET /api/notes` 里这些消息多一个 `retryable: true`，界面上才给"重发"：再调一次 `/api/send`，带 `retry_of`。agent 发的消息没有原文，不能重发。
 - 应用这样调：`node <脚本目录>/pigeon.mjs send --to=<对话 id>@<设备 id> --stdin --json`，新开对话是 `new --loft=<设备 id> --title=<标题> [--project=<项目>] [--model=…] [--effort=…] --stdin --json`；环境变量里不带 `CLAUDE_CODE_SESSION_ID`，所以发件人是 `you`。值一律写成 `--名字=值`：标题取自消息的第一行，可能以 `-` 开头，分开写会被命令行当成另一个参数。
 - 应用自带的脚本在 `Pigeon.app/Contents/Resources/plugin/scripts/`；开发时用仓库里的 `plugin/scripts/`；`PIGEON_PLUGIN_ROOT` 可以指到别处。
@@ -538,7 +541,8 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 |---|---|
 | `pigeon send/new/run --reason "<一句理由>"` | 指挥为什么交给它，写进消息的 `why.reason` |
 | `pigeon send/new --retry-of <编号>` | 重发，写进 `retry_of` |
-| `pigeon new --model <模型> --effort <思考强度>` | 新开对话时指定 |
+| `pigeon new --model <模型> --effort <思考强度>` | 新开对话时指定，本机和远程都生效，写进消息的 `model`、`effort`。`send` 不接受这两个参数（退出码 64） |
+| `pigeon fetch <编号> [--wait-min 分钟]` | 经中继站送到了、但没等到回信（`lost`）的远程消息：请中继站再等一次、再读一次对方最新一轮。只读，不给对方发东西，所以不问放不放行；取到后改成 `home`。没有 `--json` |
 | `pigeon send/new --ctx-files a,b --ctx-tokens 1200` | 交出去的上下文，写进 `ctx`；不给 `--ctx-tokens` 时按原文长度估 |
 | `pigeon send/new --stdin` | 正文从标准输入读，不出现在命令行里。应用派活时用 |
 | `pigeon send/new --json` | 只往标准输出写一行 JSON：`{ "ok": true, "band": "b-…", "state": "flying" }` 或 `{ "ok": false, "band": "b-…", "state": "refused", "reason": "blocked", "error": "…" }`。暂停中排着的是 `ok: true`、`state: "queued"`、`paused: true` |

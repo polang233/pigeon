@@ -9,7 +9,7 @@ import {
 } from './common.mjs';
 import { addNote, getNote, patchNote, recent, TERMINAL, STATE_ZH } from './journal.mjs';
 import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } from './rollout.mjs';
-import { sendInstruction, newInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
+import { sendInstruction, newInstruction, fetchInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
 import { getThread, latestRelayCandidate, listThreads, listProjects } from './codex-state.mjs';
 import { readLofts, saveLofts, resolveTarget, findLoft, resolveProject } from './lofts.mjs';
 import { confirmRemote, deniedError, timeoutError } from './confirm.mjs';
@@ -22,6 +22,8 @@ const ago = ms => fmtDur(Math.max(0, ms));
 const say = (...l) => console.log(l.join('\n'));
 const HINT_APP = 'Codex 桌面应用没开：请先打开 ChatGPT 应用（里面的 Codex），再重新发送。';
 const HINT_RELAY_UNSET = '还没有设置中继站：请在 Codex 应用里手动新建一条对话（随便发一句“中转用”），然后运行 pigeon relay use latest。';
+// create_thread 的 thinking 字段能取的值；具体模型支持哪几档，由对方主机在建对话时校验。
+export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const HINT_RELAY_NEVER = '中继站对话的审批策略是 never（多半是 codex exec 建的），不能替你发到远程。请在 Codex 应用里手动新建一条对话，再运行 pigeon relay use <对话id>。';
 
 /* ---------- 输出 ---------- */
@@ -78,10 +80,10 @@ export const overHops = (count, maxHops) => count > maxHops;
 // 看护进程最多跟多久。经中继站的要多留几分钟：中继站自己也要等 waitTimeoutMin，再加上它排队和跑模型的时间
 export const deadlineOf = (note, post, from = note.created) => from + (post.waitTimeoutMin + (note.via === 'relay' ? 3 : 0)) * 60000;
 
-// extra：retry_of、why、ctx、model、effort 这些新增的字段
-export function makeNote({ band, kind, replyTo, chain, count, from, to, via, text, now = Date.now(), track = {}, extra = {} }) {
+// model、effort：pigeon new 指定的模型和思考强度，没指定是空串；extra：retry_of、why、ctx 这些新增的字段
+export function makeNote({ band, kind, replyTo, chain, count, from, to, via, text, now = Date.now(), track = {}, model = '', effort = '', extra = {} }) {
   return {
-    band, chain: chain || band, count, kind, reply_to: replyTo || '',
+    band, chain: chain || band, count, kind, reply_to: replyTo || '', model, effort,
     from, to: { loft: to.loft, loft_name: to.loft_name || (to.loft === LOCAL ? LOCAL_NAME : ''), agent: 'codex', session: to.session || '', title: to.title || '' },
     via, state: 'queued', created: now, updated: now, fingerprint: fingerprint(text), error: '', ...extra, track,
   };
@@ -251,6 +253,7 @@ export async function sendCmd(args) {
   const text = await bodyOf(args);
   if (typeof text !== 'string') return o.usage(64, text.error);
   if (!text.trim()) return o.usage(64, '消息是空的：pigeon send --to <对话> "要说的话"（或 --file <文件>、--stdin）');
+  if (args.model || args.effort) return o.usage(64, '已有对话换不了模型和思考强度。要指定，请用 pigeon new 新开一条对话。');
   const { post, secrets } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
@@ -325,6 +328,10 @@ export async function newCmd(args) {
   if (typeof text !== 'string') return o.usage(64, text.error);
   if (!text.trim()) return o.usage(64, '消息是空的：pigeon new --loft <设备> --title "标题" "要说的话"（或 --stdin）');
   const title = oneLine(args.title || text.split('\n')[0], 40);
+  const model = typeof args.model === 'string' ? args.model.trim() : '';
+  const effort = typeof args.effort === 'string' ? args.effort.trim().toLowerCase() : '';
+  if (args.model === true || args.effort === true) return o.usage(64, '--model 和 --effort 后面要跟值，比如 --model gpt-6-luna --effort high');
+  if (effort && !EFFORTS.includes(effort)) return o.usage(64, `思考强度只能是 ${EFFORTS.join(' / ')}，收到「${args.effort}」。`);
   const { post, secrets } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
@@ -339,12 +346,8 @@ export async function newCmd(args) {
   const to = { loft: loft.id, loft_name: loft.name, session: '', title };
   const via = loft.id === LOCAL ? 'queue' : 'relay';
   const extra = extrasOf(args, text);
-  // 模型和思考强度：本机新开对话是 codex exec，能用 -m 和 -c 指定；经中继站的 create_thread 现在不指定模型，只能记在消息上
-  const model = typeof args.model === 'string' ? args.model : '', effort = typeof args.effort === 'string' ? args.effort : '';
-  if (model) extra.model = model;
-  if (effort) extra.effort = effort;
-  if ((model || effort) && via === 'relay') extra.model_applied = false;
-  const note = makeNote({ band, kind: 'new', replyTo: args['reply-to'], chain, count, from, to, via, text, extra, track: { asker: process.pid } });
+  // 模型和思考强度：本机新开对话由 codex exec 的 -m 和 -c 指定；经中继站的写进 create_thread 的 model 和 thinking
+  const note = makeNote({ band, kind: 'new', replyTo: args['reply-to'], chain, count, from, to, via, text, model, effort, extra, track: { asker: process.pid } });
   if (overHops(count, post.maxHops)) {
     const err = `这条链已经传了 ${count - 1} 次，超过往返上限 ${post.maxHops}，不再发送。`;
     await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
@@ -384,14 +387,14 @@ export async function newCmd(args) {
   const message = sendText.trimEnd() + footer(band, from);
   const d = via === 'queue'
     ? { type: 'exec', message, cwd, model, effort }
-    : { type: 'relay', instr: newInstruction({ band, projectId: pr.project.id, projectName: pr.project.name, loftName: loft.name, title, body: message, waitMin: post.waitTimeoutMin }) };
+    : { type: 'relay', instr: newInstruction({ band, projectId: pr.project.id, projectName: pr.project.name, loftName: loft.name, title, body: message, waitMin: post.waitTimeoutMin, model, effort }) };
 
   const r = await launch(note, d, post);
   if (!r.ok) return o.refused(note, r.error, r.reason);
   if (r.paused) { o.say(...pausedText(band, post)); return o.done(0, { ok: true, band, state: 'queued', paused: true }); }
   o.say(`消息已发出，编号 ${band}（新开对话「${title}」）`,
     `设备：${loft.name}${via === 'relay' ? '（经中继站转发，会跑一轮模型，有 token 成本）' : ''}`,
-    ...((model || effort) && via === 'relay' ? ['注意：远程新开对话暂时不能指定模型和思考强度，已记在消息上，没有生效。'] : []),
+    `模型：${modelLabel(note) || (via === 'relay' ? '对方设备的默认设置' : '本机 Codex 设置')}`,
     `等回信：node "${PIGEON_SCRIPT}" wait ${band}　读回信：node "${PIGEON_SCRIPT}" read ${band}`);
   if (args.wait && !o.json) return waitCmd({ _: [band], timeout: args.timeout });
   return o.done(0, { ok: true, band, state: 'flying' });
@@ -405,7 +408,7 @@ export function progressOf(note) {
     const file = t.relay_rollout || (getThread(t.relay_thread) || {}).rollout || findRollout(t.relay_thread);
     const r = file ? readFrom(file, t.relay_offset || 0) : null;
     if (!r) return { state: '' };
-    return relayProgress(r.lines, note.band);
+    return relayProgress(r.lines, t.fetch_band || note.band, { fetched: !!t.fetch_band });
   }
   if (!note.to.session) return { state: '' };
   const file = t.rollout || (getThread(note.to.session) || {}).rollout || findRollout(note.to.session);
@@ -554,9 +557,9 @@ export function answerOf(note) {
     const t = note.track || {};
     const file = t.relay_rollout || findRollout(t.relay_thread);
     const r = file ? readFrom(file, t.relay_offset || 0) : null;
-    const turn = r ? turnForBand(digest(r.lines), note.band) : null;
+    const turn = r ? turnForBand(digest(r.lines), t.fetch_band || note.band) : null;
     if (turn && turn.done) {
-      const j = parseRelayReply(turn.answer, note.band);
+      const j = parseRelayReply(turn.answer, t.fetch_band || note.band);
       const f = toolFacts(turn.tools);
       const a = f.reply || (j && j.reply) || '';
       if (a) return { answer: a, progress: p };
@@ -568,6 +571,7 @@ export function answerOf(note) {
 const who = p => (p.agent === 'claude' ? 'Claude' : p.agent === 'you' ? '你' : p.agent || '?');
 const where = to => `${to.title || to.session || '（新对话）'}${to.loft === LOCAL ? '' : '@' + (to.loft_name || to.loft)}`;
 const elapsed = n => ago((TERMINAL.has(n.state) ? n.updated : Date.now()) - n.created);
+const modelLabel = n => [n.model, n.effort].filter(Boolean).join(' · ');
 const codexLink = n => (n.to.session && n.to.loft === LOCAL ? `codex://threads/${n.to.session}` : '');
 
 export async function readCmd(args) {
@@ -578,12 +582,13 @@ export async function readCmd(args) {
   note = await reapOrphan(note) || note;
   const { answer, progress } = answerOf(note);
   note = (await applyProgress(note, progress)) || note;
-  const lines = [`${band}　${STATE_ZH[note.state] || note.state}${note.paused ? '（暂停中，继续后自动送出）' : ''}　${who(note.from)} → ${where(note.to)}　用时 ${elapsed(note)}`];
+  const lines = [`${band}　${STATE_ZH[note.state] || note.state}${note.paused ? '（暂停中，继续后自动送出）' : ''}　${who(note.from)} → ${where(note.to)}　用时 ${elapsed(note)}${modelLabel(note) ? `　模型 ${modelLabel(note)}` : ''}`];
   if (note.reason) lines.push(`原因：${note.reason}`);
   if (note.error) lines.push(`说明：${note.error}`);
   if (codexLink(note)) lines.push(`对话：${codexLink(note)}`);
   if (answer) lines.push('回信：', answer);
   else if (!TERMINAL.has(note.state)) lines.push('还没有回信。等它：pigeon wait ' + band);
+  else if (note.state === 'lost' && note.via === 'relay' && note.to.session) lines.push(`没有回信。对方可能还在忙，等它做完可以补取：pigeon fetch ${band}`);
   else lines.push('没有回信。');
   say(...lines);
   return answer ? 0 : TERMINAL.has(note.state) ? 1 : 2;
@@ -616,13 +621,56 @@ export async function waitCmd(args) {
   }
 }
 
+/* ---------- 补取回信 ---------- */
+// 经中继站送到了、但当时没等到回信（没回音）的消息：请中继站再等一次、再读一次。只读，不给对方发消息，所以不弹放行确认。
+export async function fetchCmd(args) {
+  const band = args._[0];
+  if (!isBand(band)) { console.error('用法：pigeon fetch <编号> [--wait-min 分钟]'); return 64; }
+  let note = getNote(band);
+  if (!note) { console.error(`任务记录里没有 ${band}（只保留最近 7 天）。`); return 1; }
+  if (note.state === 'home') return readCmd({ _: [band] });
+  if (note.via !== 'relay') { console.error('补取只用于经中继站发到远程的消息。本机的消息直接 pigeon wait / pigeon read。'); return 64; }
+  if (note.state !== 'lost') { console.error(`这条消息现在是「${STATE_ZH[note.state] || note.state}」，不用补取：${note.state === 'refused' ? '它没发出去。' : `等它：pigeon wait ${band}`}`); return 64; }
+  if (!note.to.session) { console.error('任务记录里没有对方的对话 id（可能根本没送到），没法补取。去 Codex 里看看，或者重新发。'); return 1; }
+  const { post } = await loadSettings();
+  const waitMin = Number(args['wait-min']) > 0 ? Number(args['wait-min']) : post.waitTimeoutMin;
+  const rs = relayStatus(post);
+  if (!rs.ok) { say(rs.error); return 3; }
+  if (!codexAppRunning()) { say(HINT_APP); return 3; }
+  const bin = codexBin();
+  if (!bin) { say('Codex 不可用：没找到 codex 命令。'); return 3; }
+  const fetchBand = newBand();
+  const file = rs.thread.rollout || findRollout(rs.thread.id);
+  const offset = fileSize(file);
+  const host = note.track?.host || note.to.loft;
+  const instr = fetchInstruction({ band: fetchBand, origBand: band, threadId: note.to.session, hostId: host, title: note.to.title, loftName: note.to.loft_name, waitMin });
+  const q = codexQueue(bin, rs.thread.id, instr);
+  if (!q.ok) { say(`没排上：${q.error}`); return 1; }
+  await patchNote(band, { error: `正在补取回信（${fetchBand}）…`, track: { fetch_band: fetchBand, relay_thread: rs.thread.id, relay_rollout: file, relay_offset: offset } });
+  process.stderr.write(`已请中继站补取 ${band} 的回信（最多等 ${waitMin} 分钟，经中继站，有 token 成本）…\n`);
+  const deadline = Date.now() + (waitMin + 3) * 60000;
+  while (Date.now() < deadline) {
+    await sleep(pollMs());
+    note = getNote(band);
+    const p = progressOf(note);
+    if (!p.state || p.state === 'delivered' || p.state === 'flying') continue;
+    // 先清掉“正在补取”的说明，这样发给应用的“已回信”事件里不带它
+    if (p.state === 'home') { await patchNote(band, { error: '' }); await applyProgress(note, p); return readCmd({ _: [band] }); }
+    // 中继站这一轮结束了但没拿到回信：还是没回音，换上这次的说明
+    await patchNote(band, { error: p.error || '补取也没拿到回信' });
+    return readCmd({ _: [band] });
+  }
+  await patchNote(band, { error: `补取超时：中继站 ${waitMin + 3} 分钟内没回来。稍后可以再 pigeon fetch ${band}。` });
+  return readCmd({ _: [band] });
+}
+
 export async function logCmd(args) {
   const n = Math.max(1, Number(args.n || args.limit) || 20);
   const notes = recent(n);
   if (args.json) { console.log(JSON.stringify({ notes }, null, 2)); return 0; }
   if (!notes.length) { say('还没有任务记录。发一条：pigeon send --to <对话> "要说的话"'); return 0; }
   const d = ts => { const x = new Date(ts); return `${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')} ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
-  const rows = notes.map(x => `${x.band}  ${d(x.created)}  ${(STATE_ZH[x.state] || x.state).padEnd(3, '　')}  ${who(x.from)} → ${where(x.to)}${x.via === 'relay' ? '（经中继）' : ''}  ${elapsed(x)}${x.count > 1 ? `  第 ${x.count} 程` : ''}${x.error ? '\n    ' + oneLine(x.error, 120) : ''}`);
+  const rows = notes.map(x => `${x.band}  ${d(x.created)}  ${(STATE_ZH[x.state] || x.state).padEnd(3, '　')}  ${who(x.from)} → ${where(x.to)}${x.via === 'relay' ? '（经中继）' : ''}  ${elapsed(x)}${x.count > 1 ? `  第 ${x.count} 程` : ''}${modelLabel(x) ? `  ${modelLabel(x)}` : ''}${x.error ? '\n    ' + oneLine(x.error, 120) : ''}`);
   say(`最近 ${notes.length} 条消息（新的在上）：`, ...rows);
   return 0;
 }
