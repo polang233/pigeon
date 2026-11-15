@@ -7,6 +7,10 @@
 *.xcuserstate
 xcuserdata/
 /.claude/settings.local.json
+/.claude/launch.json
+
+# 临时文件和草稿，不提交
+/.local/
 
 # 没有授权的图（从本机 Codex 应用里取的宠物），不提交，也不打进应用
 web/art/local/

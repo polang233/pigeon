@@ -129,7 +129,7 @@ enum KeyOutcome: Equatable {
     case collapse
 }
 
-/// 照 REDESIGN.md“等你处理的那一队”定下的键盘规矩：只在面板展开、并且鼠标或焦点在面板里时算数；
+/// 照 DESIGN.md“等你处理的那一队”定下的键盘规矩：只在面板展开、并且鼠标或焦点在面板里时算数；
 /// 上下选，回车放行选中的那件，焦点在某个按钮上时回车就是按那个按钮，⌫ 拦下，Esc 收起。
 enum KeyRouter {
     static func route(_ key: NotchKey, _ c: KeyContext) -> KeyOutcome {

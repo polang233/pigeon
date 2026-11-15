@@ -86,7 +86,7 @@ export function createMock(now = Date.now()) {
     't-8f2c': { why: { kind: 'rule', rule: 'r1' }, ctx: { tokens: 1200, window: 400000, files: [] } },
     't-5a2e': { why: { kind: 'rule', rule: 'r4' }, ctx: { tokens: 900, window: 200000, files: ['web/settings.js'] } },
     't-71ab': { why: { kind: 'override', rule: 'r3', suggested: { agent: 'claude', dev: 'win' }, reason: '构建要用那台电脑上装好的 MSVC，只有 Codex 那边配过环境' }, ctx: { tokens: 3800, window: 400000, files: ['Cargo.toml', 'build.rs'] } },
-    't-66d0': { why: { kind: 'lead', reason: '设置页一处开关，改动范围小，Cursor 改表单最快' }, ctx: { tokens: 61000, window: 200000, files: ['web/settings.js', 'web/settings.css', 'docs/PRD.md', 'docs/CONTRACT.md', '另外 8 个'] } },
+    't-66d0': { why: { kind: 'lead', reason: '设置页一处开关，改动范围小，Cursor 改表单最快' }, ctx: { tokens: 61000, window: 200000, files: ['web/settings.js', 'web/settings.css', 'docs/archive/PRD.md', 'docs/CONTRACT.md', '另外 8 个'] } },
     't-3a07': { why: { kind: 'quota', rule: 'r3', suggested: { agent: 'codex', dev: 'win' } }, ctx: { tokens: 2400, window: 200000, files: ['tests/README.md'] }, body: '在 Windows 上跑测试集，失败的贴回来。\n要先登录私有包源：NPM_TOKEN=npm_9fK2xQ7LmA3pR8sT1vW4yZ6b' },
     't-5c11': { why: { kind: 'rule', rule: 'r2' }, ctx: { tokens: 18000, window: 400000, files: ['src/confirm.rs', 'src/timeout.rs'] } },
     't-29e4': { why: { kind: 'rule', rule: 'r5' }, ctx: { tokens: 900, window: 128000, files: [] } },

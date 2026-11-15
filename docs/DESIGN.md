@@ -17,7 +17,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
 
 界面里不再用鸽舍、纸条、脚环、栖木这套比喻词，直接叫设备、任务、消息、对话。产品名仍然是 Pigeon。办公室和鸽舍两套像素画面保留，降级成指挥台的可选样式。
 
-现在人能读到的地方（应用菜单和通知、网页、原生刘海、命令行输出、两个 skill、`README.md`、`CONTRACT.md`）都已经换成新词。`PRD.md`、`IMPLEMENTATION.md`、`PIGEON-PLAN.md`、`CODEX-FEASIBILITY.md` 是历史记录，仍然是旧词，各自开头有一句说明。接口里的字段名和命令（`band`、`lofts.json`、`pigeon lofts`、`--loft`）没有改。
+现在人能读到的地方（应用菜单和通知、网页、原生刘海、命令行输出、两个 skill、`README.md`、`CONTRACT.md`）都已经换成新词。`archive/PRD.md`、`archive/IMPLEMENTATION.md`、`archive/PIGEON-PLAN.md`、`archive/CODEX-FEASIBILITY.md` 是历史记录，仍然是旧词，各自开头有一句说明。接口里的字段名和命令（`band`、`lofts.json`、`pigeon lofts`、`--loft`）没有改。
 
 有两处故意没换：中继站的指令（`plugin/scripts/lib/relay.mjs`）和消息末尾那一行说明（`plugin/scripts/lib/post.mjs`，形如 `（Pigeon 纸条 b-…，来自…）`）。它们是 Codex 读的、命令行也要解析，改词可能让 Codex 或解析出错，要先拿真的 Codex 试过再换。
 
@@ -111,7 +111,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
     - Cursor 娘（社区里没有，我们设计的）：黑色波波头带银灰挑染、六边形立方体发饰、黑白极简套装、杖头是鼠标箭头的长杖。
   - 每个角色一张 3×3 九宫格动作表（同一张图里画九个状态，脸和衣服才一致），用 `tools/slice_sheet.py` 切成九张、统一按脚底对齐，放在 `web/art/manor/<agent>/`。九个状态：立绘、指挥或收到吩咐、干活、在想、等你、完成、空闲、睡着、出错。
   - 指挥台按 agent 此刻在做什么换图，再加一点 CSS 小动作让静态图活起来：空闲时呼吸，干活时上下轻晃，指挥时左右摆，在想时歪头，等你时一跳一跳，完成时小跳，出错时抖两下，睡着时慢慢呼吸。
-  - 大厅：白天版和夜晚版同一个构图，浅色用白天、深色用夜晚。窗外屋顶上有个小鸽舍和几只信鸽，夜里鸽舍亮着灯。原图在 `assets/generated/`，界面里用压缩过的 JPEG。
+  - 大厅：白天版和夜晚版同一个构图，浅色用白天、深色用夜晚。窗外屋顶上有个小鸽舍和几只信鸽，夜里鸽舍亮着灯。原图在 `assets/manor/`，界面里用压缩过的 JPEG。
   - 收起的远程设备是一块挂着的木牌，金边；展开时身后铺一块金边的底。
   - `web/art/manor.js` 里还留着一版自己画的像素人物和像素大厅，图片缺失时用它顶上。
 - **办公室。** 每个 agent 一个工位：显示器、桌子、坐在桌后的角色，头顶气泡表示状态。
@@ -197,7 +197,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
 | Codex（本机） | 一个 MCP | 排进它的队列，不打断当前一轮 | 加一个 MCP 和两条回调 | 接收已实测（`codex queue` 加唤醒）；MCP 还没做 |
 | Cursor（本机） | 一个 MCP | 只在它一轮结束时收 | 加一个 MCP 和一条回调 | 没做，没验证 |
 | DeepSeek Harness（本机） | 一个 MCP | 排进它自己的队列 | Harness 插件 | 没做，没验证 |
-| Codex（远程） | 暂时只能回信 | 发消息、新开对话 | 经本机 Codex 中转，那台电脑不用装东西 | 已实测，见 `IMPLEMENTATION.md` |
+| Codex（远程） | 暂时只能回信 | 发消息、新开对话 | 经本机 Codex 中转，那台电脑不用装东西 | 已实测，见 `archive/IMPLEMENTATION.md` |
 | 其他 agent（远程） | 暂时只能回信 | 由远程的 Codex 启动并转交 | 走 Codex 这条连接 | 只是设想，没验证 |
 
 ## 接 magpie 能拿到什么

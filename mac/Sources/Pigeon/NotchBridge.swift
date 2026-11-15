@@ -260,7 +260,7 @@ final class NotchBridge {
                 compose.append(ComposeDevice(id: id, name: deviceName(id), isLocal: true, agents: list))
             } else {
                 guard !Set(off[id] ?? []).contains("codex") else { continue }
-                // 别的电脑上只有 Codex；经中继站新开对话指定不了模型，所以不列模型
+                // 别的电脑上只有 Codex。命令行已经能给远程新开的对话指定模型，这里还没接上（见 docs/TODO.md），先不列模型
                 compose.append(ComposeDevice(id: id, name: deviceName(id), isLocal: false, online: loft["online"] as? Bool ?? true,
                                              agents: [ComposeAgent(agent: .codex, sessions: refs(id))]))
             }
