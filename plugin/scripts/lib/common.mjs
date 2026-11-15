@@ -41,7 +41,7 @@ export const isBand = s => /^b-[0-9a-f]{10}$/.test(String(s || ''));
 
 /* ---------- 参数 ---------- */
 // --k v / --k=v / --flag / -n 20 / -- 后面整体算正文。flags 里列的键永远是开关，不吃后面的参数。
-export const BOOL_FLAGS = ['wait', 'refresh', 'temp', 'keep', 'json', 'help', 'h', 'all'];
+export const BOOL_FLAGS = ['wait', 'refresh', 'temp', 'keep', 'json', 'help', 'h', 'all', 'stdin'];
 export function parseArgs(argv, flags = BOOL_FLAGS) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
@@ -101,13 +101,21 @@ export const CODEX_DEFAULTS = {
   maxConcurrent: 2,
   summaryChars: 300,
 };
-export const POST_DEFAULTS = { relayThread: '', maxHops: 10, waitTimeoutMin: 10, confirmRemote: true };
+// crossTimeoutSec：跨设备发送等用户确认多少秒；pauseMaxMin：暂停时一条消息最多排多久（插件自己的约定，见 post.mjs）
+export const POST_DEFAULTS = { relayThread: '', maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, crossTimeoutSec: 90, pauseMaxMin: 120 };
+export const SECRETS_MODES = ['warn', 'mask', 'off'];
 
 export function readSettingsFile() {
   for (const f of settingsFiles()) {
     try { return { raw: JSON.parse(fs.readFileSync(f, 'utf8')), file: f }; } catch {}
   }
   return { raw: null, file: '' };
+}
+
+// 暂停：直接读设置文件（应用写的），不经应用。目标设备被暂停，或者全部暂停，就算暂停。
+export function isPaused(loft) {
+  const p = (readSettingsFile().raw || {}).paused || {};
+  return p.all === true || !!(p.lofts && p.lofts[loft] === true);
 }
 
 export async function loadSettings() {
@@ -122,7 +130,11 @@ export async function loadSettings() {
   post.maxHops = Math.max(1, Number(post.maxHops) || POST_DEFAULTS.maxHops);
   post.waitTimeoutMin = Math.max(0.05, Number(post.waitTimeoutMin) || POST_DEFAULTS.waitTimeoutMin);
   post.confirmRemote = post.confirmRemote !== false; // 只有明确写 false 才关
-  return { codex: { ...CODEX_DEFAULTS, ...((raw && raw.codex) || {}) }, post, raw: raw || {}, source, appOnline: !!r };
+  post.crossTimeoutSec = Math.max(1, Number(post.crossTimeoutSec) || POST_DEFAULTS.crossTimeoutSec);
+  post.pauseMaxMin = Math.max(0.02, Number(post.pauseMaxMin) || POST_DEFAULTS.pauseMaxMin);
+  const mode = raw && raw.secrets && raw.secrets.mode;
+  const secrets = { mode: SECRETS_MODES.includes(mode) ? mode : 'warn' };
+  return { codex: { ...CODEX_DEFAULTS, ...((raw && raw.codex) || {}) }, post, secrets, raw: raw || {}, source, appOnline: !!r };
 }
 
 // 改一处设置。应用开着时走 PUT（应用负责写文件和广播）；没开时直接改设置文件，

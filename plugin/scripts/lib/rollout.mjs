@@ -1,5 +1,5 @@
 // 读 Codex 的对话记录（~/.codex/sessions/年/月/日/rollout-*-<threadId>.jsonl），每行一个 JSON。
-// 只读。用脚环在用户消息里认出“我们那一轮”，再看那一轮有没有结束、最终回复是什么。
+// 只读。用编号在用户消息里认出“我们那一轮”，再看那一轮有没有结束、最终回复是什么。
 import fs from 'node:fs';
 import path from 'node:path';
 import { codexHome } from './common.mjs';
@@ -86,12 +86,12 @@ export function toolResult(r) {
   return { isError: !!r.isError, text, json };
 }
 
-// 找带着脚环的那一轮。同一个脚环出现多次时取第一次（我们只发一次）。
+// 找带着编号的那一轮。同一个编号出现多次时取第一次（我们只发一次）。
 export function turnForBand(digested, band) {
   return digested.turns.find(t => t.users.some(u => u.includes(band))) || null;
 }
 
-// 本机对话（直接排队）的进展：没找到这一轮 → 还在排队；找到了 → 已送达；结束 → 归巢；被打断 → 迷路
+// 本机对话（直接排队）的进展：没找到这一轮 → 还在排队；找到了 → 已送达；结束 → 回信到了；被打断 → 没回音
 export function localProgress(events, band) {
   const t = turnForBand(digest(events), band);
   if (!t) return { state: '', turn: '' };

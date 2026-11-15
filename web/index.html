@@ -2,186 +2,45 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pigeon</title>
-<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="icon" href="assets/favicon.png">
 <link rel="stylesheet" href="app.css">
-<link rel="stylesheet" href="usage.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <img src="assets/logo.png" alt="" width="34" height="34">
-      <div>
-        <h1>Pigeon</h1>
-        <p>agent 之间的信鸽，每张纸条看得见</p>
+<div class="desk">
+  <!-- 假的菜单栏和刘海：只在演示模式里用来演示刘海上的交互，应用模式下 main.js 把它拿掉（刘海是原生的） -->
+  <header class="menubar" aria-label="菜单栏（演示）">
+    <span class="mb-left"><b>Pigeon</b><span>文件</span><span>显示</span><span>窗口</span></span>
+    <div class="hud" id="hud" data-state="idle" role="region" aria-label="刘海面板（演示）">
+      <div class="hud-top">
+        <span class="ear ear-l" id="ear-l"></span>
+        <span class="cam" aria-hidden="true"></span>
+        <span class="ear ear-r" id="ear-r"></span>
       </div>
+      <div class="hud-body" id="hud-body"></div>
+      <div class="hud-glow" id="hud-glow" aria-hidden="true"></div>
     </div>
-    <div class="tools">
-      <span class="pill" id="mode" data-mode="connecting">连接中…</span>
-      <label class="theme">
-        <span class="sr">主题</span>
-        <select id="theme">
-          <option value="loft">鸽舍</option>
-          <option value="pixel-studio">像素工作室（旧版）</option>
-        </select>
-      </label>
-      <button class="btn" id="sim" aria-pressed="false">模拟演示</button>
-      <button class="btn" id="usage-open">用量</button>
-      <button class="btn" id="open-settings">设置</button>
-      <button class="btn primary" id="detect">检测连接</button>
-    </div>
+    <span class="mb-right"><button class="mb-q" id="mb-q" type="button" data-action="mbq" aria-label="Pigeon：等你的事"></button><span>周四 10:42</span></span>
   </header>
 
-  <main class="layout">
-    <section class="stage-wrap">
-      <div class="stage" id="stage"></div>
-      <div class="hint" id="hint" hidden>
-        <p>还没收到事件。按 README 接好 hook 后，Claude Code 一派活、一送纸条，这里就会动起来。</p>
-        <button class="btn" id="hint-sim">先看模拟演示</button>
-      </div>
-    </section>
-
-    <aside class="log" id="log" aria-label="飞行记录">
-      <header class="log-head">
-        <h2>飞行记录</h2>
-        <div class="log-tabs" role="tablist" aria-label="记录分类">
-          <button type="button" role="tab" data-tab="notes" aria-selected="true">纸条 <i id="tab-notes-n">0</i></button>
-          <button type="button" role="tab" data-tab="tasks" aria-selected="false">派活 <i id="tab-tasks-n">0</i></button>
-        </div>
-        <button type="button" class="log-toggle" id="log-toggle" aria-expanded="true" aria-controls="log-body">收起</button>
-      </header>
-      <div class="log-body" id="log-body">
-        <div class="waiting" id="waiting" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-        <div class="counts">
-          <div><b id="count-a">0</b><span id="count-a-l">在飞</span></div>
-          <div><b id="count-b">0</b><span id="count-b-l">归巢</span></div>
-          <div><b id="count-c">0</b><span id="count-c-l">被拒或迷路</span></div>
-        </div>
-        <ol id="notes" class="list" aria-label="纸条"></ol>
-        <ol id="tasks" class="list" aria-label="派活" hidden></ol>
+  <div class="win">
+    <aside class="side">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <nav id="nav" aria-label="页面"></nav>
+      <div class="side-foot">
+        <button class="ghost setbtn" id="settings" type="button" data-action="settings" aria-label="设置" aria-expanded="false" aria-controls="setpop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>设置</span></button>
+        <p id="side-note" role="status"></p>
       </div>
     </aside>
-  </main>
-
-  <dialog class="settings" id="settings" aria-labelledby="settings-title">
-    <form method="dialog" id="settings-form">
-      <header>
-        <h2 id="settings-title">设置</h2>
-        <button class="btn icon" value="close" aria-label="关闭">✕</button>
-      </header>
-      <nav class="agent-tabs" role="tablist" aria-label="设置分页">
-        <button type="button" role="tab" data-pane="general" class="on" aria-selected="true">通用</button>
-        <button type="button" role="tab" data-pane="post" aria-selected="false">送信</button>
-        <button type="button" role="tab" data-pane="codex" aria-selected="false">Codex</button>
-        <button type="button" role="tab" disabled title="以后加">Claude Code</button>
-        <button type="button" role="tab" disabled title="以后加">Cursor</button>
-      </nav>
-      <div class="pane" data-pane="general" role="tabpanel">
-      <fieldset class="notify-settings">
-        <legend>提醒</legend>
-        <label class="row"><span>纸条归巢时通知<small>对方回信取回来时提醒你</small></span><input type="checkbox" name="notifyNoteHome"></label>
-        <label class="row"><span>纸条被拒或迷路时通知<small>不会自动重发，要不要再送由你决定</small></span><input type="checkbox" name="notifyNoteLost"></label>
-        <label class="row"><span>派活完成时通知<small>子代理或 Codex 交回结果时提醒你</small></span><input type="checkbox" name="notifyDone"></label>
-        <label class="row"><span>派活出错时通知</span><input type="checkbox" name="notifyFailed"></label>
-        <label class="row"><span>Claude 等你时通知<small>需要你批准工具或回复问题时提醒你</small></span><input type="checkbox" name="notifyWaiting"></label>
-        <label class="row"><span>Claude 说完一轮时通知<small>只在这一轮较长时，由 Mac 应用发出通知</small></span><input type="checkbox" name="notifyTurnEnd"></label>
-        <label class="row"><span>较长一轮的秒数<small>超过这个时间才提醒，10–3600 秒</small></span><input type="number" name="notifyTurnMinSec" min="10" max="3600" step="1"></label>
-      </fieldset>
-      <fieldset>
-        <legend>画面</legend>
-        <label class="row"><span>鼠标停在鸽子上时显示卡片<small>模型、用量、纸条内容</small></span><input type="checkbox" name="sceneHoverCards" checked></label>
-      </fieldset>
-      </div>
-
-      <div class="pane" data-pane="post" role="tabpanel" hidden>
-      <fieldset>
-        <legend>送信</legend>
-        <label class="row"><span>中继站对话<small>本机 Codex 应用里专门用来转发的那条对话。往别的电脑送纸条都要经过它，每次转发跑一轮模型。留空就只能给本机的对话送</small></span><input name="postRelayThread" list="relay-options" placeholder="对话 id" autocomplete="off" spellcheck="false"></label>
-        <datalist id="relay-options"></datalist>
-        <label class="row"><span>往返上限<small>同一条链最多传几次，超过就拒发，免得 agent 之间来回没完。1–50</small></span><input type="number" name="postMaxHops" min="1" max="50" step="1"></label>
-        <label class="row"><span>等待超时（分钟）<small>这么久还没结果就记成迷路，不会自动重发。1–120</small></span><input type="number" name="postWaitTimeoutMin" min="1" max="120" step="1"></label>
-        <label class="row"><span>跨电脑发送前先问我<small>往别的电脑送纸条或新开对话前，在屏幕上弹框，点“放飞”才发。Codex 自己不会为这类发送弹审批，关掉后 agent 可以不经你同意往另一台电脑发消息</small></span><input type="checkbox" name="postConfirmRemote"></label>
-      </fieldset>
-      <fieldset>
-        <legend>栖木</legend>
-        <label class="row"><span>显示栖木<small>贴着刘海或屏幕上沿的小提醒条：几张纸条在飞、几件事在等你</small></span><input type="checkbox" name="perchEnabled"></label>
-      </fieldset>
-      </div>
-
-      <div class="pane" data-pane="codex" role="tabpanel" hidden>
-
-      <fieldset>
-        <legend>生图</legend>
-        <label class="row"><span>生图优先交给 Codex<small>Claude 遇到生成位图的需求时，交给 Codex 来画</small></span><input type="checkbox" name="preferForImages"></label>
-        <label class="row"><span>生图方式<small>内置方式不需要 key；API 方式才能选模型和质量</small></span>
-          <select name="imageMode"><option value="builtin">内置 image_gen</option><option value="api">API（需要 OPENAI_API_KEY）</option></select></label>
-        <label class="row api-only"><span>图片模型</span><input name="imageModel" placeholder="gpt-image-2"></label>
-        <label class="row api-only"><span>图片质量</span>
-          <select name="imageQuality"><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
-        <div class="row"><span>画面比例</span>
-          <div class="seg" role="radiogroup" aria-label="画面比例">
-            <label><input type="radio" name="imageAspect" value="square">方形</label>
-            <label><input type="radio" name="imageAspect" value="landscape">横版</label>
-            <label><input type="radio" name="imageAspect" value="portrait">竖版</label>
-          </div></div>
-        <label class="row"><span>透明背景</span><input type="checkbox" name="imageTransparent"></label>
-        <label class="row"><span>保存到项目里的<small>相对项目根目录</small></span><input name="imageDir" placeholder="assets/generated"></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>对话</legend>
-        <label class="row"><span>接收 Codex 自己的事件<small class="save-state" id="codex-hooks-state" role="status">打开设置时读取状态</small></span><input type="checkbox" name="codexHooks" aria-describedby="codex-hooks-state" disabled></label>
-        <div class="row"><span>对话记录<small>临时任务不留会话，Codex 应用里看不到；单次任务可以用 --temp / --keep 改</small></span>
-          <div class="seg" role="radiogroup" aria-label="对话记录">
-            <label><input type="radio" name="sessionMode" value="keep">保留到 Codex</label>
-            <label><input type="radio" name="sessionMode" value="temp">临时任务</label>
-          </div></div>
-        <label class="row"><span>完成后自动打开对话<small>在 Codex 应用里跳到这段对话</small></span><input type="checkbox" name="autoOpen"></label>
-        <label class="row"><span>统一走 Pigeon 包装层<small>Claude 直接跑 codex exec 或用 Codex 的 MCP 派活时拦下来，改走包装层，这样都能看到进度、按这里的设置执行</small></span><input type="checkbox" name="routeAll"></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>运行</legend>
-        <label class="row"><span>模型</span><select name="model"><option value="">Codex 默认</option></select></label>
-        <label class="row"><span>推理档位</span><select name="effort"><option value="">Codex 默认</option></select></label>
-        <label class="row"><span>沙箱<small>自动：审查和其他任务只读，写代码和生图可写工作区</small></span>
-          <select name="sandbox"><option value="auto">按任务类型自动</option><option value="read-only">只读</option><option value="workspace-write">可写工作区</option></select></label>
-        <label class="row"><span>超时（分钟）</span><input type="number" name="timeoutMin" min="1" max="120"></label>
-        <label class="row"><span>同时最多几个任务</span><input type="number" name="maxConcurrent" min="1" max="8"></label>
-        <label class="row"><span>结果摘要最长（字）</span><input type="number" name="summaryChars" min="60" max="2000" step="20"></label>
-      </fieldset>
-
-      </div>
-      <footer>
-        <span class="save-state" id="save-state" role="status"></span>
-        <button class="btn primary" type="button" id="save-settings">保存</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <dialog class="settings usage" id="usage" aria-labelledby="usage-title">
-    <form method="dialog">
-      <header>
-        <h2 id="usage-title">用量统计</h2>
-        <button class="btn icon" value="close" aria-label="关闭">✕</button>
-      </header>
-      <div class="usage-content">
-        <p class="usage-state" id="usage-state" role="status">正在读取用量…</p>
-        <div class="usage-cards" id="usage-cards"></div>
-      </div>
-      <footer><small>数据来自 Claude Code 和 Codex 自己的对话记录，只在本机统计</small></footer>
-    </form>
-  </dialog>
-
-  <script src="js/sprites.js"></script>
-  <script src="js/store.js"></script>
-  <script src="js/simulator.js"></script>
-  <script src="js/theme-pixel.js"></script>
-  <script src="js/loft-art.js"></script>
-  <script src="js/theme-loft.js"></script>
-  <script src="js/settings.js"></script>
-  <script src="js/usage.js"></script>
-  <script src="js/main.js"></script>
+    <main id="main"></main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="setpop" id="setpop" role="dialog" aria-label="设置"></div>
+</div>
+<script src="art/loft-art.js"></script>
+<script src="art/brand.js"></script>
+<script src="art/manor.js"></script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

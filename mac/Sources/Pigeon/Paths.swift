@@ -53,7 +53,7 @@ enum Paths {
     /// Meerkat 时期的设置文件，只读，用来迁移
     static let legacySettingsFile: URL = home.appendingPathComponent("Library/Application Support/Meerkat/settings.json")
 
-    /// ~/.pigeon：飞行记录、鸽舍缓存、run 记录。PIGEON_HOME 可以改到别处（测试用）。
+    /// ~/.pigeon：任务记录、设备和对话的缓存、run 记录。PIGEON_HOME 可以改到别处（测试用）。
     static let dataDir: URL = {
         if let custom = envValue("PIGEON_HOME") {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath, isDirectory: true).standardizedFileURL
@@ -93,4 +93,9 @@ enum Paths {
         var isDir: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
+}
+
+extension Paths {
+    /// 分派建议：网页推来的规则文字、额度、在线的设备，插件每一轮读它写进提示
+    static var dispatchFile: URL { dataDir.appendingPathComponent("dispatch.json") }
 }

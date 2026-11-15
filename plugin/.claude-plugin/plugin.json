@@ -1,7 +1,7 @@
 {
   "name": "pigeon",
   "version": "0.2.0",
-  "description": "Pigeon（信鸽）：让 agent 互相传纸条，跨工具，也跨电脑。把 Claude Code 派给子代理和 Codex 的活、送出的纸条实时显示在 Pigeon 应用里，并规范什么活交给 Codex、怎么交。",
+  "description": "Pigeon（信鸽）：让 agent 互相发消息，跨工具，也跨电脑。把 Claude Code 派给子代理和 Codex 的活、发出的消息实时显示在 Pigeon 应用里，并规范什么活交给 Codex、怎么交。",
   "author": { "name": "polang233" },
   "keywords": ["pigeon", "codex", "delegation", "messaging", "subagent", "visualization"]
 }

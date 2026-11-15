@@ -59,7 +59,7 @@ export function newInstruction({ band, projectId, projectName, loftName, title, 
   ].join('\n');
 }
 
-// 刷新远程鸽舍：只读
+// 刷新远程设备：只读
 export function loftsInstruction({ band }) {
   return [
     `Pigeon 刷新鸽舍（${band}）。只读检查：不要发消息、不要新建对话、不要改文件。`,
@@ -72,7 +72,7 @@ export function loftsInstruction({ band }) {
   ].join('\n');
 }
 
-// 从最终回复里挑出带这个脚环的 JSON
+// 从最终回复里挑出带这个编号的 JSON
 export function parseRelayReply(text, band) {
   const s = String(text || '');
   const cands = [];
@@ -130,7 +130,7 @@ export function toolFacts(tools) {
   return f;
 }
 
-// 中继站那一轮的进展 → 纸条状态
+// 中继站那一轮的进展 → 消息状态
 // 返回 { state, relayTurn, threadId, hostId, answer, error }；state 为空表示还没有新进展
 export function relayProgress(events, band) {
   const t = turnForBand(digest(events), band);
@@ -139,18 +139,18 @@ export function relayProgress(events, band) {
   const base = { relayTurn: t.id, threadId: f.threadId, hostId: f.hostId };
   if (f.sent === false) return { ...base, state: 'refused', error: refusedReason(f.sendError) };
   if (!t.done && !t.aborted) return { ...base, state: f.sent ? 'delivered' : 'flying' };
-  if (t.aborted) return { ...base, state: 'lost', error: `中继站这一轮被中断了（${t.reason || '原因不明'}）${f.sent ? '，纸条已经发出，但没取回回信' : ''}` };
+  if (t.aborted) return { ...base, state: 'lost', error: `中继站这一轮被中断了（${t.reason || '原因不明'}）${f.sent ? '，消息已经发出，但没取回回信' : ''}` };
   // 中继站这一轮结束了
   const j = parseRelayReply(t.answer, band) || {};
   const sent = f.sent ?? (j.sent === true ? true : j.sent === false ? false : null);
   const threadId = f.threadId || j.thread_id || '';
   const hostId = f.hostId || j.host_id || '';
   if (sent === false) return { ...base, threadId, hostId, state: 'refused', error: refusedReason(j.error || f.sendError || '中继站说没发出去') };
-  if (sent == null) return { ...base, state: 'lost', error: '中继站结束了这一轮，但看不出纸条有没有发出去，没有自动重发' };
+  if (sent == null) return { ...base, state: 'lost', error: '中继站结束了这一轮，但看不出消息有没有发出去，没有自动重发' };
   const timedOut = f.timedOut ?? !!j.timed_out;
   const answer = f.reply || (typeof j.reply === 'string' ? j.reply : '');
   if (timedOut || !answer) {
-    return { ...base, threadId, hostId, state: 'lost', error: timedOut ? '纸条已经送到，但在等待时限内没等到回信；可以去 Codex 里看对方的对话' : '纸条已经送到，但没取回回信' };
+    return { ...base, threadId, hostId, state: 'lost', error: timedOut ? '消息已经送到，但在等待时限内没等到回信；可以去 Codex 里看对方的对话' : '消息已经送到，但没取回回信' };
   }
   return { ...base, threadId, hostId, state: 'home', answer };
 }
@@ -163,7 +163,7 @@ function refusedReason(msg) {
   return m;
 }
 
-// 刷新鸽舍：从中继站那一轮里取 list_projects / list_threads 的原始返回
+// 刷新设备：从中继站那一轮里取 list_projects / list_threads 的原始返回
 export function loftsProgress(events, band) {
   const t = turnForBand(digest(events), band);
   if (!t) return { state: '' };
@@ -180,7 +180,7 @@ export function loftsProgress(events, band) {
   return { state: 'home', projects, threads, hosts: Array.isArray(j.hosts) ? j.hosts : [], errors };
 }
 
-// 远程的结果 → lofts.json 里远程鸽舍的形状
+// 远程的结果 → lofts.json 里远程设备的形状
 export function remoteLofts({ projects, threads, hosts }, previous = []) {
   const map = new Map();
   const ensure = (id, name) => {

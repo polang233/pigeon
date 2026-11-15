@@ -1,10 +1,12 @@
 .DS_Store
 /mac/.build/
 /mac/.swiftpm/
+/mac/Notch/.build/
+/mac/Notch/.swiftpm/
 /build/
 *.xcuserstate
 xcuserdata/
 /.claude/settings.local.json
 
-# 原型里临时用的、没有授权的图（从本机应用里取的），不提交
-prototype/art/local/
+# 没有授权的图（从本机 Codex 应用里取的宠物），不提交，也不打进应用
+web/art/local/

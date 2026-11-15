@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "让 node --test tests/e2e 能直接跑整个目录：目录解析到 all.mjs，它再加载每个 *.test.mjs",
+  "main": "all.mjs"
+}

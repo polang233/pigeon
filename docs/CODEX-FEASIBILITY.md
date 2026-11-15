@@ -1,5 +1,7 @@
 # Codex 接入可行性实验（2026-10-23）
 
+> 这是实验记录，属于历史记录，写的时候项目还叫 Meerkat。后来改名为 Pigeon，用词也变了：现在叫设备、消息、任务、对话，不再用鸽舍、纸条、脚环这套词。现行的说法见 [REDESIGN.md](REDESIGN.md)，接口见 [CONTRACT.md](CONTRACT.md)。
+
 目标：做一个 Claude Code 插件，规范“什么活交给 Codex、怎么交”，并在 Meerkat 里提供设置。这一轮只针对 Codex。
 
 ## 结论

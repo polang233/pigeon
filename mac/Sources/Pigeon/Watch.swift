@@ -19,7 +19,7 @@ struct Watch {
         var kind: WaitKind
         var since: Date
     }
-    /// 纸条的一端（发件人或收件人）
+    /// 一条消息的一端（发件人或收件人）
     struct Party: Sendable {
         var loft = "local"
         var loftName = ""
@@ -75,7 +75,7 @@ struct Watch {
             if !other.title.isEmpty { title = other.title }
         }
     }
-    /// 还在路上的纸条（待飞、飞行中、已送达）
+    /// 还在路上的消息（等你确认、排队、进行中、已送达）
     struct Note: Sendable {
         var band: String
         var state: String
@@ -92,10 +92,24 @@ struct Watch {
     enum Kind: Sendable { case subagent, codex }
     enum WaitKind: Sendable { case permission, question, idle, other }
 
+    /// 一封回信（已回信的任务）。只留最近几封，给刘海的“回信到了”用
+    struct Reply: Sendable {
+        var band: String
+        /// 当初发出的一方（回信是回给它的）
+        var from: Party
+        /// 当初收到的一方（回信是它写的）
+        var to: Party
+        var preview: String
+        var answer: String
+        var at: Date
+        var took: TimeInterval
+    }
+
     struct Snapshot: Sendable {
         var running: [Running] = []
         var waiting: [Waiting] = []
         var notes: [Note] = []
+        var replies: [Reply] = []
     }
     struct Alert: Sendable {
         var title: String
@@ -109,13 +123,17 @@ struct Watch {
     private var turnStart: [String: Date] = [:]
     private var lastTurnAlert: [String: Date] = [:]
     private var notes: [String: Note] = [:]
-    /// 已经收尾的脚环，防止乱序到达的旧事件把纸条"复活"，也防止重复提醒
+    /// 最近的回信，新的在前
+    private var replies: [Reply] = []
+    static let keepReplies = 10
+    /// 已经收尾的编号，防止乱序到达的旧事件把消息"复活"，也防止重复提醒
     private var endedBands: [String: Date] = [:]
 
     var snapshot: Snapshot {
         Snapshot(running: running.values.sorted { $0.since < $1.since },
                  waiting: waiting.values.sorted { $0.since < $1.since },
-                 notes: notes.values.sorted { $0.since < $1.since })
+                 notes: notes.values.sorted { $0.since < $1.since },
+                 replies: replies)
     }
 
     /// 处理一条 hook 原文；返回需要发出的通知（可能没有）。
@@ -243,11 +261,11 @@ struct Watch {
         return nil
     }
 
-    // MARK: 纸条
+    // MARK: 消息
 
-    static let inFlightStates: Set<String> = ["queued", "flying", "delivered"]
+    static let inFlightStates: Set<String> = ["asking", "queued", "flying", "delivered"]
 
-    /// 处理一条 PigeonNote：在路上的记下来，收尾的（归巢、被拒收、迷路）拿掉并按设置提醒。
+    /// 处理一条 PigeonNote：在路上的记下来，收尾的（已回信、没发出、没回音）拿掉并按设置提醒。
     private mutating func note(_ p: [String: Any], notify: NotifyPrefs, now: Date) -> Alert? {
         guard let band = p["band"] as? String, !band.isEmpty else { return nil }
         let state = p["state"] as? String ?? ""
@@ -275,21 +293,26 @@ struct Watch {
         let took = now.timeIntervalSince(n.since)
         switch state {
         case "home":
-            guard notify.noteHome else { return nil }
             let answer = (p["answer_preview"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            replies.insert(Reply(band: band, from: n.from, to: n.to, preview: n.preview, answer: answer, at: now, took: took), at: 0)
+            if replies.count > Self.keepReplies { replies.removeLast(replies.count - Self.keepReplies) }
+            guard notify.noteHome else { return nil }
             let tail = answer.isEmpty ? "用了 \(Self.duration(took))" : answer
-            return Alert(title: "纸条归巢了", body: "\(route) · \(tail)", url: n.url)
+            return Alert(title: "回信到了", body: "\(route) · \(tail)", url: n.url)
         case "refused":
-            guard notify.noteLost else { return nil }
+            // 你自己点的拦下不用再提醒一遍
+            let reason = p["reason"] as? String ?? ""
+            guard notify.noteLost, reason != "blocked" else { return nil }
             let error = (p["error"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return Alert(title: "纸条被拒收", body: "\(route) · \(error.isEmpty ? "对方没有收下" : error)", url: n.url)
+            let why = Self.refusedText(reason) ?? (error.isEmpty ? "对方没有收下" : error)
+            return Alert(title: "消息没发出", body: "\(route) · \(why)", url: n.url)
         default:
             guard notify.noteLost else { return nil }
-            return Alert(title: "纸条迷路了", body: "\(route) · 一直没等到结果，没有自动重发", url: n.url)
+            return Alert(title: "消息没回音", body: "\(route) · 一直没等到结果，没有自动重发", url: n.url)
         }
     }
 
-    /// 应用启动时从飞行记录里接上还在路上的纸条（不发通知）。只认两小时内更新过的。
+    /// 应用启动时从任务记录里接上还在路上的消息（不发通知）。只认两小时内更新过的。
     mutating func seed(journal: [[String: Any]], now: Date = Date()) {
         for raw in journal {
             guard let band = raw["band"] as? String, !band.isEmpty,
@@ -302,17 +325,30 @@ struct Watch {
         }
     }
 
-    /// 两小时没有任何消息的纸条多半是看护进程没了，不再算在路上
+    /// 两小时没有任何动静的消息多半是看护进程没了，不再算在路上
     static let noteStaleAfter: TimeInterval = 2 * 3600
+
+    /// 没发出的原因（接口里的 reason）怎么说；不认识的返回 nil
+    static func refusedText(_ reason: String) -> String? {
+        switch reason {
+        case "blocked": "你拦下了"
+        case "timeout": "没人理，没发出"
+        case "no_target": "对方不在了"
+        case "max_hops": "来回超过上限"
+        case "offline": "连不上，没发出"
+        default: nil
+        }
+    }
 
     static func noteStateText(_ state: String) -> String {
         switch state {
-        case "queued": "待飞"
-        case "flying": "飞行中"
+        case "asking": "等你确认"
+        case "queued": "排队"
+        case "flying": "进行中"
         case "delivered": "已送达"
-        case "home": "已归巢"
-        case "refused": "被拒收"
-        case "lost": "迷路"
+        case "home": "已回信"
+        case "refused": "没发出"
+        case "lost": "没回音"
         default: state
         }
     }
@@ -356,7 +392,7 @@ struct Watch {
     // MARK: 文案
 
     /// 返回 nil 表示这条通知不是在等你（比如登录成功）。老版本 Claude Code 不带类型，只能看文字猜。
-    private static func waitKind(_ type: String?, _ message: String) -> WaitKind? {
+    static func waitKind(_ type: String?, _ message: String) -> WaitKind? {
         switch type {
         case "permission_prompt": return .permission
         case "elicitation_dialog": return .question
@@ -422,9 +458,9 @@ struct NotifyPrefs: Sendable {
     var waiting = true
     var turnEnd = true
     var turnMinSec = 60
-    /// 纸条归巢
+    /// 回信到了
     var noteHome = true
-    /// 纸条被拒收或迷路
+    /// 消息没发出或没回音
     var noteLost = true
 
     static func load() -> NotifyPrefs {

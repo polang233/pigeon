@@ -16,10 +16,18 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BIN_DIR/Pigeon" "$CONTENTS/MacOS/Pigeon"
 
 if [ -d "$ROOT_DIR/web" ]; then
-  rsync -a --delete --exclude '.DS_Store' "$ROOT_DIR/web/" "$CONTENTS/Resources/web/"
+  rsync -a --delete --exclude '.DS_Store' --exclude '/test/' --exclude '/README.md' --exclude '/art/local/' "$ROOT_DIR/web/" "$CONTENTS/Resources/web/"
 else
   echo "警告：没有找到 $ROOT_DIR/web，应用里不会带网页文件" >&2
   mkdir -p "$CONTENTS/Resources/web"
+fi
+
+# 应用自己派活要用的命令行脚本
+if [ -d "$ROOT_DIR/plugin/scripts" ]; then
+  mkdir -p "$CONTENTS/Resources/plugin"
+  rsync -a --delete --exclude '.DS_Store' "$ROOT_DIR/plugin/scripts/" "$CONTENTS/Resources/plugin/scripts/"
+else
+  echo "警告：没有找到 $ROOT_DIR/plugin/scripts，应用里不能自己派活" >&2
 fi
 
 ICON_KEY=""

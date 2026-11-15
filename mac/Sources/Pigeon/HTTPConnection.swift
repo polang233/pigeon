@@ -154,7 +154,6 @@ final class HTTPConnection: @unchecked Sendable {
             + "Content-Type: text/event-stream; charset=utf-8\r\n"
             + "Cache-Control: no-cache\r\n"
             + "Connection: keep-alive\r\n"
-            + "Access-Control-Allow-Origin: *\r\n"
             + "X-Accel-Buffering: no\r\n\r\n"
             + "retry: 2000\n\n"
         write(Data(head.utf8))
@@ -225,6 +224,8 @@ enum HTTPStatus {
         case 413: "Payload Too Large"
         case 431: "Request Header Fields Too Large"
         case 500: "Internal Server Error"
+        case 501: "Not Implemented"
+        case 502: "Bad Gateway"
         default: "Unknown"
         }
     }

@@ -1,4 +1,5 @@
 import AppKit
+import PigeonNotch
 import WebKit
 
 @main
@@ -7,10 +8,22 @@ enum PigeonMain {
     static let delegate = AppDelegate()
 
     static func main() {
+        // 只起本机服务，不开窗口、菜单栏和刘海。给自动测试用（tests/e2e）。
+        if Paths.envValue("PIGEON_HEADLESS") == "1" { runHeadless() }
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
         app.delegate = delegate
         app.run()
+    }
+}
+
+extension PigeonMain {
+    static func runHeadless() -> Never {
+        let log: @Sendable (String) -> Void = { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }
+        let hub = Hub(webRoot: Paths.resolveWebRoot())
+        hub.start(onReady: { log("Pigeon 本机服务已启动（没有界面）：\(Hub.origin)/") },
+                  onFailure: { message in log("Pigeon 无法启动：\(message)"); exit(1) })
+        withExtendedLifetime(hub) { dispatchMain() }
     }
 }
 
@@ -21,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var hub: Hub!
     private var statusBar: StatusBar!
     private var notifier: Notifier!
-    private var perch: Perch!
+    private var notch: NotchBridge!
     private var serverReady = false
     private let night = NSColor(srgbRed: 0x1d / 255.0, green: 0x2b / 255.0, blue: 0x38 / 255.0, alpha: 1)
 
@@ -34,32 +47,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         buildWindow()
 
         let show: () -> Void = { [weak self] in self?.showMainWindow(nil) }
-        statusBar = StatusBar(showWindow: show, detect: { [weak self] in self?.hub?.detectNow(); return },
-                              perchEnabled: { Settings.perchEnabled() },
-                              setPerch: { [weak self] on in self?.hub?.setPerchEnabled(on) })
-        notifier = Notifier(showWindow: show)
-        perch = Perch(showWindow: show)
-
         hub = Hub(webRoot: Paths.resolveWebRoot())
+        notch = NotchBridge(hub: hub, showWindow: { [weak self] page in self?.showPage(page) })
+        statusBar = StatusBar(showWindow: show, detect: { [weak self] in self?.hub?.detectNow(); return },
+                              notchEnabled: { Settings.notchEnabled() },
+                              setNotch: { [weak self] on in self?.setNotchEnabled(on) },
+                              togglePanel: { [weak self] anchor in self?.notch.toggleFromMenuBar(anchor: anchor) })
+        notifier = Notifier(showWindow: show)
+        notch.onBadge = { [weak self] count in self?.statusBar.setBadge(count) }
+
+        // 本机服务的每一种变化都转给菜单栏和刘海。回调在服务自己的队列上，这里换到主线程
         hub.onWatch = { [weak self] snapshot, alert in
             Task { @MainActor in
                 guard let self else { return }
                 self.statusBar.update(snapshot)
-                self.perch.update(snapshot)
+                self.notch.update(snapshot: snapshot)
                 if let alert { self.notifier.post(alert) }
             }
         }
         hub.onSettings = { [weak self] _ in
-            Task { @MainActor in self?.perch.setEnabled(Settings.perchEnabled()) }
+            Task { @MainActor in
+                self?.notch.reloadSettings()
+                self?.statusBar.refresh()
+            }
         }
+        hub.onQueue = { [weak self] data in Task { @MainActor in self?.notch.update(queue: data) } }
+        hub.onLofts = { [weak self] data in Task { @MainActor in self?.notch.update(lofts: data) } }
+        hub.onAgents = { [weak self] agents in Task { @MainActor in self?.notch.update(agents: agents) } }
+        hub.onNotch = { [weak self] data in Task { @MainActor in self?.notch.handleRequest(data) } }
         hub.currentSnapshot { [weak self] snapshot in
             Task { @MainActor in
                 guard let self else { return }
                 self.statusBar.update(snapshot)
-                self.perch.update(snapshot)
-                self.perch.setEnabled(Settings.perchEnabled())
+                self.notch.update(snapshot: snapshot)
             }
         }
+        hub.currentLofts { [weak self] data in Task { @MainActor in self?.notch.update(lofts: data) } }
+        hub.currentQueue { [weak self] data in Task { @MainActor in self?.notch.update(queue: data) } }
         hub.start(
             onReady: { [weak self] in Task { @MainActor in self?.serverDidStart() } },
             onFailure: { [weak self] message in Task { @MainActor in self?.serverDidFail(message) } }
@@ -90,6 +114,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         serverReady = true
         log("Pigeon 已启动：\(Hub.origin)/ ，网页目录 \(hub.webRoot.path)")
         webView.load(URLRequest(url: URL(string: Hub.origin + "/")!))
+        if let dir = Paths.envValue("PIGEON_SNAPSHOT_DIR") {
+            let delay = Double(Paths.envValue("PIGEON_SNAPSHOT_DELAY") ?? "") ?? 5
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                await self?.takeSnapshots(into: URL(fileURLWithPath: dir, isDirectory: true))
+            }
+        }
+    }
+
+    /// 给自动检查用（环境变量 PIGEON_SNAPSHOT_DIR）：把主窗口的四页和刘海的五种状态各存一张图，然后退出。
+    /// 图是窗口自己画出来的，不用屏幕录制权限。
+    private func takeSnapshots(into dir: URL) async {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        func save(_ data: Data?, _ name: String) {
+            guard let data else { log("没存下 \(name)"); return }
+            try? data.write(to: dir.appendingPathComponent(name + ".png"))
+        }
+        func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+        for page in ["stage", "tasks", "rules", "devices"] {
+            showPage(page)
+            await pause(1)
+            let image = try? await webView.takeSnapshot(configuration: nil)
+            let png = image?.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
+            save(png, "window-\(page)")
+        }
+        for state in [NotchState.idle, .overview, .queue, .reply, .compose] {
+            if state == .idle { notch.notch.collapse() } else { notch.notch.show(state, takeFocus: false) }
+            await pause(0.6)
+            save(notch.notch.snapshotPNG(), "notch-\(state.rawValue)")
+        }
+        NSApp.terminate(nil)
     }
 
     private func serverDidFail(_ message: String) {
@@ -148,8 +203,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         hub?.detectNow()
     }
 
-    @objc private func togglePerch(_ sender: Any?) {
-        hub?.setPerchEnabled(!Settings.perchEnabled())
+    @objc private func toggleNotch(_ sender: Any?) {
+        setNotchEnabled(!Settings.notchEnabled())
+    }
+
+    /// 用刘海还是菜单栏图标：改 `perch.notch`，其余设置原样保留
+    private func setNotchEnabled(_ on: Bool) {
+        hub?.updateSettings { root in
+            var perch = root["perch"] as? [String: Any] ?? [:]
+            perch["notch"] = on
+            root["perch"] = perch
+        }
+    }
+
+    /// 打开主窗口并翻到某一页（刘海上的“在窗口里看”）。页面还没加载好时只打开窗口
+    private func showPage(_ page: String) {
+        showMainWindow(nil)
+        guard !page.isEmpty, page.allSatisfy({ $0.isLetter }) else { return }
+        webView.evaluateJavaScript("window.PigeonApp && window.PigeonApp.open && window.PigeonApp.open('\(page)')", completionHandler: nil)
     }
 
     @objc private func showMainWindow(_ sender: Any?) {
@@ -192,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let view = NSMenu(title: "显示")
         view.addItem(withTitle: "重新加载", action: #selector(reloadPage(_:)), keyEquivalent: "r").target = self
         view.addItem(withTitle: "检测连接", action: #selector(detectConnections(_:)), keyEquivalent: "d").target = self
-        view.addItem(withTitle: "显示栖木", action: #selector(togglePerch(_:)), keyEquivalent: "").target = self
+        view.addItem(withTitle: "在刘海上显示", action: #selector(toggleNotch(_:)), keyEquivalent: "").target = self
         view.addItem(.separator())
         let fullScreen = view.addItem(withTitle: "进入全屏幕", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
@@ -217,7 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        if item.action == #selector(togglePerch(_:)) { item.state = Settings.perchEnabled() ? .on : .off }
+        if item.action == #selector(toggleNotch(_:)) { item.state = Settings.notchEnabled() ? .on : .off }
         return true
     }
 

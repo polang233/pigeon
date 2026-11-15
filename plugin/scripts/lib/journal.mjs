@@ -1,21 +1,25 @@
-// 飞行记录 ~/.pigeon/journal.json：Pigeon 命令写，Mac 应用读。只存元数据，不存正文。
+// 任务记录 ~/.pigeon/journal.json：Pigeon 命令写，Mac 应用读。只存元数据，不存正文。
 // 发件的命令、后台看护进程、wait 可能同时写，所以写之前先拿一把目录锁，写临时文件再改名。
 import fs from 'node:fs';
 import path from 'node:path';
 import { journalFile, readJson, writeJsonAtomic, sleep } from './common.mjs';
 
-export const STATES = ['queued', 'flying', 'delivered', 'home', 'refused', 'lost'];
+// 原来的六个状态不变，前面加一个 asking（等用户确认）。asking 只能走到 queued、flying、refused。
+export const STATES = ['asking', 'queued', 'flying', 'delivered', 'home', 'refused', 'lost'];
+// 没发出的原因
+export const REASONS = ['blocked', 'timeout', 'no_target', 'max_hops', 'offline'];
 export const TERMINAL = new Set(['home', 'refused', 'lost']);
-const RANK = { queued: 0, flying: 1, delivered: 2, home: 3, refused: 3, lost: 3 };
+const RANK = { asking: -1, queued: 0, flying: 1, delivered: 2, home: 3, refused: 3, lost: 3 };
 export const KEEP_MS = 7 * 24 * 3600 * 1000;
-export const STATE_ZH = { queued: '待飞', flying: '飞行中', delivered: '已送达', home: '已归巢', refused: '被拒收', lost: '迷路' };
+export const STATE_ZH = { asking: '等你确认', queued: '排队', flying: '进行中', delivered: '已送达', home: '已回信', refused: '没发出', lost: '没回音' };
 
-// 状态只能往前走；唯一的例外是“迷路”后来又等到了回信，可以改成“已归巢”。
+// 状态只能往前走；唯一的例外是“没回音”后来又等到了回信，可以改成“已回信”。
 export function canMove(from, to) {
   if (!STATES.includes(to)) return false;
   if (from === to) return false;
   if (from === 'lost' && to === 'home') return true;
   if (TERMINAL.has(from)) return false;
+  if (from === 'asking') return to === 'queued' || to === 'flying' || to === 'refused';
   return RANK[to] > RANK[from];
 }
 
@@ -36,7 +40,7 @@ async function withLock(file, fn) {
     try { fs.mkdirSync(lock); break; } catch (e) {
       if (e.code !== 'EEXIST') throw e;
       try { if (Date.now() - fs.statSync(lock).mtimeMs > 10000) { fs.rmSync(lock, { recursive: true, force: true }); continue; } } catch {}
-      if (i > 400) throw new Error('飞行记录被占用太久，没能写入：' + lock);
+      if (i > 400) throw new Error('任务记录被占用太久，没能写入：' + lock);
       await sleep(25);
     }
   }
@@ -57,7 +61,7 @@ export function updateJournal(mutate, file = journalFile()) {
 export const addNote = (note, file) => updateJournal(notes => { notes.push(note); return note; }, file);
 export const getNote = (band, file) => readJournal(file).notes.find(n => n.band === band) || null;
 
-// 改一张纸条。patch 里有 state 时按 canMove 判断；不允许的状态变化整条丢弃，返回 null。
+// 改一条消息。patch 里有 state 时按 canMove 判断；不允许的状态变化整条丢弃，返回 null。
 // 返回 { note, moved }：moved 表示状态真的变了（只有变了的那一方发事件，避免重复上报）。
 export function patchNote(band, patch, file) {
   return updateJournal(notes => {

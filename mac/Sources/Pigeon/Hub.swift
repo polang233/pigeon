@@ -9,6 +9,8 @@ final class Hub: @unchecked Sendable {
 
     let queue = DispatchQueue(label: "dev.polang.pigeon.server")
     let webRoot: URL
+    /// 实际监听的端口。默认是 `Hub.port`，测试时可以换成别的。
+    let port: UInt16
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
@@ -25,10 +27,38 @@ final class Hub: @unchecked Sendable {
     private var usagePending = false
     private var lastCodexHookAt: Date?
 
+    // 新界面要的状态（都只在 queue 上访问）
+    var sessions = SessionTracker()
+    var lastLoftsJSON = Data()
+    var loftsPending = false
+    var lastLoftsPush = Date.distantPast
+    var lastLoftsTick = Date()
+    var loftsMTime: Date?
+    lazy var asks: AskQueue = AskQueue(queue: queue)
+    var dispatchInput = Dispatch.Input()
+    var sentBodies: [String: Data] = [:]
+    var sentOrder: [String] = []
+    /// 应用自己派出去、命令还没跑完的活：send_id → 回话的闭包和留给重发的原文。跨设备的那件一排进等你的一队就先回话。
+    var pendingSends: [String: (completion: @Sendable (Int, Data) -> Void, remembered: Data)] = [:]
+    var refreshWaiters: [@Sendable (Int, Data) -> Void] = []
+
+    // 测试里可以换掉的外部依赖
+    var pluginScriptsOverride: URL?
+    var opener: @Sendable ([String]) -> (Bool, String) = Hub.defaultOpener
+    var magpieFetch: @Sendable (String) async throws -> Data = Magpie.liveFetch
+
     /// 任务和等待状态变了、或者需要发通知时调用（在 queue 上）。
     var onWatch: (@Sendable (Watch.Snapshot, Watch.Alert?) -> Void)?
     /// 设置被页面或菜单改过后调用（在 queue 上），参数是新的设置原文。
     var onSettings: (@Sendable (Data) -> Void)?
+    /// 等你处理的一队变了（在 queue 上），参数是 `{"items":[…]}`。
+    var onQueue: (@Sendable (Data) -> Void)?
+    /// 对话列表或状态变了（在 queue 上，最多每 500 毫秒一次），参数和 `GET /api/lofts` 一样。
+    var onLofts: (@Sendable (Data) -> Void)?
+    /// 网页请求打开刘海（在 queue 上），参数是 `POST /api/notch` 的请求体。
+    var onNotch: (@Sendable (Data) -> Void)?
+    /// 检测到的 agent 变了（装没装、开没开）时调用（在 queue 上）。
+    var onAgents: (@Sendable (Agents) -> Void)?
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -36,12 +66,25 @@ final class Hub: @unchecked Sendable {
         return e
     }()
 
-    init(webRoot: URL) {
+    init(webRoot: URL, port: UInt16 = Hub.port) {
         self.webRoot = webRoot
+        self.port = port
         watch.seed(journal: Self.readJournal())
+        asks.onChange = { [weak self] in self?.queueChanged() }
     }
 
-    /// 启动时的状态（含从飞行记录接上的纸条），给菜单栏和栖木画第一帧。
+    /// 停掉监听、定时器和所有连接（测试用，应用退出时不必调）。
+    func stop() {
+        queue.sync {
+            timers.forEach { $0.cancel() }
+            timers = []
+            listener?.cancel()
+            listener = nil
+            for c in connections.values { c.close() }
+        }
+    }
+
+    /// 启动时的状态（含从任务记录接上的消息），给菜单栏和刘海画第一帧。
     func currentSnapshot(_ completion: @escaping @Sendable (Watch.Snapshot) -> Void) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -52,12 +95,12 @@ final class Hub: @unchecked Sendable {
     func start(onReady: @escaping @Sendable () -> Void, onFailure: @escaping @Sendable (String) -> Void) {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = false
-        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: Self.port)!)
+        params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
         let listener: NWListener
         do {
             listener = try NWListener(using: params)
         } catch {
-            onFailure(Self.describe(error))
+            onFailure(Self.describe(error, port: port))
             return
         }
         self.listener = listener
@@ -78,7 +121,7 @@ final class Hub: @unchecked Sendable {
                 guard !self.reportedFailure else { return }
                 self.reportedFailure = true
                 self.listener?.cancel()
-                onFailure(Self.describe(error))
+                onFailure(Self.describe(error, port: self.port))
             default:
                 break
             }
@@ -86,7 +129,7 @@ final class Hub: @unchecked Sendable {
         listener.start(queue: queue)
     }
 
-    private static func describe(_ error: Error) -> String {
+    private static func describe(_ error: Error, port: UInt16) -> String {
         if let nwError = error as? NWError, case let .posix(code) = nwError, code == .EADDRINUSE {
             return "端口 \(port) 已被占用。可能已经开着另一个 Pigeon（或旧版 Meerkat），或者有别的程序在用这个端口。"
         }
@@ -118,30 +161,42 @@ final class Hub: @unchecked Sendable {
         heartbeat.resume()
         detect.resume()
         expire.resume()
-        timers = [heartbeat, detect, expire]
+        // 每 2 秒看一次：lofts.json 有没有被插件改过、有没有对话因为时间到了要变状态
+        let loftsTick = DispatchSource.makeTimerSource(queue: queue)
+        loftsTick.schedule(deadline: .now() + 2, repeating: 2)
+        loftsTick.setEventHandler { [weak self] in self?.loftsTickFired() }
+        loftsTick.resume()
+        timers = [heartbeat, detect, expire, loftsTick]
     }
 
     func connectionClosed(_ conn: HTTPConnection) {
         connections[conn.id] = nil
         sseClients[conn.id] = nil
+        asks.connectionClosed(conn.id)
     }
 
     // MARK: 路由
 
     func handle(_ req: HTTPRequest, on conn: HTTPConnection, keepAlive: Bool) {
-        if let host = req.header("host"), !Self.allowedHosts.contains(host.lowercased()) {
+        let hosts: Set<String> = ["127.0.0.1:\(port)", "localhost:\(port)", "[::1]:\(port)"]
+        if let host = req.header("host"), !hosts.contains(host.lowercased()) {
             conn.respond(status: 403, body: Data("Forbidden host".utf8), contentType: "text/plain; charset=utf-8",
+                         keepAlive: false)
+            return
+        }
+        // 浏览器里别的网站的页面也能往 127.0.0.1 发请求（Host 是对的，上面那条拦不住），
+        // 不拦的话它能读到等你确认的原文、替你点放行、替你派活、改设置。浏览器发这类请求会带 Origin：
+        // 带了而且不是本页面自己的，一律拒绝。curl、插件、应用自己的窗口（同源的 GET）不带 Origin，不受影响。
+        if let origin = req.header("origin"), !Self.allowedOrigins(port: port).contains(origin.lowercased()) {
+            conn.respond(status: 403, body: Data("Forbidden origin".utf8), contentType: "text/plain; charset=utf-8",
                          keepAlive: false)
             return
         }
         let path = req.path
         switch (req.method, path) {
         case ("OPTIONS", _):
-            conn.respond(status: 204, headers: Self.cors + [
-                ("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS"),
-                ("Access-Control-Allow-Headers", "Content-Type"),
-                ("Access-Control-Max-Age", "600"),
-            ], keepAlive: keepAlive)
+            // 同源的请求不需要预检；别的来源在上面已经拒了
+            conn.respond(status: 204, keepAlive: keepAlive)
         case ("POST", "/ev"):
             handleHook(req, conn: conn, keepAlive: keepAlive)
         case ("POST", "/ev/codex"):
@@ -166,6 +221,8 @@ final class Hub: @unchecked Sendable {
             respondJSON(conn, Settings.load(), keepAlive: keepAlive)
         case ("PUT", "/api/settings"):
             handleSaveSettings(req, conn: conn, keepAlive: keepAlive)
+        case ("PATCH", "/api/settings"):
+            handlePatchSettings(req, conn: conn, keepAlive: keepAlive)
         case (_, "/api/settings"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/codex/models"):
@@ -179,12 +236,55 @@ final class Hub: @unchecked Sendable {
         case (_, "/api/codex/hooks"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/notes"):
-            respondJSON(conn, Self.notesBody(), keepAlive: keepAlive)
+            respondJSON(conn, Self.notesBody(retryable: Set(sentBodies.keys)), keepAlive: keepAlive)
         case (_, "/api/notes"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/lofts"):
-            respondJSON(conn, Self.loftsBody(), keepAlive: keepAlive)
+            respondJSON(conn, composeLofts(), keepAlive: keepAlive)
         case (_, "/api/lofts"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", "/api/lofts/refresh"):
+            performRefresh { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case (_, "/api/lofts/refresh"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/queue"):
+            respondJSON(conn, asks.snapshot(), keepAlive: keepAlive)
+        case (_, "/api/queue"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", "/api/ask"):
+            handleAsk(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/ask"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", _) where path.hasPrefix("/api/queue/"):
+            handleResolve(id: String(path.dropFirst("/api/queue/".count)), req, conn: conn, keepAlive: keepAlive)
+        case ("POST", "/api/pause"):
+            handlePause(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/pause"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", "/api/send"):
+            performSend(req.body) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case ("POST", "/api/open"):
+            performOpen(req.body) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case (_, "/api/send"), (_, "/api/open"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("PUT", "/api/dispatch"):
+            handleDispatchPut(req, conn: conn, keepAlive: keepAlive)
+        case ("POST", "/api/dispatch/suggest"):
+            let (status, body) = suggestNow(req.body)
+            respondStatus(conn, status, body, keepAlive: keepAlive)
+        case (_, "/api/dispatch"), (_, "/api/dispatch/suggest"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/magpie/hello"):
+            handleMagpie(.hello, conn: conn, keepAlive: keepAlive)
+        case ("GET", "/api/magpie/quotas"):
+            handleMagpie(.quotas, conn: conn, keepAlive: keepAlive)
+        case ("GET", "/api/magpie/models"):
+            handleMagpie(.models, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/magpie/hello"), (_, "/api/magpie/quotas"), (_, "/api/magpie/models"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", "/api/notch"):
+            handleNotch(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/notch"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/usage"):
             usage.queue.async { [weak self] in
@@ -206,11 +306,25 @@ final class Hub: @unchecked Sendable {
         }
     }
 
-    static let cors: [(String, String)] = [("Access-Control-Allow-Origin", "*")]
+    /// 以前给 file:// 打开的页面开过 `Access-Control-Allow-Origin: *`。现在页面只从本服务加载，不再给任何别的来源开。
+    static let cors: [(String, String)] = []
+
+    static func allowedOrigins(port: UInt16) -> Set<String> {
+        ["http://127.0.0.1:\(port)", "http://localhost:\(port)", "http://[::1]:\(port)"]
+    }
 
     private func methodNotAllowed(_ conn: HTTPConnection, keepAlive: Bool) {
         conn.respond(status: 405, headers: Self.cors, body: Data("Method Not Allowed".utf8),
                      contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+    }
+
+    func respondStatus(_ conn: HTTPConnection, _ status: Int, _ body: Data, keepAlive: Bool) {
+        conn.respond(status: status, headers: Self.cors + [("Cache-Control", "no-store")], body: body,
+                     contentType: "application/json; charset=utf-8", keepAlive: keepAlive)
+    }
+
+    static func jsonData(_ obj: Any) -> Data {
+        (try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data("{}".utf8)
     }
 
     private func respondJSON(_ conn: HTTPConnection, _ body: Data, keepAlive: Bool) {
@@ -236,30 +350,29 @@ final class Hub: @unchecked Sendable {
         settingsChanged(req.body)
     }
 
-    private func settingsChanged(_ body: Data) {
+    /// `PATCH /api/settings`：请求体是要改的那几处（对象逐层合并，值为 null 是删掉这一项，数组整个换），
+    /// 在本服务的队列上读、合并、写，所以页面、菜单、刘海同时改不会互相盖掉。回保存后的完整设置。
+    private func handlePatchSettings(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
+        guard let patch = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any] else {
+            conn.respond(status: 400, body: Data("设置必须是一个 JSON 对象".utf8), contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+            return
+        }
+        do {
+            let body = try Settings.update { Settings.merge(&$0, patch: patch) }
+            respondJSON(conn, body, keepAlive: keepAlive)
+            settingsChanged(body)
+        } catch {
+            conn.respond(status: 500, body: Data("保存设置失败".utf8), contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
+        }
+    }
+
+    func settingsChanged(_ body: Data) {
         notify = NotifyPrefs.load()
         broadcast(Self.envelope(type: "settings", key: "settings", json: Self.singleLine(body)))
         onSettings?(body)
     }
 
-    /// 菜单栏里的栖木开关：改 `perch.enabled`，保留其余设置，并广播给页面。
-    func setPerchEnabled(_ enabled: Bool) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            do {
-                let body = try Settings.update { root in
-                    var perch = root["perch"] as? [String: Any] ?? [:]
-                    perch["enabled"] = enabled
-                    root["perch"] = perch
-                }
-                self.settingsChanged(body)
-            } catch {
-                FileHandle.standardError.write(Data("保存栖木开关失败：\(error)\n".utf8))
-            }
-        }
-    }
-
-    // MARK: 飞行记录和鸽舍
+    // MARK: 任务记录和设备
 
     private static func readJSONObject(_ url: URL) -> [String: Any]? {
         guard let data = try? Data(contentsOf: url) else { return nil }
@@ -271,10 +384,12 @@ final class Hub: @unchecked Sendable {
     }
 
     /// `{ "notes": [...] }`：按 updated 从新到旧，最多 100 条。文件不存在或坏了时是空列表。
-    static func notesBody() -> Data {
+    /// `retryable` 里的编号是应用自己发的、原文还在内存里，加 `retryable: true`。
+    static func notesBody(retryable: Set<String> = []) -> Data {
         func updated(_ n: [String: Any]) -> Double { (n["updated"] as? NSNumber)?.doubleValue ?? 0 }
-        let notes = readJournal().sorted { updated($0) > updated($1) }.prefix(100)
-        let body: [String: Any] = ["notes": Array(notes)]
+        var notes = Array(readJournal().sorted { updated($0) > updated($1) }.prefix(100))
+        for i in notes.indices where retryable.contains(notes[i]["band"] as? String ?? "") { notes[i]["retryable"] = true }
+        let body: [String: Any] = ["notes": notes]
         return (try? JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes])) ?? Data(#"{"notes":[]}"#.utf8)
     }
 
@@ -312,6 +427,7 @@ final class Hub: @unchecked Sendable {
             self.lastHookAt = Date()
             self.broadcast(Self.envelope(type: "hook", key: "payload", json: Self.singleLine(body)))
             if let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] {
+                if self.sessions.ingest(payload) { self.scheduleLoftsPush() }
                 let alert = self.watch.ingest(payload, notify: self.notify, watching: self.watching)
                 self.onWatch?(self.watch.snapshot, alert)
                 self.trackUsage(body)
@@ -323,13 +439,13 @@ final class Hub: @unchecked Sendable {
     }
 
     /// JSON 字符串里的换行一定是转义过的，所以裸 CR/LF 只能是空白，换成空格不改变内容。
-    private static func singleLine(_ data: Data) -> Data {
+    static func singleLine(_ data: Data) -> Data {
         var out = data
         for i in out.indices where out[i] == 0x0A || out[i] == 0x0D { out[i] = 0x20 }
         return out
     }
 
-    private static func envelope(type: String, key: String, json: Data) -> Data {
+    static func envelope(type: String, key: String, json: Data) -> Data {
         let ts = Int64(Date().timeIntervalSince1970 * 1000)
         var msg = Data("{\"type\":\"\(type)\",\"ts\":\(ts),\"\(key)\":".utf8)
         msg.append(json)
@@ -418,7 +534,7 @@ final class Hub: @unchecked Sendable {
         return d
     }
 
-    private func broadcast(_ json: Data) {
+    func broadcast(_ json: Data) {
         guard !sseClients.isEmpty else { return }
         let data = frame(json)
         for client in sseClients.values { client.write(data) }
@@ -451,6 +567,7 @@ final class Hub: @unchecked Sendable {
                 let changed = agents != self.lastAgents
                 self.lastAgents = agents
                 if changed || forceBroadcast { self.broadcast(self.detectMessage(agents)) }
+                if changed { self.onAgents?(agents) }
                 completion?(agents)
             }
         }

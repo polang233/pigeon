@@ -4,6 +4,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { whyOf } from './meta.mjs';
 import { HOME, sleep, oneLine, fmtDur, request, emit, loadSettings, codexBin, codexHome, runsDir, runningDir, codexAppRunning } from './common.mjs';
 
 const ASPECT = { square: '正方形（1:1）', landscape: '横版（3:2）', portrait: '竖版（2:3）' };
@@ -109,7 +110,9 @@ export async function run(args) {
   if (!keep) cliArgs.push('--ephemeral');
   cliArgs.push(prompt);
 
-  await report({ phase: 'start', task_id: taskId, title, kind, prompt: oneLine(brief, 160), cwd, model, temp: !keep });
+  // 为什么交给它：指挥写的理由，加上应用按规则给的判断（应用没开就是 lead）
+  const why = await whyOf(args.reason, brief, 'codex@local');
+  await report({ phase: 'start', task_id: taskId, title, kind, prompt: oneLine(brief, 160), cwd, model, temp: !keep, why });
   if (kind === 'image') report({ phase: 'activity', task_id: taskId, activity: 'image' });
 
   const log = fs.createWriteStream(logFile);
@@ -204,7 +207,8 @@ export async function settingsCmd() {
     '送信（send / new）：',
     `- 中继站对话：${post.relayThread || '还没设置（远程发送要先 pigeon relay use <对话id|latest>）'}`,
     `- 往返上限：${post.maxHops} 程；等待超时：${post.waitTimeoutMin} 分钟`,
-    `- 跨电脑发送前弹框确认：${post.confirmRemote ? '是（要你点“放飞”才发）' : '否（直接发）'}`,
+    `- 跨电脑发送前让你确认：${post.confirmRemote ? `是（在 Pigeon 面板里点“放行”才发，${post.crossTimeoutSec} 秒没人点就不发；应用没开时弹系统框）` : '否（直接发）'}`,
+    `- 暂停：全部暂停或某台暂停时，消息先排着，继续后自己送出（最多排 ${post.pauseMaxMin} 分钟）`,
   ];
   console.log(lines.join('\n'));
   return 0;
@@ -217,7 +221,7 @@ export async function doctor() {
   const lines = [
     `codex 命令：${bin || '没找到'}`,
     `Codex 登录：${fs.existsSync(path.join(codexHome(), 'auth.json')) ? '已登录（有 auth.json）' : '没找到登录信息'}`,
-    `Codex 桌面应用：${codexAppRunning() ? '在运行' : '没开（本机纸条会排队等它打开；远程发送用不了）'}`,
+    `Codex 桌面应用：${codexAppRunning() ? '在运行' : '没开（本机消息会排队等它打开；远程发送用不了）'}`,
     `Pigeon 应用：${app ? '在运行' : '没开（不影响调用，只是没有画面）'}`,
     `中继站：${post.relayThread || '还没设置'}（详细检查：pigeon relay check）`,
   ];
