@@ -6,6 +6,8 @@ import { digest, turnForBand } from './rollout.mjs';
 const BODY_OPEN = '<<<PIGEON-BODY';
 const BODY_CLOSE = 'PIGEON-BODY>>>';
 const ms = min => Math.max(60000, Math.round(min * 60000));
+// read_thread 默认会把每条消息截短（实测回信两千来字就被截断），放宽到 20000 字。
+const READ_ARGS = 'turnLimit: 1，maxOutputCharsPerItem: 20000';
 
 const replyFormat = (band, extra = '') => [
   '最后，你这一轮的最终回复只输出一个 json 代码块，不要别的文字，格式如下：',
@@ -39,22 +41,41 @@ export function sendInstruction({ band, threadId, hostId, title, loftName, body,
     BODY_OPEN,
     body,
     BODY_CLOSE,
-    `发出后用 mcp__codex_app__wait_threads 等它这一轮完成（targets 只写这一条，${waitPlan(waitMin)}），再用 mcp__codex_app__read_thread 读最新一轮（turnLimit: 1）。`,
+    `发出后用 mcp__codex_app__wait_threads 等它这一轮完成（targets 只写这一条，${waitPlan(waitMin)}），再用 mcp__codex_app__read_thread 读最新一轮（${READ_ARGS}）。`,
     rules,
     replyFormat(band),
   ].join('\n');
 }
 
 // kind = 'new'：在远程主机的某个项目里新开对话
-export function newInstruction({ band, projectId, projectName, loftName, title, body, waitMin }) {
+// model / effort 是用户明确要求的模型和思考强度（create_thread 的 model 和 thinking 字段）；不给就用远程主机的默认设置。
+export function modelClause(model, effort) {
+  const m = model ? `model 写「${model}」（用户明确要求用这个模型）` : '不要指定 model';
+  return effort ? `${m}，thinking 写「${effort}」` : m;
+}
+
+export function newInstruction({ band, projectId, projectName, loftName, title, body, waitMin, model = '', effort = '' }) {
   return [
     `我授权本次新建（Pigeon 纸条 ${band}）。`,
-    `请用 mcp__codex_app__create_thread 在远程主机${loftName ? ` ${loftName}` : ''}的项目「${projectName || projectId}」下新建一条对话：target 写 {"type":"project","projectId":"${projectId}","environment":{"type":"local"}}，title 写「${title}」，不要指定 model，prompt 是下面 ${BODY_OPEN} 和 ${BODY_CLOSE} 之间的文字，原文照用，不要改动、不要带这两行标记：`,
+    `请用 mcp__codex_app__create_thread 在远程主机${loftName ? ` ${loftName}` : ''}的项目「${projectName || projectId}」下新建一条对话：target 写 {"type":"project","projectId":"${projectId}","environment":{"type":"local"}}，title 写「${title}」，${modelClause(model, effort)}，prompt 是下面 ${BODY_OPEN} 和 ${BODY_CLOSE} 之间的文字，原文照用，不要改动、不要带这两行标记：`,
     BODY_OPEN,
     body,
     BODY_CLOSE,
-    `建好后用 mcp__codex_app__wait_threads 等新对话这一轮完成（${waitPlan(waitMin)}），再用 mcp__codex_app__read_thread 读最新一轮（turnLimit: 1）。`,
+    `建好后用 mcp__codex_app__wait_threads 等新对话这一轮完成（${waitPlan(waitMin)}），再用 mcp__codex_app__read_thread 读最新一轮（${READ_ARGS}）。`,
     rules,
+    replyFormat(band),
+  ].join('\n');
+}
+
+// 补取回信：消息早就送到了，只是中继站当时没等到回信（没回音）。只读：再等一次、再读一次，不给对方发任何东西。
+// 发给中继站的这段指令保持原来的措辞，不跟着界面改词。
+export function fetchInstruction({ band, origBand, threadId, hostId, title, loftName, waitMin }) {
+  const who = `远程对话「${title || threadId}」（threadId: ${threadId}，hostId: ${hostId}${loftName ? `，主机 ${loftName}` : ''}）`;
+  return [
+    `Pigeon 补取回信（${band}，补取纸条 ${origBand} 的回信）。只读：不要发消息、不要新建对话、不要改文件。`,
+    `1. 用 mcp__codex_app__wait_threads 等${who}当前这一轮完成（targets 只写这一条，${waitPlan(waitMin)}）。`,
+    `2. 再用 mcp__codex_app__read_thread 读这条对话的最新一轮（${READ_ARGS}）。`,
+    '规矩：只调用这两个工具；wait_threads 只按上面说的次数重复。',
     replyFormat(band),
   ].join('\n');
 }
@@ -132,10 +153,12 @@ export function toolFacts(tools) {
 
 // 中继站那一轮的进展 → 消息状态
 // 返回 { state, relayTurn, threadId, hostId, answer, error }；state 为空表示还没有新进展
-export function relayProgress(events, band) {
+// fetched：这一轮是补取回信，没有发送这一步，消息本来就送到了。
+export function relayProgress(events, band, { fetched = false } = {}) {
   const t = turnForBand(digest(events), band);
   if (!t) return { state: '' };
   const f = toolFacts(t.tools);
+  if (fetched && f.sent == null) f.sent = true;
   const base = { relayTurn: t.id, threadId: f.threadId, hostId: f.hostId };
   if (f.sent === false) return { ...base, state: 'refused', error: refusedReason(f.sendError) };
   if (!t.done && !t.aborted) return { ...base, state: f.sent ? 'delivered' : 'flying' };

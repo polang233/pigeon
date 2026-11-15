@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs, clip, fingerprint, newBand, isBand } from '../scripts/lib/common.mjs';
-import { parseLines, readFrom, digest, localProgress, findRollout } from '../scripts/lib/rollout.mjs';
-import { parseRelayReply, relayProgress, loftsProgress, remoteLofts, sendInstruction, newInstruction, toolFacts } from '../scripts/lib/relay.mjs';
+import { parseLines, readFrom, digest, localProgress, findRollout, toolResult } from '../scripts/lib/rollout.mjs';
+import { parseRelayReply, relayProgress, loftsProgress, remoteLofts, sendInstruction, newInstruction, fetchInstruction, toolFacts } from '../scripts/lib/relay.mjs';
 import { canMove, readJournal, addNote, patchNote, getNote, prune, recent, updateJournal, KEEP_MS } from '../scripts/lib/journal.mjs';
 import { chainFor, overHops, makeNote, eventOf, footer } from '../scripts/lib/post.mjs';
 import { fixture, T } from './helpers.mjs';
@@ -158,6 +158,52 @@ test('中继指令：写明授权、编号、正文边界、等待时限和回�
   assert.match(n, /我授权本次新建/);
   assert.match(n, /"projectId":"p1","environment":\{"type":"local"\}/);
   assert.match(n, /不要指定 model/);
+  assert.doesNotMatch(n, /thinking/);
+  assert.match(s, /maxOutputCharsPerItem: 20000/);
+  const m = newInstruction({ band: BAND, projectId: 'p1', projectName: 'Projects', loftName: 'X', title: '新', body: 'b', waitMin: 2, model: 'gpt-6-luna', effort: 'high' });
+  assert.match(m, /model 写「gpt-6-luna」/);
+  assert.match(m, /thinking 写「high」/);
+  assert.doesNotMatch(m, /不要指定 model/);
+  assert.match(newInstruction({ band: BAND, projectId: 'p1', title: '新', body: 'b', waitMin: 2, effort: 'medium' }), /不要指定 model，thinking 写「medium」/);
+});
+
+test('toolResult：多包了一层 content 的返回也能拆开', () => {
+  const inner = { turns: [{ status: 'completed', items: [{ type: 'agentMessage', text: '做完了', phase: 'final_answer' }] }] };
+  const wrapped = { content: [{ type: 'text', text: JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(inner) }], isError: false }) }] };
+  const r = toolResult(wrapped);
+  assert.deepEqual(r.json, inner);
+  assert.equal(r.isError, false);
+  const f = toolFacts([{ tool: 'read_thread', arguments: {}, status: 'completed', result: r }]);
+  assert.equal(f.reply, '做完了');
+  assert.equal(toolResult({ content: [{ type: 'text', text: '{"content":"不是包装","x":1}' }] }).json.x, 1, '只拆真正的包装层');
+  assert.equal(toolResult({ content: [{ type: 'text', text: JSON.stringify({ content: [{ type: 'text', text: '出错了' }], isError: true }) }] }).isError, true);
+});
+
+test('补取回信的指令：只读，等一次再读一次，不发消息', () => {
+  const f = fetchInstruction({ band: 'b-aaaaaaaaaa', origBand: BAND, threadId: T.remote, hostId: T.host, title: '构建', loftName: 'X', waitMin: 10 });
+  assert.match(f, /补取纸条 b-0123456789 的回信/);
+  assert.match(f, /"pigeon":"b-aaaaaaaaaa"/);
+  assert.match(f, /wait_threads/);
+  assert.match(f, /read_thread/);
+  assert.match(f, new RegExp(T.remote));
+  assert.doesNotMatch(f, /send_message_to_thread|create_thread/);
+  assert.match(f, /不要发消息/);
+});
+
+test('中继进展：补取的那一轮没有发送这一步，也算送到了', () => {
+  const mk = tools => [
+    { payload: { type: 'task_started', turn_id: 'tf' } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '补取 b-aaaaaaaaaa' }], internal_chat_message_metadata_passthrough: { turn_id: 'tf' } } },
+    ...tools.map(([tool, json]) => ({ payload: { type: 'item_completed', turn_id: 'tf', item: { type: 'McpToolCall', tool, arguments: {}, status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify(json) }] } } } })),
+    { payload: { type: 'task_complete', turn_id: 'tf', last_agent_message: '' } },
+  ];
+  const done = mk([['wait_threads', { timedOut: false, polls: [] }], ['read_thread', { turns: [{ status: 'completed', items: [{ type: 'agentMessage', text: '第二阶段做完了', phase: 'final_answer' }] }] }]]);
+  assert.equal(relayProgress(done, 'b-aaaaaaaaaa').state, 'lost', '不是补取时，看不出发没发就算没回音');
+  const p = relayProgress(done, 'b-aaaaaaaaaa', { fetched: true });
+  assert.equal(p.state, 'home');
+  assert.equal(p.answer, '第二阶段做完了');
+  const busy = mk([['wait_threads', { timedOut: true, polls: [] }], ['read_thread', { turns: [{ status: 'inProgress', items: [] }] }]]);
+  assert.equal(relayProgress(busy, 'b-aaaaaaaaaa', { fetched: true }).state, 'lost');
 });
 
 test('刷新设备：从工具返回整理出远程设备，排除本机和 ChatGPT 项目', () => {
@@ -181,7 +227,9 @@ const sample = (over = {}) => makeNote({ band: newBand(), kind: 'send', chain: '
 test('日志：消息的字段和接口约定一致，不存正文', () => {
   const n = sample();
   assert.deepEqual(Object.keys(n).filter(k => k !== 'track').sort(),
-    ['band', 'chain', 'count', 'created', 'error', 'fingerprint', 'from', 'kind', 'reply_to', 'state', 'to', 'updated', 'via'].sort());
+    ['band', 'chain', 'count', 'created', 'effort', 'error', 'fingerprint', 'from', 'kind', 'model', 'reply_to', 'state', 'to', 'updated', 'via'].sort());
+  assert.equal(n.model, '');
+  assert.equal(n.effort, '');
   assert.deepEqual(Object.keys(n.to).sort(), ['agent', 'loft', 'loft_name', 'session', 'title']);
   assert.equal(n.chain, n.band);
   assert.equal(n.state, 'queued');

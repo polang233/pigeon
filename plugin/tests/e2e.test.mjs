@@ -233,6 +233,88 @@ test('远程新开对话：需要项目，经中继站 create_thread', async () 
   } finally { await done(); }
 });
 
+test('远程新开对话：--model / --effort 写进 create_thread 指令和任务记录；参数不对就不发', async () => {
+  const lofts = { version: 1, updated: 1, lofts: [{ id: T.host, name: 'DESKTOP-TEST01', online: true, sessions: [{ id: T.remote, agent: 'codex', title: '构建', cwd: 'D:\\Work', updated: 1 }], projects: [{ id: 'p-1', name: 'Projects', path: 'D:/Work' }] }] };
+  const { e, done } = await setup({ mode: 'silent', settings: { post: { relayThread: T.relay } } });
+  try {
+    fs.mkdirSync(e.pigeonHome, { recursive: true });
+    fs.writeFileSync(path.join(e.pigeonHome, 'lofts.json'), JSON.stringify(lofts));
+    let r = await pigeon(['new', '--loft', 'DESKTOP-TEST01', '--project', 'Projects', '--title', 't', '--effort', 'turbo', 'hi'], e.env);
+    assert.equal(r.code, 64);
+    assert.match(r.stderr, /思考强度只能是/);
+    r = await pigeon(['send', '--to', '构建@DESKTOP-TEST01', '--model', 'gpt-6-luna', 'hi'], e.env);
+    assert.equal(r.code, 64);
+    assert.match(r.stderr, /pigeon new/);
+    // 应用传的是 --名字=值，--json 时只有一行 JSON
+    r = await pigeon(['send', '--to=构建@DESKTOP-TEST01', '--model=gpt-6-luna', '--json', 'hi'], e.env);
+    assert.equal(r.code, 64);
+    assert.equal(r.stderr, '');
+    assert.deepEqual(Object.keys(JSON.parse(r.stdout.trim())).sort(), ['band', 'error', 'ok']);
+    r = await pigeon(['new', '--loft=DESKTOP-TEST01', '--project=Projects', '--title=t', '--effort=turbo', '--json', 'hi'], e.env);
+    assert.equal(r.code, 64);
+    assert.equal(r.stderr, '');
+    assert.match(JSON.parse(r.stdout.trim()).error, /思考强度只能是/);
+    assert.equal(e.calls().filter(c => c.argv[0] === 'queue').length, 0, '参数不对时一条都不发');
+    r = await pigeon(['new', '--loft', 'DESKTOP-TEST01', '--project', 'Projects', '--title', '翻译', '--model', 'gpt-6-luna', '--effort', 'High', '开始'], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /模型：gpt-6-luna · high/);
+    const q = e.calls().find(c => c.argv[0] === 'queue');
+    assert.match(q.argv[4], /model 写「gpt-6-luna」/);
+    assert.match(q.argv[4], /thinking 写「high」/);
+    const n = e.journal().notes.find(x => x.band === bandOf(r.stdout));
+    assert.equal(n.model, 'gpt-6-luna');
+    assert.equal(n.effort, 'high');
+    const lg = await pigeon(['log'], e.env);
+    assert.match(lg.stdout, /gpt-6-luna · high/);
+  } finally { await done(); }
+});
+
+test('本机新开对话：--model / --effort 覆盖设置里的模型', async () => {
+  const { e, done } = await setup({ mode: 'reply' });
+  try {
+    const r = await pigeon(['new', '--loft', 'local', '--project', '测试项目', '--title', 't', '--model', 'gpt-6-luna', '--effort', 'medium', '做点事'], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    const band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    const ex = e.calls().find(c => c.argv[0] === 'exec');
+    assert.equal(ex.argv[ex.argv.indexOf('-m') + 1], 'gpt-6-luna');
+    assert.ok(ex.argv.includes('model_reasoning_effort="medium"'));
+  } finally { await done(); }
+});
+
+test('补取回信：没回音的远程消息经中继站再等一次、读一次，取到就是回信到了，不弹放行确认', async () => {
+  const lofts = { version: 1, updated: 1, lofts: [{ id: T.host, name: 'DESKTOP-TEST01', online: true, sessions: [{ id: T.remote, agent: 'codex', title: '构建', cwd: 'D:\\Work', updated: 1 }], projects: [] }] };
+  const { e, app, done } = await setup({ mode: 'relay-lost', settings: { post: { relayThread: T.relay } } });
+  try {
+    fs.mkdirSync(e.pigeonHome, { recursive: true });
+    fs.writeFileSync(path.join(e.pigeonHome, 'lofts.json'), JSON.stringify(lofts));
+    const r = await pigeon(['send', '--to', '构建@DESKTOP-TEST01', '跑第二阶段'], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    const band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'lost');
+    let rd = await pigeon(['read', band], e.env);
+    assert.match(rd.stdout, /pigeon fetch/);
+    const confirmsBefore = e.confirms().length, asksBefore = app.asks.length;
+    let f = await pigeon(['fetch', 'b-ffffffffff'], e.env);
+    assert.equal(f.code, 1, '没有的编号');
+    f = await pigeon(['fetch', band], { ...e.env, FAKE_CODEX_MODE: 'relay-fetch' });
+    assert.equal(f.code, 0, f.stdout + f.stderr);
+    assert.match(f.stdout, /已回信/);
+    assert.match(f.stdout, /第二阶段做完了/);
+    const q = e.calls().filter(c => c.argv[0] === 'queue').at(-1);
+    assert.match(q.argv[4], /补取纸条/);
+    assert.doesNotMatch(q.argv[4], /send_message_to_thread/);
+    assert.equal(e.confirms().length, confirmsBefore, '只读，不弹确认');
+    assert.equal(app.asks.length, asksBefore, '只读，也不问应用');
+    assert.equal(e.journal().notes.find(n => n.band === band).state, 'home');
+    assert.equal(e.journal().notes.find(n => n.band === band).error, '', '取到后清掉"正在补取"的说明');
+    rd = await pigeon(['read', band], e.env);
+    assert.match(rd.stdout, /第二阶段做完了/);
+    f = await pigeon(['fetch', band], e.env);
+    assert.equal(f.code, 0, '已经回信的直接读');
+  } finally { await done(); }
+});
+
 const REMOTE_LOFTS = { version: 1, updated: 1, lofts: [{ id: 'local', name: '这台 Mac', online: true, sessions: [], projects: [] },
   { id: T.host, name: 'DESKTOP-TEST01', online: true, sessions: [{ id: T.remote, agent: 'codex', title: '构建', cwd: 'D:\\Work', updated: 1 }], projects: [{ id: 'p-1', name: 'Projects', path: 'D:/Work' }] }] };
 async function remoteSetup(opts) {

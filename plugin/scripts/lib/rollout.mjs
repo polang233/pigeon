@@ -77,13 +77,21 @@ export function digest(events) {
   return { turns: [...turns.values()].sort((a, b) => a.order - b.order) };
 }
 
-// McpToolCall 的 result 是 {content:[{type:'text', text:'<json>'}], isError}；能解析成 JSON 就解析
+// McpToolCall 的 result 是 {content:[{type:'text', text:'<json>'}], isError}；能解析成 JSON 就解析。
+// 有的主机会再包一层（实测 2026-11-13，远程 read_thread 返回的 text 本身又是 {content:[…], isError}），拆到里面那层为止。
+const textOfContent = c => (Array.isArray(c) ? c.map(x => (x && x.text) || '').join('') : '');
+const isWrapper = j => j && typeof j === 'object' && Array.isArray(j.content) && Object.keys(j).every(k => ['content', 'isError', 'structuredContent', '_meta'].includes(k));
 export function toolResult(r) {
   if (!r) return null;
-  const text = Array.isArray(r.content) ? r.content.map(c => c.text || '').join('') : '';
-  let json = null;
+  let text = textOfContent(r.content), isError = !!r.isError, json = null;
   try { json = JSON.parse(text); } catch {}
-  return { isError: !!r.isError, text, json };
+  for (let i = 0; i < 3 && isWrapper(json); i++) {
+    isError = isError || !!json.isError;
+    text = textOfContent(json.content);
+    json = null;
+    try { json = JSON.parse(text); } catch {}
+  }
+  return { isError, text, json };
 }
 
 // 找带着编号的那一轮。同一个编号出现多次时取第一次（我们只发一次）。

@@ -516,7 +516,7 @@ test('ask 里的 rule 来自 why.rule', async () => {
   } finally { await done(); }
 });
 
-test('new --model/--effort：本机传给 codex exec，且命令行优先于设置；经中继站只记录、不生效', async () => {
+test('new --model/--effort：本机传给 codex exec，且命令行优先于设置；经中继站写进 create_thread', async () => {
   let s = await local({ extra: { codex: { model: 'settings-model', effort: 'low' } } });
   try {
     const r = await pigeon(['new', '--loft', 'local', '--project', '测试项目', '--title', 'M', '--model', 'gpt-x', '--effort', 'high', '换个模型'], s.e.env);
@@ -532,10 +532,11 @@ test('new --model/--effort：本机传给 codex exec，且命令行优先于设�
   try {
     const r = await pigeon(['new', '--loft', 'DESKTOP-TEST01', '--project', 'Projects', '--title', 'M', '--model', 'gpt-x', '--effort', 'high', '远程新开'], s.e.env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /不能指定模型/);
+    assert.match(r.stdout, /模型：gpt-x · high/);
     const n = s.e.journal().notes[0];
-    assert.equal(n.model, 'gpt-x'); assert.equal(n.model_applied, false);
-    assert.doesNotMatch(queues(s.e)[0].argv[4], /gpt-x/);
+    assert.equal(n.model, 'gpt-x'); assert.equal(n.effort, 'high'); assert.equal(n.model_applied, undefined);
+    assert.match(queues(s.e)[0].argv[4], /model 写「gpt-x」/);
+    assert.match(queues(s.e)[0].argv[4], /thinking 写「high」/);
   } finally { await s.done(); }
 });
 

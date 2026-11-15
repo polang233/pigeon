@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from './lib/common.mjs';
 import { run, settingsCmd, doctor } from './lib/run.mjs';
-import { sendCmd, newCmd, waitCmd, readCmd, logCmd, loftsCmd, relayCmd, watch } from './lib/post.mjs';
+import { sendCmd, newCmd, waitCmd, readCmd, fetchCmd, logCmd, loftsCmd, relayCmd, watch } from './lib/post.mjs';
 
 const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也跨电脑。
 
@@ -14,9 +14,12 @@ const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也�
        [--reply-to <编号>] [--wait] [--file <消息文件> | --stdin]
        [--reason "<为什么交给它>"] [--retry-of <编号>] [--ctx-files a,b] [--ctx-tokens 1200] [--json]
   pigeon new --loft <设备> [--project <项目>] --title "<标题>" "<话>"   新开一个对话
-       [--model <模型>] [--effort <思考强度>] 以及 send 的 --reason --retry-of --ctx-* --stdin --json
+       [--model <模型>] [--effort <思考强度>]   指定新对话的模型和思考强度（比如 --model gpt-6-luna --effort high），
+                                              不写就用对方的默认设置；已有对话换不了，只能新开
+       以及 send 的 --reason --retry-of --ctx-* --stdin --json
   pigeon wait <编号> [--timeout 分钟]     等到回信到了或没回音，打印回信
   pigeon read <编号>                      读回信
+  pigeon fetch <编号> [--wait-min 分钟]   远程消息送到了但没回音（没等到回信）时，请中继站再等一次、补取回信（只读）
   pigeon log [-n 20] [--json]             最近的任务记录
   pigeon relay [use <对话id|latest> | check]   查看、设置或检查中继站
 
@@ -43,6 +46,7 @@ export async function main(argv) {
     case 'new': return newCmd(args);
     case 'wait': return waitCmd(args);
     case 'read': return readCmd(args);
+    case 'fetch': return fetchCmd(args);
     case 'log': return logCmd(args);
     case 'relay': return relayCmd(args);
     case '_watch': return watch(args._[0]);
