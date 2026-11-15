@@ -1,6 +1,6 @@
 # Pigeon 的网页界面
 
-Mac 应用的窗口里显示的就是这里的页面：应用经自己的本机服务（`127.0.0.1:47321`）放 `web/`，窗口里的 WKWebView 打开它，数据经 HTTP 和 SSE（`/events`）来回。接口见 [`docs/CONTRACT.md`](../docs/CONTRACT.md)，方案和进度见 [`docs/REDESIGN.md`](../docs/REDESIGN.md)。
+Mac 应用的窗口里显示的就是这里的页面：应用经自己的本机服务（`127.0.0.1:47321`）放 `web/`，窗口里的 WKWebView 打开它，数据经 HTTP 和 SSE（`/events`）来回。接口见 [`docs/CONTRACT.md`](../docs/CONTRACT.md)，方案和进度见 [`docs/DESIGN.md`](../docs/DESIGN.md)。
 
 ## 两种模式，一套代码
 
@@ -61,7 +61,7 @@ node --test web/test
 | `test/` | `node --test` 的测试，`helpers.mjs` 是测试用的状态；`index.js` 只是让 `node --test web/test` 能找到它们 |
 | `art/brand.js` | 各家 agent 真实标志的像素版和送信的鸽子：`pigeon(颜色, 样子)` 返回一张自己会动的 SVG |
 | `art/loft-art.js` | “屋顶”样式的屋顶和鸽子（上一版界面留下的画法） |
-| `art/manor/`、`art/manor.js` | 洋馆样式用的图（Codex 画的，原图在仓库的 `assets/generated/`），和图片缺失时用的像素画 |
+| `art/manor/`、`art/manor.js` | 洋馆样式用的图（Codex 画的，原图在仓库的 `assets/manor/`），和图片缺失时用的像素画 |
 | `art/crew/` | DeepSeek 的像素鲸鱼，由 `tools/crew_svg.py` 生成，不要手改；重新生成后把 `src/views/faces.js` 里的 `CREW_V` 加一 |
 | `art/clawd-tank/` | Claude Code 的 SVG 动画，取自 clawd-tank（MIT），许可证和改动见目录里的 README；改过后把 `CLAWD_V` 加一 |
 | `art/local/` | 不提交（在 .gitignore 里），也不该打包。放 Codex 应用自带的宠物图 `codex-pet.webp`，版权归 OpenAI；没有这个文件时 Codex 退回像素标志 |

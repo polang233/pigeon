@@ -1,6 +1,6 @@
 #!/usr/bin/env swift
 // 生成 mac/Resources/AppIcon.icns：红底白鸽。
-// 底图是方形满版位图（默认 assets/generated/pigeon-mark.png），这里裁成标准 Mac 图标的样子：
+// 底图是方形满版位图（默认 assets/brand/pigeon-mark.png），这里裁成标准 Mac 图标的样子：
 // 1024 画布，中间 824 的圆角方块，四角透明，加一圈很淡的内描边。各尺寸分别从原图重新缩放，小尺寸不至于糊成一团。
 // 用法：swift mac/scripts/make-icon.swift [底图.png] [输出.icns]
 // 环境变量 PIGEON_ICON_PREVIEW=<路径.png> 时顺便输出一张 1024 的预览。
@@ -14,7 +14,7 @@ let scriptDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let args = CommandLine.arguments
 let source = args.count > 1
     ? URL(fileURLWithPath: args[1])
-    : scriptDir.appendingPathComponent("../../assets/generated/pigeon-mark.png").standardizedFileURL
+    : scriptDir.appendingPathComponent("../../assets/brand/pigeon-mark.png").standardizedFileURL
 let output = args.count > 2
     ? URL(fileURLWithPath: args[2])
     : scriptDir.appendingPathComponent("../Resources/AppIcon.icns").standardizedFileURL

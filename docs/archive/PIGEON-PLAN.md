@@ -1,6 +1,6 @@
 # Pigeon 改版方案
 
-> 这是 2026-11-11 改名那一轮的方案，属于历史记录。用词和界面已经变了：现在叫设备、消息、任务、对话，不再用鸽舍、纸条、脚环、栖木这套词；界面也换成了新的应用界面（2026-11-14）。现行的说法见 [REDESIGN.md](REDESIGN.md)，接口见 [CONTRACT.md](CONTRACT.md)。文中的栖木（`Perch.swift`）已删除，由 `mac/Notch/` 的原生刘海面板取代。
+> 这是 2026-11-11 改名那一轮的方案，属于历史记录。用词和界面已经变了：现在叫设备、消息、任务、对话，不再用鸽舍、纸条、脚环、栖木这套词；界面也换成了新的应用界面（2026-11-14）。现行的说法见 [DESIGN.md](../DESIGN.md)，接口见 [CONTRACT.md](../CONTRACT.md)。文中的栖木（`Perch.swift`）已删除，由 `mac/Notch/` 的原生刘海面板取代。
 
 Meerkat 改名为 **Pigeon（信鸽）**。这份文档是这次改版的总方案和各模块之间的接口约定，四个模块并行开发时以它为准。
 
@@ -133,8 +133,8 @@ pigeon settings | doctor | open   原有命令，文案改成 Pigeon
 
 ### D 文档和收尾
 
-- `README.md`、`docs/PRD.md` 按 Pigeon 重写；`docs/CONTRACT.md` 把下面的接口约定并进去；`docs/IMPLEMENTATION.md` 末尾加一节记录这次改版。
-- `.claude-plugin/marketplace.json` 改名成 `pigeon`；`hooks/settings.example.json` 里的说明同步。
+- `README.md`、`PRD.md` 按 Pigeon 重写；`../CONTRACT.md` 把下面的接口约定并进去；`IMPLEMENTATION.md` 末尾加一节记录这次改版。
+- `.claude-plugin/marketplace.json` 改名成 `pigeon`；`plugin/hooks/settings.example.json` 里的说明同步。
 - README 里的安装路径不要写死成某台机器的绝对路径。
 - 最后做一遍全仓库检查：除了兼容代码和迁移说明，不应再有面向用户的"Meerkat"字样。只报告，不改 A、B、C 的目录。
 

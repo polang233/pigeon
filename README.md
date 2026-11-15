@@ -1,10 +1,12 @@
 # Pigeon（信鸽）
 
+当前版本 0.2.0，只有 Mac 版。要做的事见 [docs/TODO.md](docs/TODO.md)。
+
 Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让你的 agent（能自己干活的 AI 程序，比如 Claude Code、Codex）互相传话：一个 agent 写一条消息，发给另一个 agent，等对方做完，再把回信取回来。消息可以发给本机的 Codex 对话，也可以经过 Codex 已连接的远程设备，发到另一台电脑上。每条消息发到了哪里、现在什么状态，都能在应用里看到。
 
 应用的窗口是一个普通的应用界面，有四页：指挥台（谁在给谁派活）、任务（每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
 
-> 界面在 2026-11-14 改成了这一版，原来的像素鸽舍降为"实验样式"。方案和做到哪了见 [docs/REDESIGN.md](docs/REDESIGN.md)。这一版自动测试都过了，但**没有对真的 Codex 应用试过，原生刘海面板也没有人手动操作过**，详见下面"限制和没做的事"。
+> 界面在 2026-11-14 改成了这一版，原来的像素鸽舍降为"实验样式"。方案和做到哪了见 [docs/DESIGN.md](docs/DESIGN.md)。这一版自动测试都过了，但**没有对真的 Codex 应用试过，原生刘海面板也没有人手动操作过**，详见下面"限制和没做的事"。
 
 ## 能做什么
 
@@ -113,7 +115,7 @@ node --test tests/e2e         # 真的本机服务加真的命令行加假的 co
 
 装好后新开一个会话。
 
-**只想在某个项目里看画面**：把 `hooks/settings.example.json` 里的 `hooks` 一段加到那个项目的 `.claude/settings.local.json` 里（这个文件只对你自己生效，不会提交），并把里面的 `<仓库目录>` 换成本仓库的实际路径。装了插件就不要再这样配，否则每个事件会收到两次。
+**只想在某个项目里看画面**：把 `plugin/hooks/settings.example.json` 里的 `hooks` 一段加到那个项目的 `.claude/settings.local.json` 里（这个文件只对你自己生效，不会提交），并把里面的 `<仓库目录>` 换成本仓库的实际路径。装了插件就不要再这样配，否则每个事件会收到两次。
 
 转发脚本 `plugin/scripts/forward.sh` 在后台发送，最多等 1 秒；Pigeon 没开时静默失败，不影响 Claude Code。
 
@@ -296,12 +298,11 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 | `plugin/` | Claude Code 插件：hook、`pigeon-post` 和 `codex-delegation` 两个 skill、命令入口 `pigeon.mjs`、转发脚本；也会被打进应用，应用派活时用 |
 | `tools/` | 开发工具：`serve.py`（演示服务）、`fake-hub.mjs`（假的本机服务，开发网页用）、`crew_svg.py`、`slice_sheet.py`（生成和切分美术图） |
 | `tests/` | 跨模块的测试：`fixtures/` 里是几处实现共用的用例（分派规则、查密钥），`e2e/` 是真的本机服务加真的命令行加假的 codex |
-| `hooks/` | 不装插件时手动接 hook 用的示例配置 |
-| `site/` | 官网（这一版没有更新） |
-| `assets/` | logo、场景美术原图等素材 |
-| `docs/REDESIGN.md` | 新界面方案：页面、层级、样式、刘海交互、接入打算、做到哪了、检查过什么 |
-| `docs/PRD.md` | 需求 |
-| `docs/CONTRACT.md` | 应用和画面、插件之间的接口 |
-| `docs/IMPLEMENTATION.md` | 实际做了什么、验证了什么 |
-| `docs/PIGEON-PLAN.md` | 这次改版的总方案 |
-| `docs/CODEX-FEASIBILITY.md` | Codex 接入实验和设置说明 |
+| `site/` | 官网落地页（这一版没有更新） |
+| `assets/brand/` | 现在的应用图标原图（`pigeon-mark.png`，`mac/scripts/make-icon.swift` 用它生成 `AppIcon.icns`）和官网用的插画 |
+| `assets/manor/` | 洋馆样式的原图（Codex 画的动作表和大厅），切好的在 `web/art/manor/` |
+| `docs/DESIGN.md` | 界面方案：页面、层级、样式、刘海交互、接入打算、做到哪了、检查过什么 |
+| `docs/CONTRACT.md` | 应用、网页、刘海、插件之间的接口 |
+| `docs/TODO.md` | 待办：大方向和小改进 |
+| `docs/archive/` | 历史记录：最早的需求、实施记录、改名方案、Codex 接入实验。用词和界面都是旧的 |
+| `CHANGELOG.md` | 每个版本改了什么 |
