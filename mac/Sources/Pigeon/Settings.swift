@@ -40,9 +40,25 @@ enum Settings {
         return data
     }
 
-    /// 栖木开关（`perch.enabled`），缺省开
-    static func perchEnabled() -> Bool {
-        ((object()["perch"] as? [String: Any])?["enabled"] as? Bool) ?? true
+    /// 把 patch 合并进 base：对象逐层合并，值为 null 删掉这一项，其余（含数组）整个换
+    static func merge(_ base: inout [String: Any], patch: [String: Any]) {
+        for (key, value) in patch {
+            if value is NSNull {
+                base[key] = nil
+            } else if let sub = value as? [String: Any] {
+                var inner = base[key] as? [String: Any] ?? [:]
+                merge(&inner, patch: sub)
+                base[key] = inner
+            } else {
+                base[key] = value
+            }
+        }
+    }
+
+    /// 用刘海还是菜单栏图标（`perch.notch`）。没写过时沿用以前的 `perch.enabled`，都没有就是开
+    static func notchEnabled() -> Bool {
+        let perch = object()["perch"] as? [String: Any]
+        return (perch?["notch"] as? Bool) ?? (perch?["enabled"] as? Bool) ?? true
     }
 
     private static func isObject(_ data: Data) -> Bool {

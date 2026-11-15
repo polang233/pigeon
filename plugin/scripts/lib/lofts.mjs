@@ -1,4 +1,4 @@
-// 鸽舍（电脑）和上面的对话。本机现读 sqlite，远程的来自上一次经中继站刷新的缓存 ~/.pigeon/lofts.json。
+// 设备（电脑）和上面的对话。本机现读 sqlite，远程的来自上一次经中继站刷新的缓存 ~/.pigeon/lofts.json。
 import { loftsFile, readJson, writeJsonAtomic, LOCAL, LOCAL_NAME } from './common.mjs';
 import { listThreads, listProjects, searchThreads, getThread } from './codex-state.mjs';
 
@@ -50,19 +50,19 @@ const pick = (cands, term, key = 'title') => {
   return cands.filter(c => (c[key] || '').includes(term));
 };
 
-// 解析 --to：<对话id|标题>[@<鸽舍名或id>]
+// 解析 --to：<对话id|标题>[@<设备名或id>]
 // 返回 { ok, target? , error?, candidates? }
 // target = { loft, loft_name, session, title, cwd, approval?, rollout? }
 export function resolveTarget(spec, lofts = readLofts().lofts) {
   const s = String(spec || '').trim();
-  if (!s) return { ok: false, error: '缺少收件人：用 --to <对话id或标题>，远程写成 <对话>@<鸽舍>' };
+  if (!s) return { ok: false, error: '缺少收件人：用 --to <对话id或标题>，远程写成 <对话>@<设备>' };
   const at = s.lastIndexOf('@');
   const who = at > 0 ? s.slice(0, at).trim() : s;
   const where = at > 0 ? s.slice(at + 1).trim() : '';
 
   if (where) {
     const loft = findLoft(lofts, where);
-    if (!loft) return { ok: false, notFound: true, error: `没找到鸽舍「${where}」。先跑 pigeon lofts 看看有哪些；远程鸽舍要先 pigeon lofts --refresh` };
+    if (!loft) return { ok: false, notFound: true, error: `没找到设备「${where}」。先跑 pigeon lofts 看看有哪些；远程设备要先 pigeon lofts --refresh` };
     if (loft.id !== LOCAL) {
       const c = pick(loft.sessions || [], who);
       if (c.length > 1) return { ok: false, error: `「${who}」在 ${loft.name} 上对上了 ${c.length} 条对话，请用对话 id`, candidates: c };
@@ -81,13 +81,13 @@ export function resolveTarget(spec, lofts = readLofts().lofts) {
     return { ok: true, target: { loft: LOCAL, loft_name: LOCAL_NAME, session: t.id, title: t.title, cwd: t.cwd, approval: t.approval, rollout: t.rollout, archived: t.archived } };
   }
   if (!where) {
-    // 没写鸽舍，但 id 在某个远程鸽舍的缓存里
+    // 没写设备，但 id 在某个远程设备的缓存里
     for (const l of lofts.filter(x => x.id !== LOCAL)) {
       const r = (l.sessions || []).filter(x => x.id === who);
       if (r.length === 1) return { ok: true, target: { loft: l.id, loft_name: l.name, session: r[0].id, title: r[0].title || '', cwd: r[0].cwd || '' } };
     }
   }
-  return { ok: false, notFound: true, error: `本机没找到对话「${who}」。用 pigeon lofts 看看有哪些；远程对话写成 <对话>@<鸽舍>` };
+  return { ok: false, notFound: true, error: `本机没找到对话「${who}」。用 pigeon lofts 看看有哪些；远程对话写成 <对话>@<设备>` };
 }
 
 // 解析 new 的 --project

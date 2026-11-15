@@ -30,7 +30,7 @@ test('parseArgs：键值、开关、短参数、等号和 --', () => {
   assert.deepEqual(parseArgs(['--title', '--to', 'x']), { _: [], title: true, to: 'x' });
 });
 
-test('脚环、预览截断、指纹', () => {
+test('编号、预览截断、指纹', () => {
   const b = newBand();
   assert.ok(isBand(b), b);
   assert.ok(!isBand('b-xyz'));
@@ -43,7 +43,7 @@ test('脚环、预览截断、指纹', () => {
 });
 
 /* ---------- rollout ---------- */
-test('rollout：按轮整理，找到带脚环的一轮', () => {
+test('rollout：按轮整理，找到带编号的一轮', () => {
   const d = digest(events('local-thread.jsonl'));
   assert.equal(d.turns.length, 2);
   assert.equal(d.turns[0].trigger, 'exec');
@@ -79,7 +79,7 @@ test('rollout：按 id 在 sessions 目录里找文件', () => {
 });
 
 /* ---------- 中继站 ---------- */
-test('中继回复：代码块、裸 JSON、脚环不对', () => {
+test('中继回复：代码块、裸 JSON、编号不对', () => {
   const j = parseRelayReply('好的\n```json\n{"pigeon":"b-0123456789","sent":true,"reply":"收到"}\n```', BAND);
   assert.equal(j.reply, '收到');
   assert.equal(parseRelayReply('{"pigeon":"b-0123456789","sent":false,"error":"拒绝"}', BAND).sent, false);
@@ -102,7 +102,7 @@ test('中继进展：发出了还在等 → 已送达；还没开始 → 没有�
   assert.equal(relayProgress(events('relay-send-ok.jsonl'), 'b-ffffffffff').state, '');
 });
 
-test('中继进展：审批策略 never → 被拒收，带能照着做的提示', () => {
+test('中继进展：审批策略 never → 没发出，带能照着做的提示', () => {
   const p = relayProgress(events('relay-send-never.jsonl'), BAND);
   assert.equal(p.state, 'refused');
   assert.match(p.error, /never/);
@@ -116,16 +116,16 @@ test('中继进展：远程新建拿到新对话 id', () => {
   assert.equal(p.answer, '已在远程新建');
 });
 
-test('中继进展：等待超时 → 迷路，不拿上一轮的旧回复充数', () => {
+test('中继进展：等待超时 → 没回音，不拿上一轮的旧回复充数', () => {
   const p = relayProgress(events('relay-send-timeout.jsonl'), BAND);
   assert.equal(p.state, 'lost');
   assert.match(p.error, /没等到回信/);
 });
 
-test('中继进展：工具记录缺失时用最终 JSON 兜底；都看不出来就迷路', () => {
+test('中继进展：工具记录缺失时用最终 JSON 兜底；都看不出来就没回音', () => {
   const mk = answer => parseLines([
     JSON.stringify({ type: 'event_msg', payload: { type: 'task_started', turn_id: 't1' } }),
-    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `纸条 ${BAND}` }], internal_chat_message_metadata_passthrough: { turn_id: 't1' } } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `消息 ${BAND}` }], internal_chat_message_metadata_passthrough: { turn_id: 't1' } } }),
     JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete', turn_id: 't1', last_agent_message: answer } }),
   ].join('\n'));
   const ok = relayProgress(mk('```json\n{"pigeon":"b-0123456789","sent":true,"thread_id":"x","reply":"好"}\n```'), BAND);
@@ -144,7 +144,7 @@ test('toolFacts：read_thread 只取最终回复', () => {
   assert.equal(f.reply, '最终');
 });
 
-test('中继指令：写明授权、脚环、正文边界、等待时限和回复格式', () => {
+test('中继指令：写明授权、编号、正文边界、等待时限和回复格式', () => {
   const s = sendInstruction({ band: BAND, threadId: T.remote, hostId: T.host, title: '构建', loftName: 'DESKTOP-TEST01', body: '跑一下 main', waitMin: 10 });
   assert.match(s, /我授权本次发送/);
   assert.match(s, /b-0123456789/);
@@ -160,7 +160,7 @@ test('中继指令：写明授权、脚环、正文边界、等待时限和回�
   assert.match(n, /不要指定 model/);
 });
 
-test('刷新鸽舍：从工具返回整理出远程鸽舍，排除本机和 ChatGPT 项目', () => {
+test('刷新设备：从工具返回整理出远程设备，排除本机和 ChatGPT 项目', () => {
   const p = loftsProgress(events('relay-lofts.jsonl'), 'b-aaaaaaaaaa');
   assert.equal(p.state, 'home');
   const lofts = remoteLofts(p, [{ id: 'remote-control:env_old', name: '旧电脑', online: true, sessions: [], projects: [] }]);
@@ -178,7 +178,7 @@ test('刷新鸽舍：从工具返回整理出远程鸽舍，排除本机和 Chat
 const sample = (over = {}) => makeNote({ band: newBand(), kind: 'send', chain: '', count: 1, from: { loft: 'local', agent: 'claude', session: 's', title: '' },
   to: { loft: 'local', session: T.local, title: '跑测试' }, via: 'queue', text: '秘密正文', ...over });
 
-test('日志：纸条的字段和接口约定一致，不存正文', () => {
+test('日志：消息的字段和接口约定一致，不存正文', () => {
   const n = sample();
   assert.deepEqual(Object.keys(n).filter(k => k !== 'track').sort(),
     ['band', 'chain', 'count', 'created', 'error', 'fingerprint', 'from', 'kind', 'reply_to', 'state', 'to', 'updated', 'via'].sort());
@@ -192,7 +192,7 @@ test('日志：纸条的字段和接口约定一致，不存正文', () => {
   assert.ok(!('track' in ev));
 });
 
-test('日志：状态只能往前走，迷路可以改成归巢', () => {
+test('日志：状态只能往前走，没回音可以改成回信到了', () => {
   assert.ok(canMove('queued', 'flying'));
   assert.ok(canMove('flying', 'home'));
   assert.ok(canMove('queued', 'refused'));
@@ -266,7 +266,7 @@ test('防循环：--reply-to 沿用链首，count 加一；超过上限拒发', 
   assert.equal(n.reply_to, parent.band);
 });
 
-test('纸条末尾带脚环和发件人', () => {
+test('消息末尾带编号和发件人', () => {
   assert.match(footer('b-0123456789', { agent: 'claude' }), /Pigeon 纸条 b-0123456789.*Claude Code/);
   assert.match(footer('b-0123456789', { agent: 'you' }), /用户/);
 });

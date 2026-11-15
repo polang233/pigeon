@@ -79,15 +79,32 @@ export function makeEnv({ mode = 'reply', settings = {}, threads, confirm = 'ok'
 }
 
 // 记录事件的假应用。settings 为 null 时 /api/settings 回 404（当作应用没开设置接口）
-export function fakeApp({ settings = null } = {}) {
-  const events = [];
+// ask：POST /api/ask 怎么回——'release' | 'release_masked' | 'block' | 'timeout'，'drop' 是直接掐断连接，'garbage' 是回看不懂的东西，
+//      不给就回 404（老的假应用没有这个接口）；也可以是 (body) => 动作。delayMs 是回之前挂多久。
+// suggest：POST /api/dispatch/suggest 的回复（对象），不给就回 404
+export function fakeApp({ settings = null, ask = null, askDelayMs = 0, suggest = null } = {}) {
+  const events = [], asks = [], suggests = [];
   let current = settings;
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', c => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       const body = Buffer.concat(chunks).toString('utf8');
       if (req.method === 'POST' && req.url === '/ev') { try { events.push(JSON.parse(body)); } catch {} res.writeHead(204); return res.end(); }
+      if (req.method === 'POST' && req.url === '/api/ask' && ask) {
+        const b = JSON.parse(body);
+        // 记下收到这个请求时，事件里已经有哪些状态（用来确认“等你确认”先发出去了）
+        asks.push({ ...b, seen: events.filter(x => x.band === b.band).map(x => x.state) });
+        if (askDelayMs) await new Promise(r => setTimeout(r, askDelayMs));
+        const a = typeof ask === 'function' ? ask(b) : ask;
+        if (a === 'drop') return req.socket.destroy();
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify(a === 'garbage' ? { nope: 1 } : { action: a }));
+      }
+      if (req.method === 'POST' && req.url === '/api/dispatch/suggest' && suggest) {
+        suggests.push(JSON.parse(body));
+        res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(suggest));
+      }
       if (req.url === '/api/settings' && current) {
         if (req.method === 'PUT') current = JSON.parse(body);
         res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(current));
@@ -96,9 +113,18 @@ export function fakeApp({ settings = null } = {}) {
     });
   });
   return new Promise(r => server.listen(0, '127.0.0.1', () => r({
-    port: server.address().port, events, settings: () => current,
+    port: server.address().port, events, asks, suggests, settings: () => current,
     close: () => new Promise(x => server.close(x)),
   })));
+}
+
+// 一个肯定没人监听的端口（开一个服务拿到端口再关掉）
+export async function deadPort() {
+  const s = http.createServer();
+  await new Promise(r => s.listen(0, '127.0.0.1', r));
+  const p = s.address().port;
+  await new Promise(r => s.close(r));
+  return p;
 }
 
 export function pigeon(args, env, script = PIGEON) {
@@ -106,6 +132,16 @@ export function pigeon(args, env, script = PIGEON) {
     execFile(process.execPath, [script, ...args], { env, timeout: 60000, encoding: 'utf8' }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr });
     });
+  });
+}
+
+// 带标准输入的版本（--stdin 用）
+export function pigeonIn(args, env, input) {
+  return new Promise(resolve => {
+    const child = execFile(process.execPath, [PIGEON, ...args], { env, timeout: 60000, encoding: 'utf8' }, (err, stdout, stderr) => {
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr });
+    });
+    child.stdin.end(input);
   });
 }
 

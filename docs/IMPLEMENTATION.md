@@ -1,5 +1,7 @@
 # 实施记录
 
+> 这是历史记录，写的是改名前后那几轮做了什么。用词和界面已经变了：现在叫设备、消息、任务、对话，不再用鸽舍、纸条、脚环、栖木这套词；界面也换成了新的应用界面（2026-11-14）。现行的说法见 [REDESIGN.md](REDESIGN.md)，接口见 [CONTRACT.md](CONTRACT.md)。下文里的 `web/js/*`、`web/usage.css`、栖木（`Perch.swift`）都已经删除，对应的新界面代码在 `web/src/`，原生刘海面板在 `mac/Notch/`。
+
 ## 结构
 
 ```
@@ -7,7 +9,7 @@ mac/                      Mac 应用（Swift Package，无第三方依赖）
   Sources/Meerkat/        窗口 + WKWebView、内置 HTTP 服务、连接检测
   scripts/build-app.sh    编译并组装 build/Meerkat.app，复制 web/，ad-hoc 签名
   scripts/make-icon.swift 用字符网格画像素狐獴图标，生成 AppIcon.icns
-web/                      画面，纯 HTML/CSS/JS，不需要构建
+web/                      画面，纯 HTML/CSS/JS，不需要构建（下面的 js/ 文件已删除，现在是 src/ 下的 ES 模块，见 web/README.md）
   js/sprites.js           角色字符网格和调色板
   js/store.js             hook 事件 → 任务和动作（按 tool_use_id 配对）
   js/simulator.js         模拟剧本，发出和真实 hook 同格式的事件
@@ -77,7 +79,7 @@ Codex 审查了这批改动，找出 7 个问题（漏了工具失败事件、�
 
 ## 立体工作室、用量和 Codex 事件（2026-10-24）
 
-- **场景**（`web/js/theme-studio.js`）：画布 384×216，3/4 俯视角。房间、家具、角色是 Codex 按同一份风格说明画的三张表（`assets/scene-src/`），`mac/scripts/slice-scene.swift` 按透明区域切格、缩到像素尺寸、把半透明边缘二值化。
+- **场景**（`web/js/theme-studio.js`，已删除）：画布 384×216，3/4 俯视角。房间、家具、角色是 Codex 按同一份风格说明画的三张表（`assets/scene-src/`），`mac/scripts/slice-scene.swift` 按透明区域切格、缩到像素尺寸、把半透明边缘二值化。
   - 显示器正对观众，角色坐在显示器旁边（主桌坐左、工位坐右），不然脸会被挡住。
   - 所有东西按地板 y 从远到近画；物体下面有像素阴影；鼠标移动时背景有 3 像素视差。
   - 工位 2/3/4 各有一套位置。增减工位时桌子从地板升起或沉下，角色从左下角候场区走进走出；走路时走在桌子前面。
@@ -90,7 +92,7 @@ Codex 审查了这批改动，找出 7 个问题（漏了工具失败事件、�
 - **DeepSeek**：检测 DeepSeek Harness（`com.deepseek.dsh`）在不在线。
 - 网页的 Codex 事件处理、用量面板、hook 开关和场景设置由 Codex 实现。
 
-- **改用像素美术包（同一天）**：Codex 生成的图本身不是严格的像素网格，缩到二三十像素时比例不是整数，边缘发糊。默认画面改成 `web/js/pixel-art.js`：房间（透视木地板、月光和台灯光用棋盘格抖动）、3/4 视角的桌子、角色全部用代码按格子画，主角色每格 3 像素，小帮手和狐獴每格 2 像素，外面统一描 1 像素深色边。场景引擎不变，只是换了美术包；插画版保留为「插画工作室（实验）」。Cursor 重画成带箭头徽记的小立方体，新增 DeepSeek 小鲸鱼；干活时有两帧交替，像在打字。角色排在自己桌子前面画，下半身被桌面挡住。
+- **改用像素美术包（同一天）**：Codex 生成的图本身不是严格的像素网格，缩到二三十像素时比例不是整数，边缘发糊。默认画面改成 `web/js/pixel-art.js`（已删除）：房间（透视木地板、月光和台灯光用棋盘格抖动）、3/4 视角的桌子、角色全部用代码按格子画，主角色每格 3 像素，小帮手和狐獴每格 2 像素，外面统一描 1 像素深色边。场景引擎不变，只是换了美术包；插画版保留为「插画工作室（实验）」。Cursor 重画成带箭头徽记的小立方体，新增 DeepSeek 小鲸鱼；干活时有两帧交替，像在打字。角色排在自己桌子前面画，下半身被桌面挡住。
 
 验证：新场景在浏览器里跑模拟，2/3/4 工位切换、拖到主桌、从候场区拖上场、悬停卡片都看过；用量读到了真实的 Claude 数据；Codex hook 已装进 `~/.codex/hooks.json`，还没在 Codex 里信任，所以 Codex 自己的事件还没实测。
 
@@ -156,7 +158,7 @@ Meerkat 只能"看"：看 Claude Code 把活派给谁，Codex 那边只能开一
 - 栖木：贴刘海下沿，无刘海贴菜单栏下沿居中；收起是胶囊，空闲时几乎透明，悬停或点击展开，全屏应用下不自动隐藏；开关在设置、菜单栏菜单和"显示"菜单里。超过 2 小时没有任何消息的纸条视为过期，不再计数。
 
 **画面（`web/`）**
-- 主题 `loft`（默认，`web/js/theme-loft.js`）和 `pixel-studio`（旧版）；旧值 `studio`、`illustrated` 自动映射成 `loft`，插画主题已删除。前端命名空间改为 `window.Pigeon`，本地存储键 `pigeon-theme`、`pigeon-log-collapsed`（旧键 `meerkat-theme` 仍读）。
+- 主题 `loft`（默认，`web/js/theme-loft.js`，已删除）和 `pixel-studio`（旧版）；旧值 `studio`、`illustrated` 自动映射成 `loft`，插画主题已删除。前端命名空间改为 `window.Pigeon`，本地存储键 `pigeon-theme`、`pigeon-log-collapsed`（旧键 `meerkat-theme` 仍读）。
 - 侧栏"飞行记录"分"纸条"和"派活"两页；设置页有"送信"分页、"栖木"开关，通知里有 `noteHome`、`noteLost`。远处鸽舍最多画 4 个，同时恢复的纸条最多 10 张。模拟演示里有送纸条的剧本，包括一次跨鸽舍往返。
 
 ### 验证了什么，还没验证什么

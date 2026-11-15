@@ -10,7 +10,7 @@ Mac 应用（`mac/`）、前端（`web/`）和插件（`plugin/`）之间只靠�
 
 | 请求 | 说明 |
 |---|---|
-| `GET /` 和 `GET /<path>` | 返回打包进应用的 `web/` 目录里的文件。窗口里的 WKWebView 加载 `http://127.0.0.1:47321/`，浏览器打开同一个地址也能看。 |
+| `GET /` 和 `GET /<path>` | 返回打包进应用的 `web/` 目录里的文件（打包时去掉 `web/test/`、`web/README.md`、`web/art/local/`）。窗口里的 WKWebView 加载 `http://127.0.0.1:47321/`，浏览器打开同一个地址也能看。 |
 
 ## 接收 Claude Code 的 hook
 
@@ -33,7 +33,11 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 { "type": "detect", "ts": 1730000000000, "agents": { ...见下... } }
 { "type": "usage", "usage": { ...见用量统计... } }
 { "type": "settings", "settings": { ...完整设置... } }
+{ "type": "lofts", "lofts": { ...和 GET /api/lofts 一样... } }
+{ "type": "queue", "items": [ ...等你处理的一队... ] }
 ```
+
+`lofts` 和 `queue` 两种见后面「等你处理的一队」和「对话：`GET /api/lofts` 现在带状态」。
 
 ## 检测 agent 是否在线
 
@@ -59,7 +63,12 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 
 ## 页面没有应用时
 
-前端在 `file://` 打开或连不上 `/events` 时，自动进入模拟模式，用内置剧本演示，不报错。
+网页启动时读一次 `GET /api/lofts` 来判断是谁在服务它：
+
+- 读得到，并且回的是 `{ "lofts": [...] }`：当作应用在服务，用真数据（应用模式），经 HTTP 读写、经 `/events` 收更新。
+- 读不到（页面是 `python3 tools/serve.py` 或别的静态服务放出来的，`/api/*` 回 404），或回的不是这个形状：进入演示模式，用示例数据，页面里画一个假的菜单栏和刘海，侧栏底下标"演示"。演示模式不报错，也不往任何服务写东西。
+
+不再支持在 Finder 里双击 `index.html`（`file://`）打开：页面用 ES 模块，要经 HTTP 加载。想不开应用就看页面：看演示用 `python3 tools/serve.py <端口>`；看应用模式用 `node tools/fake-hub.mjs 47421`（一个假的本机服务，在内存里实现本文里网页要用的接口，数据是编的，不要用 47321）。`tools/serve.py` 只转 `/api/magpie/hello` 和 `/api/magpie/quotas`，其余 `/api/*` 回 404。
 
 ## 设置
 
@@ -69,9 +78,10 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 |---|---|
 | `GET /api/settings` | 返回完整设置。文件不存在时返回 `{}`（默认值由读取方补齐）。 |
 | `PUT /api/settings` | 请求体是完整设置 JSON 对象，原样保存（写临时文件再改名），回 `200` 和保存后的内容，并通过 `/events` 广播 `{"type":"settings","settings":{...}}`。非对象回 `400`。 |
+| `PATCH /api/settings` | 请求体只写要改的那几处：对象逐层合并，值为 `null` 是删掉这一项，数组整个换。读、合并、写都在应用里一次做完，所以页面、菜单栏、刘海、命令行同时改不会互相盖掉。回 `200` 和保存后的完整设置，照样广播 `settings`。页面存设置都用它；`PUT` 留给要整个换掉的场合。非对象回 `400`。 |
 | `GET /api/codex/models` | 读 `~/.codex/models_cache.json`，返回 `[{"slug","name","efforts":[...]}]`；读不到返回 `[]`。 |
 
-设置结构（`notify` 是系统通知，由应用读取；`codex` 给包装层用，以后加其他 agent；`post`、`perch` 和 `scene.theme` 是 Pigeon 新增的，见"设置新增的字段"）：
+设置结构（`notify` 是系统通知，由应用读取；`codex` 给包装层用，以后加其他 agent；`post`、`perch` 和 `scene.theme` 是 Pigeon 新增的，见"设置新增的字段"；`scene` 是旧界面的，现在不用，见"场景设置（旧界面）"）：
 
 ```json
 {
@@ -122,13 +132,11 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 
 Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 固定为 `"codex"`。字段包括 `hook_event_name`（`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop` / `SubagentStart` / `SubagentStop`）、`session_id`、`turn_id`、`cwd`、`model`、`tool_name`、`tool_input`、`tool_response`、`prompt`、`last_assistant_message`、`pigeon_task_id`（旧名 `meerkat_task_id`，读取方新旧都认）。最后一个字段仅包装层派活时有值，否则为空串。
 
-`store.ingest` 先按 `source` 分流：Codex 事件不进入 Claude 的活动、等待清理和一轮结束逻辑。`SessionStart` 记录会话目录，`SubagentStart` / `SubagentStop` 暂不创建额外任务。`pigeon_task_id` 对上现有 Codex 任务时，工具事件更新该任务的 `activity`、`realActivity` 和去掉 shell 外壳并截短的 `detail`，发出 `taskActivity`；包装层任务仍由 `PigeonRun` 的 `end` 收尾。
+新界面里，这些事件由页面和应用按下面的规则处理（旧前端 `web/js/store.js` 里按任务展示这些事件的那套逻辑已经删除，不再是约定）：
 
-应用内的 `UserPromptSubmit` 创建 `id = codex:<session_id>:<turn_id 或时间戳>`、`kind = codex`、`via = codex-app` 的任务，标题用 prompt 第一行，记录模型。工具事件更新活动；`Stop` 完成这一轮，摘要取 `last_assistant_message`。没有 `turn_id` 的后续事件关联同会话最近的进行中任务。
-
-`PermissionRequest` 产生 `{agent:"codex", session, cwd, kind:"permission", message:"Codex 要用 <tool_name>", since}` 等待项，内部 key 为 `codex:<session_id>`；同会话后续的 Pre/PostToolUse 或 Stop 解除等待。Claude 的等待项带 `agent:"claude"`，继续沿用自己的会话 key。
-
-所有任务都有 `model` 字段（未知为空串）；Claude 子代理取 `tool_input.model`，包装层取 start 的 `model`。`store.byAgent()` 返回 `{claude:[], codex:[], subagent:[]}`，按现有任务列表顺序分组，包含历史任务；画面可按 `status === "running"` 再取当前任务。当前任务列表不创建 Claude 主对话任务，所以 `claude` 通常为空。
+- 页面（`web/src/backend/adapt.js` 的 `mergeRun`）：把 `PigeonRun` 的 `start`、`thread`、`activity`、`end` 合并成一件"交给 Codex 的活"，和 `PigeonNote` 的消息一起放进任务列表。
+- 应用（`mac/Sources/Pigeon/Sessions.swift`）：按 `payload.source` 区分 Codex 和 Claude Code 的 hook，算出每个对话的 `state`、`activity`（见「对话的状态和在做什么」）；`PermissionRequest` 让对话变成 `wait`、`activity` 是 `waiting`。
+- `pigeon_task_id`（旧名 `meerkat_task_id`，读取方新旧都认）仅在 `pigeon run` 派活时有值，用来把 Codex 的事件对上那件活。
 
 ## Codex hook 开关
 
@@ -139,16 +147,11 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 
 设置面板每次打开都 GET 状态，开关反映 `installed`，显示 `detail`。切换立即 POST，失败回拨并显示错误；不进入 `settings.json`，也不等“保存”。
 
-## 场景设置的前端接口
+## 场景设置（旧界面）
 
-注意：鸽舍主题（`loft`）不再使用下面的 `seats`、`showSubLabels`、`layout`，它们只对旧版 `pixel-studio` 主题有意义，保存时一律原样保留。
+`scene` 与 `codex`、`notify` 平级，是旧界面（像素鸽舍、像素工作室）用的设置：`theme`、`seats`、`showSubLabels`、`hoverCards`、`layout`。新界面不读、不写这些字段，应用和插件也不用。它们仍然可能出现在用户的设置文件里，所以保存设置时要原样保留（新界面的设置面板就是先 GET 完整设置、只改自己关心的字段、再 PUT 回去，不认识的字段原样留着）。新界面的外观设置（明暗、配色、场景、连线、实验样式）只存在浏览器里，不进设置文件，见「第一版重构补充的接口」。
 
-`scene` 与 `codex`、`notify` 平级。默认 `seats = 3`（仅支持 2 / 3 / 4）、`showSubLabels = true`、`hoverCards = true`。`scene.layout` 由画面拖拽维护，面板保存时原样保留；保存完整设置同时保留其他顶层键及未知场景字段。
-
-- `M.settings.scene()`：返回带默认值的当前场景设置。
-- `M.settings.saveScene(patch)`：把 patch 浅合并到 scene，串行 PUT 完整设置，返回 Promise；尚未加载时先 GET，失败 reject。画面拖完可传 `{layout:{main:"claude",seats:["codex","cursor","deepseek"]}}`，调用方处理保存失败。
-- `M.settings.post()`、`M.settings.perch()`：返回带默认值的"送信"和"栖木"设置；`M.settings.setLofts(lofts)`：把鸽舍列表交给设置页，用来填中继站对话的选项。前端命名空间现在是 `window.Pigeon`（脚本里仍简写为 `M`）。
-- `M.settings.onScene = scene => …`：面板读取、保存、拖拽保存及 `applyRemote(settings)` 后调用。远端设置由 main.js 转交；连接状态继续由 `setLive(boolean)` 更新。
+旧界面在页面里暴露过的 `M.settings`、`M.Usage` 这些脚本接口，随旧前端（`web/js/`）一起删除了，不再是约定。
 
 ## 用量统计
 
@@ -176,9 +179,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 
 `agents` 可含 `subagent`、`cursor`、`deepseek` 或后续新增 agent；没数据的 agent 不显示。用量来自 Claude Code 和 Codex 自己的对话记录，只在本机统计。
 
-`js/usage.js` 加载时调用 `M.Usage.start()` GET 一次（并发调用复用请求）；`M.Usage.open()` 打开对话框并刷新。`apply(summary)` 接收 SSE 摘要，`get()` 返回最新数据（初始为 null），`on(fn)` 订阅后续摘要并返回取消订阅函数，`format(n)` 将 token 数转成 `1.2 万`、`3.4 亿` 等中文单位。GET 失败时对话框显示“没连上 Pigeon 应用”，重新打开会重试。
-
-main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调用 `M.Usage.open()`。为覆盖首次连接之前的 usage 推送，页面初始化时可在 `DOMContentLoaded` 后再调用一次 `M.Usage.start()`（脚本位于 main.js 之后）。初次连上应用时 GET `/api/settings` 后交给 `M.settings.applyRemote`，并提前设置 `M.settings.onScene`；SSE 断连时调用 `M.settings.setLive(false)`。等待提示按 `item.agent` 区分 Claude 和 Codex。
+页面读用量的做法在 `web/src/backend/live.js`：加载时 GET 一次，之后靠 SSE 的 `usage` 更新。应用没开（演示模式）时用示例数据。
 
 ## 送信（Pigeon 新增）
 
@@ -205,8 +206,8 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 
 | 路径 | 说明 |
 |---|---|
-| `~/.pigeon/journal.json` | 飞行记录。插件写，应用读。保留最近 7 天。 |
-| `~/.pigeon/lofts.json` | 鸽舍和对话的缓存。插件写，应用读。 |
+| `~/.pigeon/journal.json` | 任务记录。插件写，应用读。保留最近 7 天。 |
+| `~/.pigeon/lofts.json` | 设备和对话的缓存。插件写，应用读。 |
 | `~/.pigeon/runs/` | `pigeon run` 的记录（原 `~/.meerkat/runs/`）。旧目录不迁移，也不删。 |
 | `~/Library/Application Support/Pigeon/settings.json` | 设置，应用写。 |
 
@@ -235,12 +236,12 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 }
 ```
 
-- `band` 是脚环，形如 `b-` 加 10 位十六进制。
-- `chain` 是链首纸条的脚环，`count` 是这是链上第几次传递。回信沿用同一条链，`count` 加一；超过设置里的 `post.maxHops`（默认 10）就拒发，状态 `refused`。
+- `band` 是编号，形如 `b-` 加 10 位十六进制。
+- `chain` 是链首消息的编号，`count` 是这是链上第几次传递。回信沿用同一条链，`count` 加一；超过设置里的 `post.maxHops`（默认 10）就拒发，状态 `refused`。
 - `kind` 是 `send`（给已有对话送）或 `new`（新开对话）；`via` 是 `queue`（本机直接排队）或 `relay`（经中继站）。
 - `state` 取六个值，见下表。时间戳是毫秒。
 - 正文不写进文件。
-- 每条纸条还有一个内部用的 `track` 对象（看护进程的截止时间、中继站对话和记录文件的位置等）。它是额外字段，读取方应忽略不认识的字段。
+- 每条消息还有一个内部用的 `track` 对象（后台进程的截止时间、中继站对话和记录文件的位置等）。它是额外字段，读取方应忽略不认识的字段。
 
 `lofts.json`：
 
@@ -259,20 +260,22 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 }
 ```
 
-本机鸽舍的 id 固定是 `local`；远程鸽舍的 id 是 Codex 的主机 id。`relay: true` 标出哪条对话是中继站。
+本机设备的 id 固定是 `local`；远程设备的 id 是 Codex 的主机 id。`relay: true` 标出哪条对话是中继站。
 
 实际文件里还有几个额外字段：顶层的 `remoteUpdated`（上次经中继站读远程的时间），远程会话的 `projectId`。读取方应忽略不认识的字段。
 
-### 纸条的状态
+### 消息的状态
 
-| `state` | 中文 | 含义 |
-|---|---|---|
-| `queued` | 待飞 | 已经排进队列，对方还没接 |
-| `flying` | 飞行中 | 正在送：对方已接手，或中继站正在转发 |
-| `delivered` | 已送达 | 对方开始处理 |
-| `home` | 已归巢 | 对方这一轮结束，回信已取回 |
-| `refused` | 被拒收 | 发送被拒（用户在确认框里拦下或没人确认、对方不存在、超过往返上限） |
-| `lost` | 迷路 | 超时没有结果。不自动重发 |
+| `state` | 界面上叫 | 旧叫法 | 含义 |
+|---|---|---|---|
+| `queued` | 排队 | 待飞 | 已经排进队列，对方还没接 |
+| `flying` | 进行中 | 飞行中 | 正在送：对方已接手，或中继站正在转发 |
+| `delivered` | 已送达 | 已送达 | 对方开始处理 |
+| `home` | 已回信 | 已归巢 | 对方这一轮结束，回信已取回 |
+| `refused` | 没发出 | 被拒收 | 发送被拒（用户拦下或没人确认、对方不存在、超过往返上限）。原因见下面的 `reason` |
+| `lost` | 没回音 | 迷路 | 超时没有结果。不自动重发 |
+
+"旧叫法"是旧界面和旧文档里的说法，现在只在这里留作对照。第一版另加 `asking`（界面上叫等你确认），见「新界面要的数据」。
 
 ### `PigeonNote` 事件
 
@@ -291,18 +294,18 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 
 - 每次状态变化发一条。
 - `preview` 只在第一条里带（最多 80 字）；`answer_preview` 只在 `home` 那条里带（最多 160 字）。
-- `new` 类型的纸条，`to.session` 在对方对话建好之前是空串，建好后的事件里补上。
-- 应用端把超过 2 小时没有任何新消息的纸条视为过期，不再计入"在飞"的数字。
+- `new` 类型的消息，`to.session` 在对方对话建好之前是空串，建好后的事件里补上。
+- 应用端把超过 2 小时没有任何新消息的消息视为过期，不再计入"进行中"的数字。
 - 发件人 `from.agent`：环境变量 `CLAUDE_CODE_SESSION_ID` 存在时是 `claude`，否则是 `you`。
 
 ### 新增的 HTTP 接口
 
 | 请求 | 说明 |
 |---|---|
-| `GET /api/notes` | 读 `~/.pigeon/journal.json`，返回 `{ "notes": [...] }`，按 `updated` 从新到旧，最多 100 条。文件不存在返回 `{ "notes": [] }`。 |
+| `GET /api/notes` | 读 `~/.pigeon/journal.json`，返回 `{ "notes": [...] }`，按 `updated` 从新到旧，最多 100 条。文件不存在返回 `{ "notes": [] }`。应用自己发出、原文还在内存里的消息多一个 `retryable: true`（见「应用自己派活」）。 |
 | `GET /api/lofts` | 读 `~/.pigeon/lofts.json` 原样返回。文件不存在返回 `{ "version": 1, "updated": 0, "lofts": [ { "id": "local", "name": "这台 Mac", "online": true, "sessions": [], "projects": [] } ] }`。 |
 
-其余接口不变。页面加载时用 `GET /api/notes` 恢复最近的飞行记录，之后靠 SSE 里的 `PigeonNote` 更新。
+其余接口不变。页面加载时用 `GET /api/notes` 恢复最近的任务记录，之后靠 SSE 里的 `PigeonNote` 更新。
 
 ### 设置新增的字段
 
@@ -315,19 +318,18 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 ```
 
 - `post.relayThread`：中继站对话的 id；空串表示没设置。
-- `post.maxHops`：一条纸条链最多传递几次，默认 10。
-- `post.waitTimeoutMin`：等待一张纸条的超时，单位分钟，默认 10。
-- `post.confirmRemote`：往别的电脑发送或新建前是否弹框让人确认，默认开；只有明确写 `false` 才关。没同意（拦下、90 秒没人点、弹不出框）时不发，纸条状态 `refused`。
-- `perch.enabled`：是否显示栖木，默认开。
-- `scene.theme`：画面主题，`loft`（鸽舍）是新的默认，`pixel-studio` 是旧版像素工作室；旧值 `studio`、`illustrated` 读取时映射成 `loft`。
-- 新主题不再使用 `scene.seats`、`showSubLabels`、`layout`，但保存时原样保留。
-- `notify.noteHome`（归巢，默认开）和 `notify.noteLost`（被拒或迷路，默认开）：纸条的系统通知。
+- `post.maxHops`：一条消息链最多传递几次，默认 10。
+- `post.waitTimeoutMin`：等待一张消息的超时，单位分钟，默认 10。
+- `post.confirmRemote`：往别的电脑发送或新建前是否让人确认，默认开；只有明确写 `false` 才关。没同意（拦下、`post.crossTimeoutSec` 秒没人点、问不出）时不发，消息状态 `refused`。确认现在先在 Pigeon 自己的面板里问（见"等你处理的一队"），问不出来才退回系统对话框。
+- `perch.enabled`：旧版的"是否显示屏幕上沿的提醒条"，默认开。新版用 `perch.notch`（见"设置再新增"）；`perch.notch` 没写过时应用沿用 `perch.enabled`（`mac/Sources/Pigeon/Settings.swift` 的 `notchEnabled()`）。
+- `scene.theme`：旧界面的画面主题（`loft`、`pixel-studio`；旧值 `studio`、`illustrated` 映射成 `loft`）。新界面不用，保存时原样保留。
+- `notify.noteHome`（已回信，默认开）和 `notify.noteLost`（没发出或没回音，默认开）：消息的系统通知。
 
 这些和现有的 `notify`、`scene`、`codex` 平级。读取方给缺失的字段补默认值，保存时保留不认识的字段。
 
-## 新界面要的数据（重构时实现，还没做）
+## 新界面要的数据
 
-2026-11-13 按新界面原型定的，取舍见 `REDESIGN.md` 的"重构前定下的事"。现有字段不变，下面都是新增。读取方照旧忽略不认识的字段。
+2026-11-13 按新界面原型定的，取舍见 `REDESIGN.md` 的"重构前定下的事"。第一版已经实现，但哪些真能做以「第一版真的能做的」为准（比如 `relay`、`split` 两类等你处理的事只留了接口，还不会产生）。现有字段不变，下面都是新增。读取方照旧忽略不认识的字段。
 
 ### 指挥
 
@@ -339,12 +341,12 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 ```
 
 - `kind: "agent"` 时，这个 agent 最近一次派活的那个对话画在指挥台中心。
-- `kind: "you"` 时由用户在 Pigeon 里派活，纸条的 `from.agent` 是 `you`，回信只进任务页和刘海，不送回任何对话。
+- `kind: "you"` 时由用户在 Pigeon 里派活，消息的 `from.agent` 是 `you`，回信只进任务页和刘海，不送回任何对话。
 - 默认 `{ "kind": "agent", "agent": "claude", "loft": "local" }`。
 
-### 纸条的状态和原因
+### 消息的状态和原因
 
-在原来六个状态上加一个 `asking`，被拒和迷路加原因：
+在原来六个状态上加一个 `asking`，没发出（`refused`）加原因：
 
 | `state` | 界面上叫 | 说明 |
 |---|---|---|
@@ -354,14 +356,14 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 | `delivered` | 已送达 | 不变 |
 | `home` | 已回信 | 不变 |
 | `refused` | 没发出 | 新增 `reason`：`blocked` 你拦下、`timeout` 没人理、`no_target` 对方不在了、`max_hops` 来回超过上限、`offline` 那台连不上 |
-| `lost` | 没回音 | 不变。界面上给"重发"：新纸条带 `retry_of`，值是原来的脚环 |
+| `lost` | 没回音 | 不变。界面上给"重发"：新消息带 `retry_of`，值是原来的编号 |
 
-- 暂停不是一个状态：纸条上 `paused: true`，叠在 `queued` 或 `asking` 上。
+- 暂停不是一个状态：消息上 `paused: true`，叠在 `queued` 或 `asking` 上。
 - 拦下和超时以前都只是 `refused`，靠 `reason` 分开。
 
 ### 为什么给它、交出去多少
 
-纸条新增两个对象，派活工具从指挥那里收到：
+消息新增两个对象，派活工具从指挥那里收到：
 
 ```json
 "why": { "kind": "rule", "rule": "r3", "suggested": { "agent": "codex", "loft": "…" }, "reason": "指挥写的一句理由" },
@@ -398,7 +400,7 @@ main.js 接入点：SSE 分支调用 `M.Usage?.apply(m.usage)`；顶栏按钮调
 | 请求 | 说明 |
 |---|---|
 | `GET /api/queue` | `{ "items": [...] }`，按时间从旧到新 |
-| `POST /api/queue/<id>` | 请求体 `{ "action": "release" \| "block" \| "release_masked" }`。`release_masked` 是打码后放飞 |
+| `POST /api/queue/<id>` | 请求体 `{ "action": "release" \| "block" \| "release_masked" }`。`release_masked` 是打码后放行 |
 | `POST /api/ask` | 插件用：把一件要问的事排进队列，挂着等结果再返回 `{ "action": … }`。应用没开时插件退回系统对话框 |
 
 SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
@@ -431,6 +433,168 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - `quota.show`：`hover` 悬停时看、`always` 一直显示；`quota.low`：额度改派的阈值。
 - `secrets.mode`：`warn` 提醒、`mask` 自动打码、`off` 关。
 
+查密钥（`secrets.mode`）有三处实现：网页（`web/src/core/secrets.js`）、命令行（`plugin/scripts/lib/secrets.mjs`）和原生刘海（`mac/Notch` 里的 `Secrets.swift`），三处跑同一份用例 `tests/fixtures/secrets-cases.json`：每条给原文、应有的类别（按出现顺序、去重）和打码后的文字。类别现在有 npm token、GitHub token、API key、AWS 密钥、Slack token、私钥（`-----BEGIN … PRIVATE KEY-----` 到 `END`，没有结尾就到文末）。打码的占位符写成 `‹类别 已打码›`。
+
+## 第一版重构补充的接口
+
+2026-11-14 开始按新界面重构时定的。上一节没写到、四个模块（应用的本机服务、原生刘海、网页、插件）之间又要用的，都在这里。和上一节冲突的地方以这里为准。
+
+### 写法上的统一
+
+- agent 的 id：`claude`、`codex`、`cursor`、`deepseek`，另有 `you`。原型里的 `dsh` 在接口上一律写 `deepseek`。
+- "agent@设备"：比如 `codex@local`、`codex@remote-control:env_…`。规则、额度、默认模型、派活对象都用这种键。设备 id 就是 `lofts.json` 里的 id，本机固定是 `local`。
+- 正文只在内存里：等确认时的原文、应用自己派出去的活的原文，都不写进任何文件，应用退出就没了。
+- 没有后端的功能，界面上置灰并写一句原因，或者不显示；不能假装成功。
+
+### 第一版真的能做的
+
+| 事情 | 第一版 |
+|---|---|
+| 指挥 | 本机的 Claude Code，或者你自己 |
+| 接活 | 本机和远程电脑上的 Codex：给已有对话发消息、新开对话 |
+| 等你的一队 | 只有跨设备发送（`cross`）会排进来。`relay`、`split` 接口留着，等统一的 MCP |
+| 添加设备 | 只有"Codex 应用内"：经中继站重读一次远程电脑。SSH、经 magpie 置灰 |
+| Cursor、DeepSeek Harness | 检测得到就显示，标"还没接上"，不能选 |
+
+### 设置再新增
+
+```json
+{
+  "paused":   { "all": false, "lofts": { "remote-control:env_…": true } },
+  "devices":  { "names": { "remote-control:env_…": "办公室" }, "hidden": [], "off": { "local": ["cursor"] },
+                "models": { "codex@local": { "model": "gpt-6.1-sol", "effort": "medium" } } },
+  "dispatch": { "rules": [ { "id": "r1", "when": "生图、改图", "kw": "图 画 icon logo", "to": "codex@local", "fb": "", "ask": false, "on": true } ] }
+}
+```
+
+- `paused`：全部暂停和每台暂停。暂停时插件不送出：消息记成 `queued` 加 `paused: true`，后台后台进程每 2 秒读一次设置，继续后自己送出。最多排 `post.pauseMaxMin` 分钟（默认 120），到点记成 `refused`、`timeout`；后台进程没了也一样（原文只在它的内存里）。
+- `devices.names`：设备的显示名，只改显示。`devices.hidden`：从界面上移除的设备。`devices.off`：每台上关掉的 agent。`devices.models`：Pigeon 派活时默认用的模型和思考强度。
+- `dispatch.rules`：分派规则，从上到下第一条命中的算数。`kw` 按空格、顿号、逗号分开，任意一个出现在任务文字里就命中，不分大小写；没写关键词的永远不命中。阈值是 `quota.low`。
+- 配色、明暗、场景、连线样式、实验样式这些纯外观的设置只记在浏览器里，不进设置文件。
+
+### 对话：`GET /api/lofts` 现在带状态
+
+应用把 `lofts.json` 读出来，再叠上从 hook 里算出的状态后返回；`lofts.json` 文件本身不变。每个对话多这些字段，没有就不带：
+
+| 字段 | 说明 |
+|---|---|
+| `state` | `run`、`wait`、`idle`、`done`、`error`。`done` 是这一轮结束后 10 分钟内，之后回到 `idle`。没收到过 hook 的是 `idle` |
+| `activity` | 见上一节的表，只在 `run`、`wait` 时有 |
+| `detail` | 在做什么的一句话（工具名、命令的前 80 个字） |
+| `error` | 出错时的一句话 |
+| `model`、`effort` | 这个对话正在用的模型和思考强度，读得到才有 |
+| `parent` | 子对话是从哪个对话拆出来的 |
+
+- 本机的 Claude Code 对话也在里面：`agent: "claude"`，`id` 是它的 `session_id`，`title` 是最近一句用户输入的第一行（没有就用目录名）。只收最近 24 小时内有过 hook 的。它的子代理是 `parent` 指向它的子对话，`id` 是 `<session_id>:<tool_use_id>`。
+- 一变就经 SSE 推 `{ "type": "lofts", "lofts": { ...和 GET 一样... } }`，最多每 500 毫秒一次。`queue`、`lofts` 这两种推送和别的一样带 `ts`。刚连上 SSE 时不会先推一份，页面加载时各 `GET` 一次。
+- `POST /api/lofts/refresh`：跑一次 `pigeon lofts --refresh`（经中继站重读远程，有 token 成本），回 `{ "ok": true }` 或 `{ "ok": false, "error": "…" }`。
+
+### 等你的一队：补充
+
+- `POST /api/ask` 的请求体：
+
+```json
+{ "kind": "cross", "band": "b-…", "from": {…}, "to": {…}, "preview": "最多 80 字", "text": "原文，最多 4000 字",
+  "chars": 1234, "files": [], "project": "", "rule": "r3", "secrets": ["npm token"], "timeoutSec": 90 }
+```
+
+- 连接一直挂着，直到有结果，回 `{ "action": "release" | "release_masked" | "block" | "timeout" }`。`timeout` 是到点没人理。同一个 `band` 再问一次，接着等原来那条。
+- 队列里的每一条比上一节多 `text`、`chars`、`files`、`project`，都只在内存里。
+- 暂停时点放行：照样回 `release`，由插件按 `paused` 把消息排着。
+- 应用退出、连接断了、回的不是 `200` 或看不懂，插件都当成"弹不出来"，退回系统对话框。所以想拦下时要回 `200` 和 `block`，不能回 404 或 5xx。
+- 请求体里的 `to` 还带 `loft_name` 和 `title`，给界面显示用。
+- 应用自己派的活（`POST /api/send`）去问时多带一个 `send_id`（应用经环境变量 `PIGEON_SEND_ID` 给命令行的），应用靠它认出是哪一次派活。
+- `POST /api/queue/<id>` 回 `{ "ok": true, "action": "…" }`；没有这一条回 `404`，`action` 不对回 `400`。队列里的 id 是 `q1`、`q2`…，应用每次启动从 1 重新数。
+- `post.crossTimeoutSec` 界面上最多让填到 100：Claude Code 跑命令默认 120 秒超时，再长命令会先被杀掉（这时消息记成 `refused`、`timeout`）。
+
+### 全部暂停
+
+| 请求 | 说明 |
+|---|---|
+| `POST /api/pause` | 请求体 `{ "on": true }`（全部）或 `{ "loft": "<id>", "on": true }`（一台）。改 `settings.paused`，广播 `settings`。回 `{ "ok": true, "paused": { "all": …, "lofts": {…} } }`，`paused` 是存下之后的样子 |
+
+### 应用自己派活（指挥是你）
+
+| 请求 | 说明 |
+|---|---|
+| `POST /api/send` | 请求体见下。应用用自带的 `pigeon.mjs` 去发，发件人是 `you`。回 `{ "ok": true, "band": "b-…" }` 或 `{ "ok": false, "error": "…" }`；不支持的对象回 `501`。重发时请求体只要带 `retry_of`（原来那条的编号），其余字段（对象、正文、模型……）由应用按内存里留着的原文补上；请求里另外写了的字段优先 |
+| `POST /api/open` | 请求体 `{ "loft": "…", "agent": "…", "session": "…" }`，跳回那个对话所在的应用。回 `{ "ok": true }` 或 `{ "ok": false, "error": "…" }` |
+
+```json
+{ "to": { "loft": "local", "agent": "codex", "session": "" }, "text": "…", "title": "", "project": "",
+  "model": "", "effort": "", "why": { "kind": "lead", "reason": "…" }, "retry_of": "" }
+```
+
+- `to.session` 为空是新开对话。跨设备的照样经 `/api/ask` 排进等你的一队：这时不等你点完，一排进去就回 `{ "ok": true, "band": "b-…", "state": "asking" }`，之后看消息的状态。
+- 命令跑起来了就回 `200`，发没发出看 `ok`；请求体不对、消息是空的、找不到要重发的原文回 `400`；找不到 `node` 或脚本回 `500`。
+- 别的电脑上新开对话指定不了模型和思考强度（中继站那一步不让指定），只记在消息上：`model`、`effort`、`model_applied: false`。
+- 应用把自己发出去的原文留在内存里，`GET /api/notes` 里这些消息多一个 `retryable: true`，界面上才给"重发"：再调一次 `/api/send`，带 `retry_of`。agent 发的消息没有原文，不能重发。
+- 应用这样调：`node <脚本目录>/pigeon.mjs send --to=<对话 id>@<设备 id> --stdin --json`，新开对话是 `new --loft=<设备 id> --title=<标题> [--project=<项目>] [--model=…] [--effort=…] --stdin --json`；环境变量里不带 `CLAUDE_CODE_SESSION_ID`，所以发件人是 `you`。值一律写成 `--名字=值`：标题取自消息的第一行，可能以 `-` 开头，分开写会被命令行当成另一个参数。
+- 应用自带的脚本在 `Pigeon.app/Contents/Resources/plugin/scripts/`；开发时用仓库里的 `plugin/scripts/`；`PIGEON_PLUGIN_ROOT` 可以指到别处。
+
+### 命令行新增的参数
+
+| 参数 | 说明 |
+|---|---|
+| `pigeon send/new/run --reason "<一句理由>"` | 指挥为什么交给它，写进消息的 `why.reason` |
+| `pigeon send/new --retry-of <编号>` | 重发，写进 `retry_of` |
+| `pigeon new --model <模型> --effort <思考强度>` | 新开对话时指定 |
+| `pigeon send/new --ctx-files a,b --ctx-tokens 1200` | 交出去的上下文，写进 `ctx`；不给 `--ctx-tokens` 时按原文长度估 |
+| `pigeon send/new --stdin` | 正文从标准输入读，不出现在命令行里。应用派活时用 |
+| `pigeon send/new --json` | 只往标准输出写一行 JSON：`{ "ok": true, "band": "b-…", "state": "flying" }` 或 `{ "ok": false, "band": "b-…", "state": "refused", "reason": "blocked", "error": "…" }`。暂停中排着的是 `ok: true`、`state: "queued"`、`paused: true` |
+
+### 分派规则的建议
+
+规则怎么判只有两处实现：网页（`web/src/core/route.js`，带逐条的过程，给试算用）和应用（给插件和原生刘海用）。两边跑同一份用例 `tests/fixtures/dispatch-cases.json`。
+
+| 请求 | 说明 |
+|---|---|
+| `PUT /api/dispatch` | 网页在规则、额度、设备变了时发：`{ "text": "写进指挥提示里的原文，指挥是你时为空串", "low": 20, "quota": { "codex@local": 16 }, "alive": ["codex@local", "…"] }`。应用记在内存里，并写到 `~/.pigeon/dispatch.json`（加 `updated`、`lead`） |
+| `POST /api/dispatch/suggest` | 请求体 `{ "text": "任务文字", "to": "codex@local" }`（`to` 可以不给）。回 `{ "rule": "r3", "suggested": "codex@local", "fb": false, "ask": true, "kind": "rule" }`；没有规则命中时 `rule`、`suggested` 是空串。给了 `to` 才有 `kind`：`rule`、`quota`、`override`、`lead` |
+
+- 判法：从上到下，跳过关着的、没命中的、交给的那家不在 `alive` 里的；命中的那条如果 `quota[to] < low` 并且 `fb` 在 `alive` 里，就改派给 `fb`（`fb: true`）。规则读设置里的 `dispatch.rules`；还没收到过 `PUT /api/dispatch` 时 `alive` 当作不限、`quota` 当作没有。
+- `ask`：规则写了问，或者 `suggested` 不在本机并且 `post.confirmRemote` 没关。
+- 插件的 `prompt-hint.mjs` 在指挥是 Claude Code 时，每一轮把 `~/.pigeon/dispatch.json` 里的 `text` 写进提示。文件读不到就不写。
+- 插件发消息时调 `/api/dispatch/suggest` 拿 `kind` 填 `why.kind`；应用没开就填 `lead`。
+
+### magpie
+
+应用代读本机 magpie（网页不能直接读它）。只读，不带钥匙，不改 magpie 的任何东西。端口读 `MAGPIE_PORT`，没有就读 `~/.config/magpie/settings.json` 的 `port`，再没有用 3425。连不上一律回 `502` 和 `{ "error": "…" }`。
+
+| 请求 | 转到 | 说明 |
+|---|---|---|
+| `GET /api/magpie/hello` | `/api/hello` | 只留 `name`、`version` |
+| `GET /api/magpie/quotas` | `/v1/magpie/quotas?kept=1` | `{ "data": [卡…] }`。只留白名单里的字段，字符串里的邮箱换成 `‹账号›`。字段和 `tools/serve.py` 转出来的一样 |
+| `GET /api/magpie/models` | `/v1/models` | `{ "data": [ { "id", "context_window", "reasoning_levels" } ] }` |
+
+### 让原生刘海打开
+
+| 请求 | 说明 |
+|---|---|
+| `POST /api/notch` | 请求体 `{ "state": "idle" \| "overview" \| "queue" \| "reply" \| "compose", "target": "codex@local", "session": "", "band": "", "demo": false }`。网页上的"派活""给它发消息"、设置里的演示按钮都调它。`demo: true` 时刘海用内置的示例内容演示这个状态，不动真数据。`state` 不对回 `400`；否则回 `{ "ok": true }`（先回，再让刘海动） |
+
+### 检测
+
+`GET /api/detect` 多一家 `deepseek`，结构不变。
+
+### 谁能调本机服务
+
+本机服务只监听 `127.0.0.1`，但浏览器里别的网站的页面也能往这个地址发请求。所以除了原来查 `Host`，现在还查 `Origin`：
+
+- 请求带了 `Origin`，并且不是 `http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>` 之一，一律回 `403`，所有接口都一样（包括 `/ev` 和 `/events`）。
+- 不带 `Origin` 的照常：命令行、插件的 hook 脚本（curl）、应用自己窗口里同源的读请求。
+- 不再回 `Access-Control-Allow-Origin`。以前给 `file://` 打开的页面开过 `*`，现在页面只从本服务加载，用不着了。
+
+不这样的话，你开着的任何一个网页都能读到等你确认的原文、替你点放行、以你的名义派活、改设置。
+
+### 只起本机服务
+
+环境变量 `PIGEON_HEADLESS=1` 时应用只起本机服务，不开窗口、菜单栏和刘海。给自动测试用：`node --test tests/e2e` 用它把应用和命令行串起来跑（要先 `cd mac && swift build`）。
+
+### 给自动检查存图
+
+环境变量 `PIGEON_SNAPSHOT_DIR=<目录>` 时，应用启动后（等 `PIGEON_SNAPSHOT_DELAY` 秒，没设时 5 秒）把主窗口的四页和刘海的五种状态各存一张 PNG 到这个目录，然后退出。图是应用自己的窗口画出来的（`mac/Sources/Pigeon/App.swift`），用来在没人操作时看界面画得对不对。它和 `PIGEON_HEADLESS` 不是一回事：存图需要真的开窗口。
+
 ## 改名和兼容
 
 | 项目 | 旧（Meerkat） | 新（Pigeon） | 兼容情况 |
@@ -443,8 +607,8 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 | 任务 id 环境变量 | `MEERKAT_TASK_ID` | `PIGEON_TASK_ID` | `pigeon run` 两个都设；读取方新旧都认 |
 | Codex 转发的请求头 | `x-meerkat-task` | `x-pigeon-task` | `/ev/codex` 先读新的，没有再读旧的；转发的 payload 同时带 `pigeon_task_id` 和 `meerkat_task_id` |
 | Codex 转发脚本 | `~/.meerkat/codex-hook.sh` | `~/.pigeon/codex-hook.sh` | 旧脚本仍算已装（`GET /api/codex/hooks` 的 `legacy`） |
-| 前端本地存储键 | `meerkat-theme` | `pigeon-theme` | 旧键仍会读 |
-| 前端主题 id | `studio`、`illustrated` | `loft`（默认）、`pixel-studio`（旧版） | 旧值自动映射成 `loft`；插画主题已删除 |
+| 前端本地存储键 | `meerkat-theme` | `pigeon-theme` | 旧界面的键，新界面不读 |
+| 前端主题 id | `studio`、`illustrated` | `loft`、`pixel-studio` | 旧界面的主题，新界面不读；设置文件里的 `scene.theme` 原样保留 |
 | 端口环境变量 | `MEERKAT_PORT` | `PIGEON_PORT` | `PIGEON_PORT` 优先，没有时读 `MEERKAT_PORT` |
 | 包装层入口 | `plugin/scripts/meerkat-codex.mjs` | `plugin/scripts/pigeon.mjs` | 旧文件保留成转发到新入口的薄壳 |
 | 插件和 marketplace 名 | `meerkat` | `pigeon` | 不兼容，需要重新添加 marketplace 并安装 |

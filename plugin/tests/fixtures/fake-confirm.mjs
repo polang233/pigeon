@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 测试用的假确认框：不弹任何窗口。FAKE_CONFIRM：ok（默认）放飞 / deny 拦下 / timeout 没人点 / broken 弹不出来
+// 测试用的假确认框：不弹任何窗口。FAKE_CONFIRM：ok（默认）发出 / deny 拦下 / timeout 没人点 / broken 弹不出来
 // 每次调用都把收到的文字追加到 $FAKE_CONFIRM_LOG。
 import fs from 'node:fs';
 const [text, wait] = process.argv.slice(2);

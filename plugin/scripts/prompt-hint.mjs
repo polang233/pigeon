@@ -11,30 +11,47 @@ let prompt = '';
 try { prompt = String(JSON.parse(input).prompt || ''); } catch {}
 
 const support = path.join(os.homedir(), 'Library/Application Support');
-let prefer = true;
-for (const f of [path.join(support, 'Pigeon/settings.json'), path.join(support, 'Meerkat/settings.json')]) {
-  try {
-    const s = JSON.parse(fs.readFileSync(f, 'utf8'));
-    if (s && s.codex && s.codex.preferForImages === false) prefer = false;
-    break;
-  } catch {}
+// 设置文件：PIGEON_SETTINGS_FILE 优先（和 lib/common.mjs 一致），否则新旧两个位置里第一个读得到的
+const settingsFiles = process.env.PIGEON_SETTINGS_FILE
+  ? [process.env.PIGEON_SETTINGS_FILE]
+  : [path.join(support, 'Pigeon/settings.json'), path.join(support, 'Meerkat/settings.json')];
+let settings = {};
+for (const f of settingsFiles) {
+  try { settings = JSON.parse(fs.readFileSync(f, 'utf8')) || {}; break; } catch {}
 }
+const prefer = !(settings.codex && settings.codex.preferForImages === false);
 
-// 很长的输入多半是粘贴的报告或日志，不是一句请求，这时不提醒，免得误触发
-if (prompt.length > 1200) process.exit(0);
-
-const mentionsCodex = /codex/i.test(prompt);
-const wantsImage = /(画|生成|做|出|来|设计|绘制).{0,12}(图|插画|插图|配图|头图|海报|图标|头像|背景|贴图|素材|logo|壁纸|封面)|(插画|插图|配图|头图|像素图|像素画|贴图|抠图|去背景|透明背景)|\b(image|illustration|icon|sprite|logo|wallpaper|banner)s?\b/i.test(prompt);
-const wantsPost = /(发|送|传|捎|带)(个|一?[条句张段])?(话|消息|纸条|信)|(告诉|转告|通知|问问|问一下)(一下)?.{0,8}(codex|那边|另一台|远程|那台|对话)|(让|叫|请|给).{0,6}(另一台|那台|远程)(电脑|机器|设备|windows|mac)/i.test(prompt);
+// 分派规则的提示：指挥是 Claude Code（没写 lead，或者写的就是 claude）时，每一轮都带上应用写下的那段文字。
+// 只读本地文件，不联网；读不到、不是文字、是空的，就什么都不写。
+function dispatchText() {
+  const lead = settings.lead;
+  if (lead && !(lead.kind === 'agent' && lead.agent === 'claude')) return '';
+  try {
+    const dir = process.env.PIGEON_HOME || path.join(os.homedir(), '.pigeon');
+    const t = JSON.parse(fs.readFileSync(path.join(dir, 'dispatch.json'), 'utf8')).text;
+    return typeof t === 'string' ? t.trim() : '';
+  } catch { return ''; }
+}
 
 const lines = [];
-if (wantsImage && prefer) {
-  lines.push('Pigeon 提醒：这条消息需要生成或编辑图片。用户设置了“生图优先交给 Codex”，请先调用 pigeon:codex-delegation skill，按它的流程交给 Codex 生成，不要自己写脚本逐像素画，也不要用 SVG 凑。用户明确要矢量图、SVG 或 CSS 图形时除外。');
-}
-if (wantsPost) {
-  lines.push('Pigeon 提醒：用户可能想给别的 agent（Codex 的某个对话，或另一台电脑上的对话）传话。确实要传话时，请先调用 pigeon:pigeon-post skill，按它的流程用 pigeon send / new 送纸条、等回信，不要直接跑 codex queue。');
-} else if (mentionsCodex && !(wantsImage && prefer)) {
-  lines.push('Pigeon 提醒：用户提到了 Codex。需要把活交给 Codex 时，请先调用 pigeon:codex-delegation skill；要给已有的 Codex 对话传话时，用 pigeon:pigeon-post skill。');
-}
+// 很长的输入多半是粘贴的报告或日志，不是一句请求，这时不提醒，免得误触发（只管下面的关键词提醒，分派规则照写）
+if (prompt.length <= 1200) keywordHints();
+const dispatch = dispatchText();
+if (dispatch) lines.push(dispatch);
 if (lines.length) process.stdout.write(lines.join('\n') + '\n');
 process.exit(0);
+
+function keywordHints() {
+  const mentionsCodex = /codex/i.test(prompt);
+  const wantsImage = /(画|生成|做|出|来|设计|绘制).{0,12}(图|插画|插图|配图|头图|海报|图标|头像|背景|贴图|素材|logo|壁纸|封面)|(插画|插图|配图|头图|像素图|像素画|贴图|抠图|去背景|透明背景)|\b(image|illustration|icon|sprite|logo|wallpaper|banner)s?\b/i.test(prompt);
+  const wantsPost = /(发|送|传|捎|带)(个|一?[条句张段])?(话|消息|纸条|信)|(告诉|转告|通知|问问|问一下)(一下)?.{0,8}(codex|那边|另一台|远程|那台|对话)|(让|叫|请|给).{0,6}(另一台|那台|远程)(电脑|机器|设备|windows|mac)/i.test(prompt);
+
+  if (wantsImage && prefer) {
+    lines.push('Pigeon 提醒：这条消息需要生成或编辑图片。用户设置了“生图优先交给 Codex”，请先调用 pigeon:codex-delegation skill，按它的流程交给 Codex 生成，不要自己写脚本逐像素画，也不要用 SVG 凑。用户明确要矢量图、SVG 或 CSS 图形时除外。');
+  }
+  if (wantsPost) {
+    lines.push('Pigeon 提醒：用户可能想给别的 agent（Codex 的某个对话，或另一台电脑上的对话）传话。确实要传话时，请先调用 pigeon:pigeon-post skill，按它的流程用 pigeon send / new 发消息、等回信，不要直接跑 codex queue。');
+  } else if (mentionsCodex && !(wantsImage && prefer)) {
+    lines.push('Pigeon 提醒：用户提到了 Codex。需要把活交给 Codex 时，请先调用 pigeon:codex-delegation skill；要给已有的 Codex 对话传话时，用 pigeon:pigeon-post skill。');
+  }
+}

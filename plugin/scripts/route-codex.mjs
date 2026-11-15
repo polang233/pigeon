@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // PreToolUse hook：Claude 绕过 Pigeon 直接调 Codex 时拦下来，让它改用 pigeon.mjs。
-// 包装层会关 stdin、计时、限并发、按设置决定临时任务、记飞行记录，还会把进度报给 Pigeon 应用；直接跑就都没有了。
+// 包装层会关 stdin、计时、限并发、按设置决定临时任务、记任务记录，还会把进度报给 Pigeon 应用；直接跑就都没有了。
 // 只拦"派活"和"送信"：Bash 里的 codex exec / codex e / codex queue，以及 Codex 的 MCP 派活工具。
 // codex --version、codex login 之类照常放行；命令本身就是走 pigeon.mjs 或旧入口 meerkat-codex.mjs 的也放行。
 // 设置里关掉"统一走包装层"（codex.routeAll = false）就不拦。
@@ -17,7 +17,7 @@ try { p = JSON.parse(fs.readFileSync(0, 'utf8')); } catch { process.exit(0); }
 if ((p.tool_name || '') === 'Bash' && /PIGEON_CONFIRM_BIN=/.test(String(p.tool_input?.command || ''))) {
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny',
-      permissionDecisionReason: 'Pigeon：PIGEON_CONFIRM_BIN 只给测试用，不能用它跳过跨电脑发送前的确认。往另一台电脑送纸条要用户自己在确认框里点“放飞”。' },
+      permissionDecisionReason: 'Pigeon：PIGEON_CONFIRM_BIN 只给测试用，不能用它跳过跨电脑发送前的确认。往另一台电脑发消息要用户自己在确认框里点“发出”。' },
   }));
   process.exit(0);
 }
@@ -48,8 +48,8 @@ if (!hit) process.exit(0);
 const reason = hit === 'queue'
   ? [
     'Pigeon：请不要直接用 codex queue 给 Codex 对话发消息，改用 pigeon send（用户在设置里开了"统一走包装层"）。',
-    `node "${wrapper}" send --to <对话id或标题> "<要说的话>"（远程对话写成 <对话>@<鸽舍>；先用 node "${wrapper}" lofts 看有哪些对话）`,
-    'pigeon send 会记飞行记录、在后台等回信、防止 agent 之间无限传话。详细流程见 pigeon:pigeon-post skill。',
+    `node "${wrapper}" send --to <对话id或标题> "<要说的话>"（远程对话写成 <对话>@<设备>；先用 node "${wrapper}" lofts 看有哪些对话）`,
+    'pigeon send 会记任务记录、在后台等回信、防止 agent 之间无限传话。详细流程见 pigeon:pigeon-post skill。',
   ]
   : [
     'Pigeon：请不要直接调用 Codex，改用包装层（用户在设置里开了"统一走包装层"）。',

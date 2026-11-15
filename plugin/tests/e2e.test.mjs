@@ -15,7 +15,7 @@ async function setup(opts = {}) {
 const notes = (app, band) => app.events.filter(x => x.hook_event_name === 'PigeonNote' && x.band === band);
 const bandOf = s => (/b-[0-9a-f]{10}/.exec(s) || [])[0];
 
-test('本机发送：排队、看护进程跟到归巢、回信能读，日志里没有正文', async () => {
+test('本机发送：排队、看护进程跟到回信到了、回信能读，日志里没有正文', async () => {
   const { e, app, done } = await setup({ mode: 'reply', settings: { post: { waitTimeoutMin: 1 } } });
   try {
     const r = await pigeon(['send', '--to', '跑测试', '请跑一下 npm test，告诉我结果'], e.env);
@@ -46,7 +46,7 @@ test('本机发送：排队、看护进程跟到归巢、回信能读，日志�
     assert.ok(notes(app, band).slice(1).every(x => x.preview === ''));
     const rd = await pigeon(['read', band], e.env);
     assert.equal(rd.code, 0);
-    assert.match(rd.stdout, /已归巢/);
+    assert.match(rd.stdout, /已回信/);
     assert.match(rd.stdout, /收到：请跑一下 npm test/);
     const lg = await pigeon(['log', '-n', '5'], e.env);
     assert.match(lg.stdout, new RegExp(band));
@@ -59,12 +59,12 @@ test('send --wait：同步等到回信并打印', async () => {
     e.env.FAKE_CODEX_DELAY_MS = '300';
     const r = await pigeon(['send', '--to', T.local, '--wait', '在吗'], e.env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /已归巢/);
+    assert.match(r.stdout, /已回信/);
     assert.match(r.stdout, /收到：在吗/);
   } finally { await done(); }
 });
 
-test('对方一直不接手：超时标迷路，不重发', async () => {
+test('对方一直不接手：超时标没回音，不重发', async () => {
   const { e, app, done } = await setup({ mode: 'silent', settings: { post: { waitTimeoutMin: 0.05 } } });
   try {
     const r = await pigeon(['send', '--to', '跑测试', '你好'], e.env);
@@ -75,11 +75,11 @@ test('对方一直不接手：超时标迷路，不重发', async () => {
     await until(() => notes(app, band).some(x => x.state === 'lost'));
     const w = await pigeon(['wait', band, '--timeout', '0.05'], e.env);
     assert.equal(w.code, 1);
-    assert.match(w.stdout, /迷路/);
+    assert.match(w.stdout, /没回音/);
   } finally { await done(); }
 });
 
-test('codex queue 失败：被拒收，看护进程不启动', async () => {
+test('codex queue 失败：没发出，看护进程不启动', async () => {
   const { e, done } = await setup({ mode: 'fail' });
   try {
     const r = await pigeon(['send', '--to', '跑测试', '你好'], e.env);
@@ -91,12 +91,12 @@ test('codex queue 失败：被拒收，看护进程不启动', async () => {
   } finally { await done(); }
 });
 
-test('收件人不存在 → 被拒收并记日志；有歧义 → 报错不记', async () => {
+test('收件人不存在 → 没发出并记日志；有歧义 → 报错不记', async () => {
   const { e, done } = await setup();
   try {
     const r = await pigeon(['send', '--to', '不存在的对话', '你好'], e.env);
     assert.equal(r.code, 1);
-    assert.match(r.stdout, /被拒收/);
+    assert.match(r.stdout, /没发出/);
     assert.equal(e.journal().notes[0].state, 'refused');
     assert.equal(e.calls().length, 0, '没有调用 codex');
     const amb = await pigeon(['send', '--to', '0199cccc', '你好'], e.env);
@@ -157,7 +157,7 @@ test('远程发送：经中继站转发，解析出回信', async () => {
   } finally { await done(); }
 });
 
-test('远程发送：中继站审批策略 never → 被拒收', async () => {
+test('远程发送：中继站审批策略 never → 没发出', async () => {
   const lofts = { version: 1, updated: 1, lofts: [{ id: T.host, name: 'DESKTOP-TEST01', online: true, sessions: [{ id: T.remote, title: '构建' }], projects: [] }] };
   const { e, done } = await setup({ mode: 'relay-never', settings: { post: { relayThread: T.relay } } });
   try {
@@ -242,7 +242,7 @@ async function remoteSetup(opts) {
   return s;
 }
 
-test('跨电脑确认：放飞才发，确认框里写清收件人和内容', async () => {
+test('跨电脑确认：发出才发，确认框里写清收件人和内容', async () => {
   const { e, done } = await remoteSetup({ confirm: 'ok' });
   try {
     const r = await pigeon(['send', '--to', '构建@DESKTOP-TEST01', '帮我看看构建'], e.env);
@@ -257,13 +257,13 @@ test('跨电脑确认：放飞才发，确认框里写清收件人和内容', as
   } finally { await done(); }
 });
 
-test('跨电脑确认：拦下、没人点、弹不出来，都不发，记成被拒收', async () => {
-  for (const [confirm, why] of [['deny', /拦下了这张纸条/], ['timeout', /没人点/], ['broken', /没能弹出来/]]) {
+test('跨电脑确认：拦下、没人点、弹不出来，都不发，记成没发出', async () => {
+  for (const [confirm, why] of [['deny', /拦下了这条消息/], ['timeout', /没人点/], ['broken', /没能弹出来/]]) {
     const { e, app, done } = await remoteSetup({ confirm });
     try {
       const r = await pigeon(['send', '--to', '构建@DESKTOP-TEST01', '帮我看看构建'], e.env);
       assert.equal(r.code, 1, confirm);
-      assert.match(r.stdout, /被拒收/);
+      assert.match(r.stdout, /没发出/);
       assert.match(r.stdout, why);
       const band = bandOf(r.stdout);
       const n = e.journal().notes.find(x => x.band === band);

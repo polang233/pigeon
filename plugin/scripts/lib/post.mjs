@@ -5,14 +5,16 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   LOCAL, LOCAL_NAME, sleep, clip, oneLine, fmtDur, fingerprint, newBand, isBand, emit, loadSettings, patchSettings,
-  codexBin, codexAppRunning, pidAlive, sender, POST_DEFAULTS,
+  codexBin, codexAppRunning, pidAlive, sender, isPaused, POST_DEFAULTS,
 } from './common.mjs';
 import { addNote, getNote, patchNote, recent, TERMINAL, STATE_ZH } from './journal.mjs';
 import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } from './rollout.mjs';
 import { sendInstruction, newInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
 import { getThread, latestRelayCandidate, listThreads, listProjects } from './codex-state.mjs';
 import { readLofts, saveLofts, resolveTarget, findLoft, resolveProject } from './lofts.mjs';
-import { confirmRemote } from './confirm.mjs';
+import { confirmRemote, deniedError, timeoutError } from './confirm.mjs';
+import { detectSecrets, maskSecrets } from './secrets.mjs';
+import { askApp, whyOf, ctxOf, toKeyOf } from './meta.mjs';
 
 export const PIGEON_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'pigeon.mjs');
 const pollMs = () => Number(process.env.PIGEON_POLL_MS) || 2000;
@@ -22,17 +24,45 @@ const HINT_APP = 'Codex 桌面应用没开：请先打开 ChatGPT 应用（里�
 const HINT_RELAY_UNSET = '还没有设置中继站：请在 Codex 应用里手动新建一条对话（随便发一句“中转用”），然后运行 pigeon relay use latest。';
 const HINT_RELAY_NEVER = '中继站对话的审批策略是 never（多半是 codex exec 建的），不能替你发到远程。请在 Codex 应用里手动新建一条对话，再运行 pigeon relay use <对话id>。';
 
-/* ---------- 纸条和事件 ---------- */
+/* ---------- 输出 ---------- */
+// --json 时标准输出只有最后那一行 JSON，别的文字（包括标准错误）一概不写；退出码照旧。
+// 没编号（消息还没建就失败了）时 band 是空串。
+function makeOut(args) {
+  const json = !!args.json;
+  return {
+    json,
+    say: (...l) => { if (!json) say(...l); },
+    err: (...l) => { if (!json) console.error(l.join('\n')); },
+    done(code, res) { if (json) console.log(JSON.stringify(res)); return code; },
+    // 用法错误、前置条件不满足（还没建消息）
+    usage(code, msg) { if (json) console.log(JSON.stringify({ ok: false, band: '', error: msg })); else console.error(msg); return code; },
+    // 前置条件不满足，打印在标准输出（老行为），没有消息
+    notReady(code, msg) {
+      if (json) console.log(JSON.stringify({ ok: false, band: '', state: 'refused', reason: 'offline', error: msg })); else say(msg);
+      return code;
+    },
+    refused(note, error, reason) {
+      if (!json) say(`没发出：${error}`, `编号 ${note.band}`);
+      return this.done(1, { ok: false, band: note.band, state: 'refused', reason, error });
+    },
+  };
+}
+
+/* ---------- 消息和事件 ---------- */
 export function footer(band, from) {
   const who = from.agent === 'claude' ? 'Claude Code' : '用户';
   return `\n\n（Pigeon 纸条 ${band}，来自${LOCAL_NAME}上的 ${who}。回信直接写在这一轮的最终回复里就行。）`;
 }
 
+// 事件：老字段不变，新字段（reason、retry_of、paused、why、ctx）只是加上去
 export function eventOf(note, extra = {}) {
   return {
     band: note.band, chain: note.chain, count: note.count, kind: note.kind, via: note.via, state: note.state,
     from: note.from, to: { loft: note.to.loft, loft_name: note.to.loft_name, agent: note.to.agent, session: note.to.session, title: note.to.title },
-    preview: '', answer_preview: '', error: note.error || '', ...extra,
+    preview: '', answer_preview: '', error: note.error || '',
+    reason: note.reason || '', retry_of: note.retry_of || '', paused: !!note.paused,
+    ...(note.why ? { why: note.why } : {}), ...(note.ctx ? { ctx: note.ctx } : {}),
+    ...extra,
   };
 }
 const report = (note, extra) => emit('PigeonNote', eventOf(note, extra));
@@ -42,31 +72,40 @@ export function chainFor(replyTo, lookup = getNote) {
   if (!replyTo) return { chain: '', count: 1, parent: null, warn: '' };
   const parent = lookup(replyTo);
   if (parent) return { chain: parent.chain || parent.band, count: (Number(parent.count) || 1) + 1, parent, warn: '' };
-  return { chain: replyTo, count: 2, parent: null, warn: `飞行记录里没有 ${replyTo}（可能是别的电脑发的），按第 2 程计。` };
+  return { chain: replyTo, count: 2, parent: null, warn: `任务记录里没有 ${replyTo}（可能是别的电脑发的），按第 2 程计。` };
 }
 export const overHops = (count, maxHops) => count > maxHops;
 // 看护进程最多跟多久。经中继站的要多留几分钟：中继站自己也要等 waitTimeoutMin，再加上它排队和跑模型的时间
-export const deadlineOf = (note, post) => note.created + (post.waitTimeoutMin + (note.via === 'relay' ? 3 : 0)) * 60000;
+export const deadlineOf = (note, post, from = note.created) => from + (post.waitTimeoutMin + (note.via === 'relay' ? 3 : 0)) * 60000;
 
-export function makeNote({ band, kind, replyTo, chain, count, from, to, via, text, now = Date.now(), track = {} }) {
+// extra：retry_of、why、ctx、model、effort 这些新增的字段
+export function makeNote({ band, kind, replyTo, chain, count, from, to, via, text, now = Date.now(), track = {}, extra = {} }) {
   return {
     band, chain: chain || band, count, kind, reply_to: replyTo || '',
     from, to: { loft: to.loft, loft_name: to.loft_name || (to.loft === LOCAL ? LOCAL_NAME : ''), agent: 'codex', session: to.session || '', title: to.title || '' },
-    via, state: 'queued', created: now, updated: now, fingerprint: fingerprint(text), error: '', track,
+    via, state: 'queued', created: now, updated: now, fingerprint: fingerprint(text), error: '', ...extra, track,
   };
 }
 
-async function move(band, patch, extra) {
+// 状态变了才发事件；force 时即使状态没变（比如只是标上暂停）也发一条
+async function move(band, patch, extra, force = false) {
   const r = await patchNote(band, patch);
-  if (r && r.moved) await report(r.note, extra);
+  if (r && (r.moved || force)) await report(r.note, extra);
   return r ? r.note : getNote(band);
 }
 
-async function refuseNew(note, error, text) {
-  note.state = 'refused'; note.error = error;
+async function refuseNew(note, error, reason, preview) {
+  note.state = 'refused'; note.error = error; note.reason = reason;
   await addNote(note);
-  await report(note, { preview: clip(text, 80) });
+  await report(note, { preview });
   return note;
+}
+
+// 这几类附加信息从命令行来：--retry-of、--ctx-*、--reason（why 在问过应用之后才补全）
+function extrasOf(args, text) {
+  const extra = { ctx: ctxOf(args, text), why: { kind: 'lead', reason: typeof args.reason === 'string' ? args.reason.trim() : '' } };
+  if (typeof args['retry-of'] === 'string' && args['retry-of']) extra.retry_of = args['retry-of'];
+  return extra;
 }
 
 /* ---------- 跑 codex queue ---------- */
@@ -87,6 +126,7 @@ export function codexQueue(bin, threadId, message) {
   return { ok: false, error: 'codex queue 没排上：' + oneLine(why, 200) };
 }
 
+// 后台看护进程。body 是要交给它的东西（JSON 文字，只走标准输入，不落盘）：暂停中排着的、本机新开对话的，都靠它。
 function spawnWatcher(band, body) {
   const child = spawn(process.execPath, [PIGEON_SCRIPT, '_watch', band], {
     detached: true, stdio: [body == null ? 'ignore' : 'pipe', 'ignore', 'ignore'], env: process.env,
@@ -96,8 +136,16 @@ function spawnWatcher(band, body) {
   return new Promise(r => child.stdin.end(body, () => r(child.pid)));
 }
 
-function bodyOf(args) {
-  if (args.file) { try { return fs.readFileSync(String(args.file), 'utf8'); } catch (e) { return { error: '读不到纸条文件：' + e.message }; } }
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+// 正文：--stdin 从标准输入读（不出现在命令行里），--file 读文件，否则是命令行上的文字
+async function bodyOf(args) {
+  if (args.stdin) { try { return await readStdin(); } catch (e) { return { error: '读不了标准输入：' + e.message }; } }
+  if (args.file) { try { return fs.readFileSync(String(args.file), 'utf8'); } catch (e) { return { error: '读不到消息文件：' + e.message }; } }
   return args._.join(' ');
 }
 
@@ -112,143 +160,245 @@ export function relayStatus(post) {
   return { ok: true, thread: t };
 }
 
-/* ---------- 跨电脑发送前的确认 ---------- */
-// 返回 true 表示可以发。没同意就把纸条记成被拒收，并告诉调用方不要重发。
-async function releaseRemote(note, post, text, project) {
-  if (post.confirmRemote === false) return true;
-  const c = confirmRemote({ band: note.band, from: note.from, kind: note.kind, to: note.to, project, text });
-  if (c.ok) return true;
-  await move(note.band, { state: 'refused', error: c.error });
-  say(`被拒收：${c.error}`, `脚环 ${note.band}`);
-  return false;
+/* ---------- 跨电脑发送前：查密钥、问用户 ---------- */
+// 按设置里的 secrets.mode 处理正文。只用于跨设备发送，本机的不查。
+// warn：原文不动，把类别告诉用户让他选；mask：直接打码；off：不查。
+export function screenText(text, mode) {
+  if (mode === 'mask') { const m = maskSecrets(text); return { text: m.text, kinds: [], masked: m.kinds }; }
+  if (mode === 'warn') return { text, kinds: detectSecrets(text), masked: [] };
+  return { text, kinds: [], masked: [] };
 }
+
+// 问用户。先问 Pigeon 应用（它的面板里排队等用户决定），问不通才退回系统对话框。
+// 返回 { ok: true, text } 可以发（text 是最终要发的正文）；或 { ok: false, reason, error }。
+// 说明：弹不出系统框（不是 macOS、osascript 出错）时没人能确认，按"没人理"算，reason 记 timeout。
+async function askUser(note, post, sc, text, project, o) {
+  const preview = clip(sc.text, 80);
+  o.err(`等用户在 Pigeon 里确认（最多 ${post.crossTimeoutSec} 秒）……`);
+  const act = await askApp({
+    band: note.band, from: note.from, to: note.to, preview, text: sc.text, files: (note.ctx && note.ctx.files) || [],
+    project, rule: (note.why && note.why.rule) || '', secrets: sc.kinds, timeoutSec: post.crossTimeoutSec,
+  });
+  if (act === 'release') return { ok: true, text: sc.text };
+  if (act === 'release_masked') return { ok: true, text: maskSecrets(sc.text).text };
+  if (act === 'block') return { ok: false, reason: 'blocked', error: deniedError() };
+  if (act === 'timeout') return { ok: false, reason: 'timeout', error: timeoutError(post.crossTimeoutSec, 'Pigeon 里') };
+  // 应用没开、请求失败或连接断了：退回系统对话框
+  const c = confirmRemote({ band: note.band, from: note.from, kind: note.kind, to: note.to, project, text: sc.text, secrets: sc.kinds }, post.crossTimeoutSec);
+  if (c.ok) return { ok: true, text: sc.text };
+  return { ok: false, reason: c.reason === 'denied' ? 'blocked' : 'timeout', error: c.error };
+}
+
+/* ---------- 真正送出 ---------- */
+// d 说明送什么、送去哪：
+//   { type: 'local', session, message }   本机已有对话，codex queue
+//   { type: 'relay', instr, track }       经中继站，instr 是给中继站的完整指令
+//   { type: 'exec', message, cwd, model, effort }  本机新开对话，由看护进程跑 codex exec（不走这里）
+// 成功返回 { ok: true }，状态已是 flying；失败时消息已记成没发出，返回 { ok: false, reason, error }。
+async function deliver(note, d, post) {
+  const band = note.band;
+  const fail = async (reason, error) => { await move(band, { state: 'refused', reason, error }); return { ok: false, reason, error }; };
+  const bin = codexBin();
+  if (!bin) return fail('offline', '没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
+  if (d.type === 'local') {
+    const rollout = (getThread(d.session) || {}).rollout || findRollout(d.session);
+    await patchNote(band, { track: { rollout, offset: fileSize(rollout) } });
+    const q = codexQueue(bin, d.session, d.message);
+    if (!q.ok) return fail('no_target', q.error);
+    await move(band, { state: 'flying', track: { queue_id: q.queueId } });
+    return { ok: true };
+  }
+  const rs = relayStatus(post);
+  if (!rs.ok) return fail('offline', rs.error);
+  if (!codexAppRunning()) return fail('offline', HINT_APP);
+  const relayRollout = rs.thread.rollout || findRollout(rs.thread.id);
+  await patchNote(band, { track: { relay_thread: rs.thread.id, relay_rollout: relayRollout, relay_offset: fileSize(relayRollout), ...(d.track || {}) } });
+  const q = codexQueue(bin, rs.thread.id, d.instr);
+  if (!q.ok) return fail('offline', q.error);
+  await move(band, { state: 'flying', track: { queue_id: q.queueId } });
+  return { ok: true };
+}
+
+// 排好的消息放出去：暂停中就记成 queued + paused 交给看护进程等；否则马上送。
+// 返回 { ok: true } | { ok: true, paused: true } | { ok: false, reason, error }
+async function launch(note, d, post) {
+  const band = note.band;
+  if (isPaused(note.to.loft)) {
+    await move(band, { paused: true, track: { pause_until: Date.now() + post.pauseMaxMin * 60000 } }, undefined, true);
+    const pid = await spawnWatcher(band, JSON.stringify(d));
+    await patchNote(band, { track: { watcher: pid } });
+    return { ok: true, paused: true };
+  }
+  if (d.type === 'exec') {
+    const pid = await spawnWatcher(band, JSON.stringify(d));
+    await patchNote(band, { track: { watcher: pid } });
+    return { ok: true };
+  }
+  const r = await deliver(note, d, post);
+  if (!r.ok) return r;
+  const pid = await spawnWatcher(band);
+  await patchNote(band, { track: { watcher: pid } });
+  return { ok: true };
+}
+
+const pausedText = (band, post) => [`消息已排上，编号 ${band}`,
+  `Pigeon 现在是暂停的，这条消息先排着，继续之后会自己送出，不用重发（最多排 ${post.pauseMaxMin} 分钟，超过就不发了）。`,
+  `看进展：node "${PIGEON_SCRIPT}" read ${band}`];
 
 /* ---------- send ---------- */
 export async function sendCmd(args) {
-  const text = bodyOf(args);
-  if (typeof text !== 'string') { console.error(text.error); return 64; }
-  if (!text.trim()) { console.error('纸条是空的：pigeon send --to <对话> "要说的话"（或 --file <文件>）'); return 64; }
-  const { post, codex } = await loadSettings();
+  const o = makeOut(args);
+  const text = await bodyOf(args);
+  if (typeof text !== 'string') return o.usage(64, text.error);
+  if (!text.trim()) return o.usage(64, '消息是空的：pigeon send --to <对话> "要说的话"（或 --file <文件>、--stdin）');
+  const { post, secrets } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
   const band = newBand();
-  if (warn) console.error(warn);
+  if (warn) o.err(warn);
 
   const res = resolveTarget(args.to);
   if (!res.ok && !res.notFound) {
-    console.error(res.error);
-    if (res.candidates) console.error(res.candidates.slice(0, 8).map(c => `  ${c.id}  ${c.title || ''}`).join('\n'));
+    o.usage(64, res.error);
+    if (res.candidates) o.err(res.candidates.slice(0, 8).map(c => `  ${c.id}  ${c.title || ''}`).join('\n'));
     return 64;
   }
   const to = res.ok ? res.target : { loft: LOCAL, loft_name: LOCAL_NAME, session: '', title: String(args.to || '') };
   const via = to.loft === LOCAL ? 'queue' : 'relay';
-  const note = makeNote({ band, kind: 'send', replyTo: args['reply-to'], chain, count, from, to, via, text });
-  if (!res.ok) { await refuseNew(note, res.error, text); say(`被拒收：${res.error}`, `脚环 ${band}`); return 1; }
+  const extra = extrasOf(args, text);
+  const note = makeNote({ band, kind: 'send', replyTo: args['reply-to'], chain, count, from, to, via, text, extra, track: { asker: process.pid } });
+  if (!res.ok) { await refuseNew(note, res.error, 'no_target', clip(text, 80)); return o.refused(note, res.error, 'no_target'); }
   if (overHops(count, post.maxHops)) {
     const err = `这条链已经传了 ${count - 1} 次，超过往返上限 ${post.maxHops}，为防止 agent 互相无限传话，不再发送。`;
-    await refuseNew(note, err, text); say(`被拒收：${err}`, `脚环 ${band}`); return 1;
+    await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
   }
   const bin = codexBin();
-  if (!bin) { say('Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。'); return 3; }
+  if (!bin) return o.notReady(3, 'Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
 
-  const message = text.trimEnd() + footer(band, from);
+  let d, sc = { text, kinds: [], masked: [] };
   if (via === 'queue') {
-    if (post.relayThread && to.session === post.relayThread) { console.error('这条是中继站对话，不能直接给它送纸条。'); return 64; }
-    if (to.archived) { await refuseNew(note, `对话「${to.title}」已经归档，对方收不到。`, text); say(`被拒收：对话已归档。脚环 ${band}`); return 1; }
-    const rollout = to.rollout || findRollout(to.session);
-    note.track = { rollout, offset: fileSize(rollout), deadline: deadlineOf(note, post) };
-    await addNote(note);
-    await report(note, { preview: clip(text, 80) });
-    const q = codexQueue(bin, to.session, message);
-    if (!q.ok) { await move(band, { state: 'refused', error: q.error }); say(`被拒收：${q.error}`, `脚环 ${band}`); return 1; }
-    await move(band, { state: 'flying', track: { queue_id: q.queueId } });
+    if (post.relayThread && to.session === post.relayThread) return o.usage(64, '这条是中继站对话，不能直接给它发消息。');
+    if (to.archived) { const e = `对话「${to.title}」已归档，对方收不到。`; await refuseNew(note, e, 'no_target', clip(text, 80)); return o.refused(note, e, 'no_target'); }
   } else {
     const rs = relayStatus(post);
-    if (!rs.ok) { say(rs.error); return 3; }
-    if (!codexAppRunning()) { say(HINT_APP); return 3; }
-    const relayRollout = rs.thread.rollout || findRollout(rs.thread.id);
-    note.track = { relay_thread: rs.thread.id, relay_rollout: relayRollout, relay_offset: fileSize(relayRollout), host: to.loft, deadline: deadlineOf(note, post) };
-    await addNote(note);
-    await report(note, { preview: clip(text, 80) });
-    if (!await releaseRemote(note, post, text)) return 1;
-    const instr = sendInstruction({ band, threadId: to.session, hostId: to.loft, title: to.title, loftName: to.loft_name, body: message, waitMin: post.waitTimeoutMin });
-    const q = codexQueue(bin, rs.thread.id, instr);
-    if (!q.ok) { await move(band, { state: 'refused', error: q.error }); say(`被拒收：${q.error}`, `脚环 ${band}`); return 1; }
-    await move(band, { state: 'flying', track: { queue_id: q.queueId } });
+    if (!rs.ok) return o.notReady(3, rs.error);
+    if (!codexAppRunning()) return o.notReady(3, HINT_APP);
+    sc = screenText(text, secrets.mode);
   }
-  const pid = await spawnWatcher(band);
-  await patchNote(band, { track: { watcher: pid } });
-  const warnApp = via === 'queue' && !codexAppRunning() ? '\n提示：Codex 桌面应用没开，纸条会一直排着队，打开应用后才会被接手。' : '';
-  say(`纸条已放飞：${band}`,
+
+  note.why = await whyOf(args.reason, text, toKeyOf(to));
+  note.track.deadline = deadlineOf(note, post);
+  if (via === 'relay') Object.assign(note.track, { host: to.loft });
+  const needAsk = via === 'relay' && post.confirmRemote;
+  note.state = needAsk ? 'asking' : 'queued';
+  await addNote(note);
+  await report(note, { preview: clip(sc.text, 80) });
+  if (sc.masked.length) o.err(`已按设置自动打码：${sc.masked.join('、')}。`);
+
+  let sendText = sc.text;
+  if (needAsk) {
+    const a = await askUser(note, post, sc, text, '', o);
+    if (!a.ok) { await move(band, { state: 'refused', reason: a.reason, error: a.error }); return o.refused(note, a.error, a.reason); }
+    sendText = a.text;
+    await move(band, { state: 'queued' });
+  }
+  const message = sendText.trimEnd() + footer(band, from);
+  d = via === 'queue'
+    ? { type: 'local', session: to.session, message }
+    : { type: 'relay', instr: sendInstruction({ band, threadId: to.session, hostId: to.loft, title: to.title, loftName: to.loft_name, body: message, waitMin: post.waitTimeoutMin }) };
+
+  const r = await launch(note, d, post);
+  if (!r.ok) return o.refused(note, r.error, r.reason);
+  if (r.paused) { o.say(...pausedText(band, post)); return o.done(0, { ok: true, band, state: 'queued', paused: true }); }
+  const warnApp = via === 'queue' && !codexAppRunning() ? '\n提示：Codex 桌面应用没开，消息会一直排着队，打开应用后才会被接手。' : '';
+  o.say(`消息已发出，编号 ${band}`,
     `收件人：${to.title || to.session}${to.loft === LOCAL ? '（本机）' : `@${to.loft_name}（经中继站转发，会跑一轮模型，有 token 成本）`}` + warnApp,
     `等回信：node "${PIGEON_SCRIPT}" wait ${band}　读回信：node "${PIGEON_SCRIPT}" read ${band}`);
-  if (args.wait) return waitCmd({ _: [band], timeout: args.timeout });
-  return 0;
+  if (args.wait && !o.json) return waitCmd({ _: [band], timeout: args.timeout });
+  return o.done(0, { ok: true, band, state: 'flying' });
 }
 
 /* ---------- new ---------- */
 export async function newCmd(args) {
-  const text = bodyOf(args);
-  if (typeof text !== 'string') { console.error(text.error); return 64; }
-  if (!text.trim()) { console.error('纸条是空的：pigeon new --loft <鸽舍> --title "标题" "要说的话"'); return 64; }
+  const o = makeOut(args);
+  const text = await bodyOf(args);
+  if (typeof text !== 'string') return o.usage(64, text.error);
+  if (!text.trim()) return o.usage(64, '消息是空的：pigeon new --loft <设备> --title "标题" "要说的话"（或 --stdin）');
   const title = oneLine(args.title || text.split('\n')[0], 40);
-  const { post, codex } = await loadSettings();
+  const { post, secrets } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
-  if (warn) console.error(warn);
+  if (warn) o.err(warn);
   const band = newBand();
   const lofts = readLofts().lofts;
   let loft = findLoft(lofts, args.loft || LOCAL);
   if (loft && loft.id === LOCAL) loft = { ...loft, projects: listProjects() };
-  if (!loft) { console.error(`没找到鸽舍「${args.loft}」。先跑 pigeon lofts；远程鸽舍要先 pigeon lofts --refresh`); return 64; }
+  if (!loft) return o.usage(64, `没找到设备「${args.loft}」。先跑 pigeon lofts；远程设备要先 pigeon lofts --refresh`);
   const pr = resolveProject(loft, args.project);
-  if (!pr.ok) { console.error(pr.error); return 64; }
+  if (!pr.ok) return o.usage(64, pr.error);
   const to = { loft: loft.id, loft_name: loft.name, session: '', title };
   const via = loft.id === LOCAL ? 'queue' : 'relay';
-  const note = makeNote({ band, kind: 'new', replyTo: args['reply-to'], chain, count, from, to, via, text });
+  const extra = extrasOf(args, text);
+  // 模型和思考强度：本机新开对话是 codex exec，能用 -m 和 -c 指定；经中继站的 create_thread 现在不指定模型，只能记在消息上
+  const model = typeof args.model === 'string' ? args.model : '', effort = typeof args.effort === 'string' ? args.effort : '';
+  if (model) extra.model = model;
+  if (effort) extra.effort = effort;
+  if ((model || effort) && via === 'relay') extra.model_applied = false;
+  const note = makeNote({ band, kind: 'new', replyTo: args['reply-to'], chain, count, from, to, via, text, extra, track: { asker: process.pid } });
   if (overHops(count, post.maxHops)) {
     const err = `这条链已经传了 ${count - 1} 次，超过往返上限 ${post.maxHops}，不再发送。`;
-    await refuseNew(note, err, text); say(`被拒收：${err}`, `脚环 ${band}`); return 1;
+    await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
   }
   const bin = codexBin();
-  if (!bin) { say('Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。'); return 3; }
-  const message = text.trimEnd() + footer(band, from);
-  const deadline = deadlineOf(note, post);
+  if (!bin) return o.notReady(3, 'Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
 
+  let cwd = '', sc = { text, kinds: [], masked: [] };
   if (via === 'queue') {
     // 本机新开对话：后台看护进程跑 codex exec，对话会留在 Codex 应用里
-    const cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || process.cwd()));
-    if (!fs.existsSync(cwd)) { console.error(`项目目录不存在：${cwd}`); return 64; }
-    note.track = { method: 'exec', cwd, offset: 0, deadline };
-    await addNote(note);
-    await report(note, { preview: clip(text, 80) });
-    const pid = await spawnWatcher(band, message);
-    await patchNote(band, { track: { watcher: pid } });
+    cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || process.cwd()));
+    if (!fs.existsSync(cwd)) return o.usage(64, `项目目录不存在：${cwd}`);
   } else {
     const rs = relayStatus(post);
-    if (!rs.ok) { say(rs.error); return 3; }
-    if (!codexAppRunning()) { say(HINT_APP); return 3; }
-    const relayRollout = rs.thread.rollout || findRollout(rs.thread.id);
-    note.track = { relay_thread: rs.thread.id, relay_rollout: relayRollout, relay_offset: fileSize(relayRollout), host: loft.id, project: pr.project.id, deadline };
-    await addNote(note);
-    await report(note, { preview: clip(text, 80) });
-    if (!await releaseRemote(note, post, text, pr.project.name)) return 1;
-    const instr = newInstruction({ band, projectId: pr.project.id, projectName: pr.project.name, loftName: loft.name, title, body: message, waitMin: post.waitTimeoutMin });
-    const q = codexQueue(bin, rs.thread.id, instr);
-    if (!q.ok) { await move(band, { state: 'refused', error: q.error }); say(`被拒收：${q.error}`, `脚环 ${band}`); return 1; }
-    await move(band, { state: 'flying', track: { queue_id: q.queueId } });
-    const pid = await spawnWatcher(band);
-    await patchNote(band, { track: { watcher: pid } });
+    if (!rs.ok) return o.notReady(3, rs.error);
+    if (!codexAppRunning()) return o.notReady(3, HINT_APP);
+    sc = screenText(text, secrets.mode);
   }
-  say(`纸条已放飞：${band}（新开对话「${title}」）`,
-    `鸽舍：${loft.name}${via === 'relay' ? '（经中继站转发，会跑一轮模型，有 token 成本）' : ''}`,
+
+  note.why = await whyOf(args.reason, text, toKeyOf(to));
+  note.track.deadline = deadlineOf(note, post);
+  if (via === 'queue') Object.assign(note.track, { method: 'exec', cwd, offset: 0 });
+  else Object.assign(note.track, { host: loft.id, project: pr.project.id });
+  const needAsk = via === 'relay' && post.confirmRemote;
+  note.state = needAsk ? 'asking' : 'queued';
+  await addNote(note);
+  await report(note, { preview: clip(sc.text, 80) });
+  if (sc.masked.length) o.err(`已按设置自动打码：${sc.masked.join('、')}。`);
+
+  let sendText = sc.text;
+  if (needAsk) {
+    const a = await askUser(note, post, sc, text, pr.project.name, o);
+    if (!a.ok) { await move(band, { state: 'refused', reason: a.reason, error: a.error }); return o.refused(note, a.error, a.reason); }
+    sendText = a.text;
+    await move(band, { state: 'queued' });
+  }
+  const message = sendText.trimEnd() + footer(band, from);
+  const d = via === 'queue'
+    ? { type: 'exec', message, cwd, model, effort }
+    : { type: 'relay', instr: newInstruction({ band, projectId: pr.project.id, projectName: pr.project.name, loftName: loft.name, title, body: message, waitMin: post.waitTimeoutMin }) };
+
+  const r = await launch(note, d, post);
+  if (!r.ok) return o.refused(note, r.error, r.reason);
+  if (r.paused) { o.say(...pausedText(band, post)); return o.done(0, { ok: true, band, state: 'queued', paused: true }); }
+  o.say(`消息已发出，编号 ${band}（新开对话「${title}」）`,
+    `设备：${loft.name}${via === 'relay' ? '（经中继站转发，会跑一轮模型，有 token 成本）' : ''}`,
+    ...((model || effort) && via === 'relay' ? ['注意：远程新开对话暂时不能指定模型和思考强度，已记在消息上，没有生效。'] : []),
     `等回信：node "${PIGEON_SCRIPT}" wait ${band}　读回信：node "${PIGEON_SCRIPT}" read ${band}`);
-  if (args.wait) return waitCmd({ _: [band], timeout: args.timeout });
-  return 0;
+  if (args.wait && !o.json) return waitCmd({ _: [band], timeout: args.timeout });
+  return o.done(0, { ok: true, band, state: 'flying' });
 }
 
 /* ---------- 看进展 ---------- */
-// 读记录，算出这张纸条现在的进展（不写日志）
+// 读记录，算出这条消息现在的进展（不写日志）
 export function progressOf(note) {
   const t = note.track || {};
   if (note.via === 'relay') {
@@ -269,6 +419,7 @@ export async function applyProgress(note, p) {
   if (!p || !p.state) return note;
   const patch = { state: p.state };
   if (p.error) patch.error = p.error;
+  if (p.state === 'refused') patch.reason = 'offline'; // 中继站说没发出去：对方那台连不上或不收
   const to = {};
   if (note.via === 'relay' && p.threadId && !note.to.session) to.session = p.threadId;
   if (Object.keys(to).length) patch.to = to;
@@ -281,20 +432,62 @@ export async function applyProgress(note, p) {
   return move(note.band, patch, p.state === 'home' ? { answer_preview: clip(p.answer, 160) } : undefined);
 }
 
+// 发送的进程或看护进程没了，消息却还停在“等确认”“暂停排着”：正文只在那个进程的内存里，已经发不出去了，记成没发出。
+async function reapOrphan(note) {
+  const t = note.track || {};
+  if (note.state === 'asking' && t.asker && !pidAlive(t.asker)) {
+    return move(note.band, { state: 'refused', reason: 'timeout', error: '发送的命令在用户确认之前就退出了，消息没有发送。不要自动重发。' });
+  }
+  if (note.state === 'queued' && note.paused && t.watcher && !pidAlive(t.watcher)) {
+    return move(note.band, { state: 'refused', reason: 'timeout', paused: false, error: '暂停期间后台进程退出了，消息没有发送。不要自动重发，需要的话请用户决定。' });
+  }
+  return note;
+}
+
 export async function step(band) {
-  const note = getNote(band);
+  let note = getNote(band);
   if (!note) return null;
+  note = await reapOrphan(note) || note;
   if (TERMINAL.has(note.state) && note.state !== 'lost') return note;
   return applyProgress(note, progressOf(note));
 }
 
 /* ---------- 后台看护 ---------- */
+// 暂停中排着的消息：每隔一个轮询间隔（默认 2 秒）读一次设置文件，继续了就送出，超过 pause_until 就不送了。
+// 返回 true 表示可以送了；false 表示已经处理完（记成没发出，或者消息被别处改了）。
+async function waitResume(band) {
+  for (;;) {
+    const cur = getNote(band);
+    if (!cur || cur.state !== 'queued' || !cur.paused) return false;
+    if (!isPaused(cur.to.loft)) return true;
+    if (Date.now() > ((cur.track && cur.track.pause_until) || 0)) {
+      await move(band, { state: 'refused', reason: 'timeout', paused: false, error: '暂停了太久一直没继续，这条消息没有发送。不要自动重发，需要的话请用户决定。' });
+      return false;
+    }
+    await sleep(pollMs());
+  }
+}
+
 export async function watch(band) {
   let note = getNote(band);
   if (!note) return 1;
   try {
-    if (note.track && note.track.method === 'exec') return await watchExec(note);
-    const deadline = (note.track && note.track.deadline) || note.created + POST_DEFAULTS.waitTimeoutMin * 60000;
+    const needBody = note.paused || (note.track && note.track.method === 'exec');
+    let d = null;
+    if (needBody) { try { d = JSON.parse(await readStdin()); } catch {} }
+    if (note.paused) {
+      if (!d) { await move(band, { state: 'refused', reason: 'offline', paused: false, error: '看护进程没收到消息内容，没有发送。' }); return 1; }
+      if (!await waitResume(band)) return 0;
+      const { post } = await loadSettings();
+      // 继续了：清掉暂停标记，等回信的时限从现在算起
+      note = await move(band, { paused: false, track: { deadline: deadlineOf(note, post, Date.now()) } });
+      if (d.type !== 'exec') {
+        const r = await deliver(note, d, post);
+        if (!r.ok) return 0;
+      }
+    }
+    if (note.track && note.track.method === 'exec') return await watchExec(getNote(band) || note, d);
+    const deadline = (getNote(band).track && getNote(band).track.deadline) || note.created + POST_DEFAULTS.waitTimeoutMin * 60000;
     for (;;) {
       note = await step(band);
       if (!note || TERMINAL.has(note.state)) return 0;
@@ -310,22 +503,17 @@ export async function watch(band) {
   }
 }
 
-async function readStdin() {
-  const chunks = [];
-  for await (const c of process.stdin) chunks.push(c);
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function watchExec(note) {
+async function watchExec(note, d) {
   const band = note.band;
-  const message = await readStdin();
-  if (!message.trim()) { await move(band, { state: 'lost', error: '看护进程没收到纸条内容，没有发送。' }); return 1; }
+  const message = d && d.message || '';
+  if (!message.trim()) { await move(band, { state: 'lost', error: '看护进程没收到消息内容，没有发送。' }); return 1; }
   const bin = codexBin();
   const { codex: s } = await loadSettings();
   const t = note.track;
+  const model = d.model || s.model, effort = d.effort || s.effort; // 命令行指定的优先，其次是设置
   const cliArgs = ['exec', '--json', '--skip-git-repo-check', '-C', t.cwd, '-s', s.sandbox && s.sandbox !== 'auto' ? s.sandbox : 'workspace-write'];
-  if (s.model) cliArgs.push('-m', s.model);
-  if (s.effort) cliArgs.push('-c', `model_reasoning_effort="${s.effort}"`);
+  if (model) cliArgs.push('-m', model);
+  if (effort) cliArgs.push('-c', `model_reasoning_effort="${effort}"`);
   cliArgs.push(message);
   const child = spawn(bin, cliArgs, { cwd: t.cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PIGEON_BAND: band } });
   await move(band, { state: 'flying' });
@@ -361,7 +549,7 @@ async function watchExec(note) {
 export function answerOf(note) {
   const p = progressOf(note);
   if (p.state === 'home') return { answer: p.answer, progress: p };
-  // 迷路了但中继站有 JSON 里的回信，也拿出来给人看
+  // 没回音了但中继站有 JSON 里的回信，也拿出来给人看
   if (note.via === 'relay') {
     const t = note.track || {};
     const file = t.relay_rollout || findRollout(t.relay_thread);
@@ -384,12 +572,14 @@ const codexLink = n => (n.to.session && n.to.loft === LOCAL ? `codex://threads/$
 
 export async function readCmd(args) {
   const band = args._[0];
-  if (!isBand(band)) { console.error('用法：pigeon read <脚环>（形如 b-3f9a02c1d7）'); return 64; }
+  if (!isBand(band)) { console.error('用法：pigeon read <编号>（形如 b-3f9a02c1d7）'); return 64; }
   let note = getNote(band);
-  if (!note) { console.error(`飞行记录里没有 ${band}（只保留最近 7 天）。`); return 1; }
+  if (!note) { console.error(`任务记录里没有 ${band}（只保留最近 7 天）。`); return 1; }
+  note = await reapOrphan(note) || note;
   const { answer, progress } = answerOf(note);
   note = (await applyProgress(note, progress)) || note;
-  const lines = [`${band}　${STATE_ZH[note.state] || note.state}　${who(note.from)} → ${where(note.to)}　用时 ${elapsed(note)}`];
+  const lines = [`${band}　${STATE_ZH[note.state] || note.state}${note.paused ? '（暂停中，继续后自动送出）' : ''}　${who(note.from)} → ${where(note.to)}　用时 ${elapsed(note)}`];
+  if (note.reason) lines.push(`原因：${note.reason}`);
   if (note.error) lines.push(`说明：${note.error}`);
   if (codexLink(note)) lines.push(`对话：${codexLink(note)}`);
   if (answer) lines.push('回信：', answer);
@@ -401,14 +591,15 @@ export async function readCmd(args) {
 
 export async function waitCmd(args) {
   const band = args._[0];
-  if (!isBand(band)) { console.error('用法：pigeon wait <脚环> [--timeout 分钟]'); return 64; }
+  if (!isBand(band)) { console.error('用法：pigeon wait <编号> [--timeout 分钟]'); return 64; }
   const { post } = await loadSettings();
   const limit = Math.max(0.05, Number(args.timeout) || post.waitTimeoutMin) * 60000;
   const t0 = Date.now();
   let told = false;
   for (;;) {
     let note = getNote(band);
-    if (!note) { console.error(`飞行记录里没有 ${band}。`); return 1; }
+    if (!note) { console.error(`任务记录里没有 ${band}。`); return 1; }
+    note = await reapOrphan(note) || note;
     if (!(note.track && note.track.method === 'exec')) note = (await step(band)) || note;
     if (TERMINAL.has(note.state)) return readCmd({ _: [band] });
     const dl = (note.track && note.track.deadline) || 0;
@@ -429,14 +620,14 @@ export async function logCmd(args) {
   const n = Math.max(1, Number(args.n || args.limit) || 20);
   const notes = recent(n);
   if (args.json) { console.log(JSON.stringify({ notes }, null, 2)); return 0; }
-  if (!notes.length) { say('还没有飞行记录。送一张：pigeon send --to <对话> "要说的话"'); return 0; }
+  if (!notes.length) { say('还没有任务记录。发一条：pigeon send --to <对话> "要说的话"'); return 0; }
   const d = ts => { const x = new Date(ts); return `${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')} ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
   const rows = notes.map(x => `${x.band}  ${d(x.created)}  ${(STATE_ZH[x.state] || x.state).padEnd(3, '　')}  ${who(x.from)} → ${where(x.to)}${x.via === 'relay' ? '（经中继）' : ''}  ${elapsed(x)}${x.count > 1 ? `  第 ${x.count} 程` : ''}${x.error ? '\n    ' + oneLine(x.error, 120) : ''}`);
-  say(`最近 ${notes.length} 张纸条（新的在上）：`, ...rows);
+  say(`最近 ${notes.length} 条消息（新的在上）：`, ...rows);
   return 0;
 }
 
-/* ---------- 鸽舍 ---------- */
+/* ---------- 设备 ---------- */
 export async function loftsCmd(args) {
   const { post } = await loadSettings();
   if (args.refresh) {
@@ -453,7 +644,7 @@ export async function loftsCmd(args) {
     if (l.id !== LOCAL && (l.projects || []).length) out.push(`  项目：${l.projects.map(p => `${p.name}（${p.path}）`).join('、')}`);
   }
   if (error) out.push('', '注意：' + error);
-  const remoteAge = lofts.remoteUpdated ? `远程鸽舍是 ${ago(Date.now() - lofts.remoteUpdated)}前经中继站读的` : '还没读过远程鸽舍';
+  const remoteAge = lofts.remoteUpdated ? `远程设备是 ${ago(Date.now() - lofts.remoteUpdated)}前经中继站读的` : '还没读过远程设备';
   out.push('', `${remoteAge}；要刷新：pigeon lofts --refresh（经中继站，有 token 成本）`);
   say(...out);
   return 0;
@@ -470,7 +661,7 @@ async function refreshRemote(post) {
   const offset = fileSize(file);
   const q = codexQueue(bin, rs.thread.id, loftsInstruction({ band }));
   if (!q.ok) return { ok: false, error: q.error };
-  process.stderr.write('已请中继站读远程鸽舍，等它回来（通常半分钟到两分钟）…\n');
+  process.stderr.write('已请中继站读远程设备，等它回来（通常半分钟到两分钟）…\n');
   const deadline = Date.now() + 5 * 60000;
   while (Date.now() < deadline) {
     await sleep(pollMs());
@@ -542,7 +733,7 @@ export async function relayCheck(post) {
   }
   const lofts = readLofts();
   const remotes = lofts.lofts.filter(l => l.id !== LOCAL);
-  items.push({ ok: true, info: true, label: '远程鸽舍缓存', detail: remotes.length ? remotes.map(l => `${l.name}（${(l.sessions || []).length} 条对话）`).join('、') : '还没有，pigeon lofts --refresh 读一次' });
+  items.push({ ok: true, info: true, label: '远程设备缓存', detail: remotes.length ? remotes.map(l => `${l.name}（${(l.sessions || []).length} 条对话）`).join('、') : '还没有，pigeon lofts --refresh 读一次' });
   const lines = items.map(i => `${i.info ? '  ·' : i.ok ? '  通过' : '  不行'}　${i.label}${i.detail ? '：' + i.detail : ''}`);
   const bad = items.filter(i => !i.ok);
   say('中继站检查（只读，不发消息）：', ...lines, bad.length ? `\n有 ${bad.length} 项不行，远程发送暂时用不了。` : '\n可以经中继站往远程发送。');
