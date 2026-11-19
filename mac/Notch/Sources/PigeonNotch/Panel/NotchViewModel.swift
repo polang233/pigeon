@@ -15,7 +15,7 @@ struct NotchGeometry: Equatable {
     static let openWidth: CGFloat = 440
     static let menuWidth: CGFloat = 400
     /// 光带在面板下面占的高度
-    static let stripRoom: CGFloat = 4
+    static let stripRoom: CGFloat = 8
     /// 顶上两角往外反弯的小圆角：把黑色形状和菜单栏接上，像刘海本身那样
     static let flare: CGFloat = 8
     /// 下沿圆角：收起时贴近刘海本身的圆角，展开后更大

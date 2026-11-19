@@ -64,6 +64,45 @@ enum GlowLayout {
     }
 }
 
+/// 光带每一段长什么样：多亮、要不要呼吸。纯逻辑，画由 `GlowStripLayerView` 交给 Core Animation
+enum GlowStyle {
+    /// 每段平常的高度
+    static let height: CGFloat = 3
+    /// 起飞、落地时亮一下，多高出来多少，亮多久
+    static let pulseExtra: CGFloat = 3
+    static let pulseDuration: TimeInterval = 0.6
+
+    /// 呼吸：在 low 和 high 之间来回，一来一回 period 秒
+    struct Breath: Equatable {
+        var low: Double
+        var high: Double
+        var period: TimeInterval
+    }
+
+    struct Look: Equatable {
+        /// 不呼吸时的亮度；呼吸时是最亮的那一下
+        var alpha: Double
+        var breath: Breath?
+        /// 外面一圈光晕的浓度
+        var glow: Double
+    }
+
+    /// still：减少动态效果，只给固定亮度
+    static func look(_ s: RunState, still: Bool) -> Look {
+        switch s {
+        case .idle, .done: return Look(alpha: 0.55, breath: nil, glow: 0.45)
+        case .off: return Look(alpha: 0.2, breath: nil, glow: 0)
+        case .run: return Look(alpha: 1, breath: still ? nil : Breath(low: 0.6, high: 1, period: 1.6), glow: 0.8)
+        case .wait, .error: return Look(alpha: 1, breath: still ? nil : Breath(low: 0.55, high: 1, period: 1.1), glow: 0.8)
+        }
+    }
+
+    /// 有没有哪一段在动。都不动时光带是一张静止的图，不占 CPU
+    static func animates(_ states: [RunState], still: Bool) -> Bool {
+        states.contains { look($0, still: still).breath != nil }
+    }
+}
+
 /// 两侧写什么。纯逻辑
 enum EarText {
     /// 右边：几件等你；没有就写几封新回信、几件在路上，都没有就空
