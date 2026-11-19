@@ -150,6 +150,25 @@ private func ctx(_ s: NotchState = .queue, pointer: Bool = false, focus: Bool = 
         m.queue = []; m.prompts = []
         #expect(EarText.right(m).text == "1 封回信")
     }
+
+    @Test func 耳朵按内容收窄() {
+        // 什么都没有：两边都不长出来
+        var m = NotchModel(agents: [LocalAgent(agent: .claude, state: .idle)])
+        var e = EarLayout.widths(model: m, open: false, notchWidth: 185, openWidth: 440)
+        #expect(e == EarWidths(left: 0, right: 0))
+        // 只有一个在干活：只长左边，而且比原来固定的 74 窄得多
+        m.agents = [LocalAgent(agent: .claude, state: .run)]
+        e = EarLayout.widths(model: m, open: false, notchWidth: 185, openWidth: 440)
+        #expect(e.right == 0 && e.left > 0 && e.left <= 40)
+        // 有等你的：右边是图标加数字，也不宽
+        m = NotchModel.sample(now: now)
+        e = EarLayout.widths(model: m, open: false, notchWidth: 185, openWidth: 440)
+        #expect(e.right > 0 && e.right <= 56)
+        #expect(EarLayout.badge(m)?.urgent == true && EarLayout.badge(m)?.help == "4 件等你")
+        // 展开：两边平分，凑够面板宽
+        e = EarLayout.widths(model: m, open: true, notchWidth: 185, openWidth: 440)
+        #expect(e.left == e.right && e.left * 2 + 185 == 440)
+    }
 }
 
 @Suite struct ComposeRules {
