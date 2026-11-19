@@ -30,11 +30,33 @@ else
   echo "警告：没有找到 $ROOT_DIR/plugin/scripts，应用里不能自己派活" >&2
 fi
 
+# 菜单栏图标（单色模板图）
+if [ -f "$MAC_DIR/Resources/MenuBarIcon.svg" ]; then
+  cp "$MAC_DIR/Resources/MenuBarIcon.svg" "$CONTENTS/Resources/MenuBarIcon.svg"
+fi
+
+# 应用图标：.icns 给 macOS 14、15；装了 Xcode 时再把分层的 Pigeon.icon 编进 Assets.car，
+# macOS 26 起深色、着色、透明外观由系统按层生成
 ICON_KEY=""
 if [ -f "$MAC_DIR/Resources/AppIcon.icns" ]; then
   cp "$MAC_DIR/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
   ICON_KEY="    <key>CFBundleIconFile</key>
     <string>AppIcon</string>"
+fi
+if [ -d "$MAC_DIR/Resources/Pigeon.icon" ] && xcrun --find actool >/dev/null 2>&1; then
+  PARTIAL="$(mktemp -t pigeon-icon).plist"
+  if xcrun actool "$MAC_DIR/Resources/Pigeon.icon" --compile "$CONTENTS/Resources" --app-icon Pigeon \
+      --platform macosx --target-device mac --minimum-deployment-target 14.0 \
+      --output-partial-info-plist "$PARTIAL" --output-format human-readable-text >/dev/null; then
+    ICON_KEY="$ICON_KEY
+    <key>CFBundleIconName</key>
+    <string>Pigeon</string>"
+  else
+    echo "警告：分层图标编译失败，只用 AppIcon.icns" >&2
+  fi
+  rm -f "$PARTIAL"
+  # actool 会顺手生成一份 Pigeon.icns，旧系统有 AppIcon.icns 就够了
+  rm -f "$CONTENTS/Resources/Pigeon.icns"
 fi
 
 cat > "$CONTENTS/Info.plist" <<PLIST

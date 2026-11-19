@@ -1,8 +1,8 @@
 #!/usr/bin/env swift
-// 生成 mac/Resources/AppIcon.icns：红底白鸽。
-// 底图是方形满版位图（默认 assets/brand/pigeon-mark.png），这里裁成标准 Mac 图标的样子：
-// 1024 画布，中间 824 的圆角方块，四角透明，加一圈很淡的内描边。各尺寸分别从原图重新缩放，小尺寸不至于糊成一团。
-// 用法：swift mac/scripts/make-icon.swift [底图.png] [输出.icns]
+// 生成 mac/Resources/AppIcon.icns：白底黑鸽（灰翅、红信筒）。
+// 底图是方形满版的 SVG 或位图（默认 assets/brand/pigeon-app-icon.svg，由 make-brand.swift 生成），这里裁成标准 Mac 图标的样子：
+// 1024 画布，中间 824 的圆角方块，四角透明，加一圈很淡的内描边。SVG 在每个尺寸按矢量重画，位图则各尺寸从原图重新缩放。
+// 用法：swift mac/scripts/make-icon.swift [底图.svg|.png] [输出.icns]
 // 环境变量 PIGEON_ICON_PREVIEW=<路径.png> 时顺便输出一张 1024 的预览。
 import AppKit
 import CoreGraphics
@@ -14,11 +14,12 @@ let scriptDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let args = CommandLine.arguments
 let source = args.count > 1
     ? URL(fileURLWithPath: args[1])
-    : scriptDir.appendingPathComponent("../../assets/brand/pigeon-mark.png").standardizedFileURL
+    : scriptDir.appendingPathComponent("../../assets/brand/pigeon-app-icon.svg").standardizedFileURL
 let output = args.count > 2
     ? URL(fileURLWithPath: args[2])
     : scriptDir.appendingPathComponent("../Resources/AppIcon.icns").standardizedFileURL
 
+let isVector = source.pathExtension.lowercased() == "svg"
 guard let src = NSImage(contentsOf: source),
       let art = src.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
     FileHandle.standardError.write("读不了底图：\(source.path)\n".data(using: .utf8)!)
@@ -37,16 +38,25 @@ func render(size: Int) -> CGImage {
     let rect = CGRect(x: inset, y: inset, width: body, height: body)
     let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
 
-    // 底图的四边有生成痕迹，稍微放大一点裁掉边缘
-    let bleed = body * 0.03
+    // 生成的位图四边有痕迹，稍微放大一点裁掉边缘；SVG 没有这个问题
+    let bleed = isVector ? 0 : body * 0.03
+    let target = rect.insetBy(dx: -bleed, dy: -bleed)
     ctx.saveGState()
     ctx.addPath(path)
     ctx.clip()
     ctx.interpolationQuality = .high
-    ctx.draw(art, in: rect.insetBy(dx: -bleed, dy: -bleed))
+    if isVector {
+        // 直接按目标尺寸画矢量，16 px 也是清楚的边
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        src.draw(in: target)
+        NSGraphicsContext.restoreGraphicsState()
+    } else {
+        ctx.draw(art, in: target)
+    }
     ctx.restoreGState()
 
-    // 很淡的内描边，让红底在深色 Dock 上也有边
+    // 很淡的内描边，让白底在浅色背景上也有边
     if size >= 64 {
         ctx.addPath(path)
         ctx.setStrokeColor(CGColor(gray: 0, alpha: 0.12))

@@ -166,7 +166,36 @@ final class StatusBar: NSObject, NSMenuDelegate {
 
     // MARK: 图标
 
+    /// 菜单栏上的鸽子：单色标志（mac/Resources/MenuBarIcon.svg，由 make-brand.swift 生成）。
+    /// 打包的应用从包里读，swift run 时读源码里那份；都读不到时退回像素鸽子
+    private static let glyph: NSImage? = {
+        let url = Bundle.main.url(forResource: "MenuBarIcon", withExtension: "svg")
+            ?? Paths.packageDir.appendingPathComponent("Resources/MenuBarIcon.svg")
+        return NSImage(contentsOf: url)
+    }()
+
     static func icon(waiting: Bool) -> NSImage {
+        guard let glyph else { return pixelIcon(waiting: waiting) }
+        let side: CGFloat = 18
+        let width = waiting ? side + 3 : side
+        let image = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
+            let rect = NSRect(x: 0, y: 0, width: side, height: side)
+            glyph.draw(in: rect)
+            if waiting {
+                // 等你时不能用模板图（红点要保持红色），鸽子按菜单栏的文字色上色，右上角加一个红点
+                NSColor.labelColor.set()
+                rect.fill(using: .sourceAtop)
+                NSColor.systemRed.setFill()
+                NSBezierPath(ovalIn: NSRect(x: width - 7, y: side - 8, width: 7, height: 7)).fill()
+            }
+            return true
+        }
+        image.isTemplate = !waiting
+        image.accessibilityDescription = waiting ? "Pigeon：有事等你" : "Pigeon"
+        return image
+    }
+
+    private static func pixelIcon(waiting: Bool) -> NSImage {
         let width = waiting ? 20 : 16
         let image = NSImage(size: NSSize(width: width, height: 16), flipped: true) { _ in
             let body = waiting ? NSColor(srgbRed: 0xff / 255, green: 0xcf / 255, blue: 0x6b / 255, alpha: 1) : NSColor.black
