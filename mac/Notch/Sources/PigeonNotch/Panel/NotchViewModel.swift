@@ -12,13 +12,19 @@ struct NotchGeometry: Equatable {
     /// 上面那一排的高度：刘海高，或菜单栏高
     var topHeight: CGFloat = 32
 
-    static let earWidth: CGFloat = 74
     static let openWidth: CGFloat = 440
     static let menuWidth: CGFloat = 400
     /// 光带在面板下面占的高度
     static let stripRoom: CGFloat = 4
-    /// 顶上两角往外翻的弧
-    static let flare: CGFloat = 6
+    /// 顶上两角往外反弯的小圆角：把黑色形状和菜单栏接上，像刘海本身那样
+    static let flare: CGFloat = 8
+    /// 下沿圆角：收起时贴近刘海本身的圆角，展开后更大
+    static let idleRadius: CGFloat = 10
+    static let openRadius: CGFloat = 24
+    /// 菜单栏模式下的圆角
+    static let menuRadius: CGFloat = 18
+    /// 面板窗口比形状大出来的透明边，给阴影和弹簧回弹留地方
+    static let shadowPad: CGFloat = 36
 }
 
 /// 面板的全部状态：数据、打开到哪、选中哪件、派活的草稿。视图读它，控制器照它摆窗口。
@@ -46,6 +52,14 @@ final class NotchViewModel {
     /// 光带上起飞、落地时亮一下的那一段
     var pulse: [AgentKind: Date] = [:]
     var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    /// 黑色形状现在（动画的终点）在面板窗口里的位置，左上角为原点。控制器按它放行鼠标、摆窗口
+    var panelRect: CGRect = .zero
+
+    /// 形状变化用的动画：展开带一点弹性，收起干脆；减少动态效果时只淡入淡出
+    var motion: Animation {
+        if reduceMotion { return .easeInOut(duration: 0.14) }
+        return state == .idle ? .spring(response: 0.24, dampingFraction: 1) : .spring(response: 0.3, dampingFraction: 0.8)
+    }
 
     /// 状态变了要不要拿键盘焦点，由控制器接
     @ObservationIgnored var onKeyAllowedChange: (Bool) -> Void = { _ in }

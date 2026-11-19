@@ -14,6 +14,7 @@ public final class NotchController {
     private let host: NotchHostingView
     private var flight: FlightOverlay?
     private var monitors: [Any] = []
+    private var pollTimer: Timer?
     private var pendingHover: DispatchWorkItem?
     private var menuAnchor: NSRect?
     private var lastBadge = -1
@@ -55,14 +56,19 @@ public final class NotchController {
         panel.title = "Pigeon 刘海"
         panel.setAccessibilityLabel("Pigeon 刘海面板")
 
-        host.sizingOptions = [.intrinsicContentSize]
+        // 窗口大小由控制器定（比形状大、只长不缩），不跟着 SwiftUI 内容的尺寸跳
+        host.sizingOptions = []
         host.translatesAutoresizingMaskIntoConstraints = true
         host.autoresizingMask = [.width, .height]
         container.addSubview(host)
         panel.contentView = container
 
-        container.onHover = { [weak self] inside in self?.hoverChanged(inside) }
-        host.onSizeChange = { [weak self] in self?.scheduleLayout() }
+        panel.ignoresMouseEvents = true
+        panel.acceptsMouseMovedEvents = true
+        // 兜底：有的情况下收不到鼠标移动事件（比如鼠标停在别的应用不接收移动事件的窗口上），隔一会儿看一眼
+        let poll = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pointerMoved() } }
+        RunLoop.main.add(poll, forMode: .common)
+        pollTimer = poll
         panel.keyHandler = { [weak self] e in self?.handleKey(e) ?? false }
         panel.onResignKey = { [weak self] in self?.vm.focusedButton = nil }
         vm.onKeyAllowedChange = { [weak self] allowed in self?.keyAllowedChanged(allowed) }
@@ -162,11 +168,14 @@ public final class NotchController {
         guard placement == .notch, vm.state == .idle, !m.paused, !vm.reduceMotion, panel.isVisible,
               let i0 = m.agents.firstIndex(where: { $0.agent == from }), let i1 = m.agents.firstIndex(where: { $0.agent == to }), i0 != i1
         else { return }
-        let width = panel.frame.width - NotchGeometry.flare * 2
-        guard let c0 = GlowLayout.center(of: i0, count: m.agents.count, width: width),
+        let shape = shapeScreenRect
+        let inset = NotchGeometry.flare + 4
+        let width = shape.width - inset * 2
+        guard width > 0,
+              let c0 = GlowLayout.center(of: i0, count: m.agents.count, width: width),
               let c1 = GlowLayout.center(of: i1, count: m.agents.count, width: width) else { return }
-        let left = panel.frame.minX + NotchGeometry.flare
-        let y = panel.frame.minY + NotchGeometry.stripRoom - 1
+        let left = shape.minX + inset
+        let y = shape.minY - 1
         flight?.close()
         let f = FlightOverlay(from: CGPoint(x: left + c0, y: y), to: CGPoint(x: left + c1, y: y), color: from.identityHex)
         flight = f
@@ -216,7 +225,9 @@ public final class NotchController {
     private func hoverChanged(_ inside: Bool) {
         vm.pointerInside = inside
         pendingHover?.cancel()
-        // 展开稍等一下，免得鼠标划过菜单栏时误触；收起多等一会儿，鼠标在边上抖一下不至于闪
+        // 鼠标停到刘海上几乎马上展开；只有很快地横扫过去时多等一下，免得划过菜单栏时误触。
+        // 移开后稍等一下再收，鼠标在边上抖一下不至于闪
+        let delay = inside ? (pointerSpeed > HoverTiming.sweepSpeed ? HoverTiming.sweepDelay : HoverTiming.enterDelay) : HoverTiming.exitDelay
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.vm.pointerInside == inside else { return }
             if inside { self.vm.machine.hoverEntered(placement: self.placement) } else { self.vm.machine.hoverExited() }
@@ -224,11 +235,42 @@ public final class NotchController {
             self.stateDidChange()
         }
         pendingHover = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (inside ? 0.12 : 0.35), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// 鼠标是不是在黑色形状上。窗口比形状大，形状外面要让鼠标穿过去，所以靠监听鼠标移动来判断，
+    /// 而不是窗口自己的进出（窗口忽略鼠标时收不到）
+    private var pointerOverShape = false
+    private var lastPointer: (at: NSPoint, time: TimeInterval)?
+    /// 鼠标最近的移动速度（点每秒），用来分辨"停在刘海上"和"横扫过去"
+    private var pointerSpeed: CGFloat = 0
+    private func pointerMoved() {
+        guard panel.isVisible else { return }
+        let now = ProcessInfo.processInfo.systemUptime, at = NSEvent.mouseLocation
+        if let last = lastPointer, now > last.time {
+            pointerSpeed = hypot(at.x - last.at.x, at.y - last.at.y) / CGFloat(now - last.time)
+        }
+        lastPointer = (at, now)
+        let r = shapeScreenRect
+        // 顶边多算一点：鼠标顶到屏幕最上沿也算在刘海上
+        let hit = r.width > 0 && NSRect(x: r.minX, y: r.minY, width: r.width, height: r.height + 2).contains(NSEvent.mouseLocation)
+        if panel.ignoresMouseEvents == hit { panel.ignoresMouseEvents = !hit }
+        if hit != pointerOverShape {
+            pointerOverShape = hit
+            hoverChanged(hit)
+        }
     }
 
     /// 面板里点一下：钉住，必要时拿焦点；面板外点一下：按打开的方式决定收不收
     private func addMonitors() {
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let local = NSEvent.addLocalMonitorForEvents(matching: moves, handler: { [weak self] event in
+            self?.pointerMoved()
+            return event
+        }) { monitors.append(local) }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moves, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.pointerMoved() }
+        }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] event in
             guard let self else { return event }
             if event.window === self.panel {
@@ -257,6 +299,7 @@ public final class NotchController {
         withObservationTracking {
             _ = vm.state
             _ = vm.geometry
+            _ = vm.panelRect
             _ = vm.model.paused
             _ = vm.model.agents
             _ = vm.model.queue.count
@@ -302,11 +345,32 @@ public final class NotchController {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens.first
     }
 
+    /// 窗口高度只长不缩（形状缩回去的动画要有地方画）；换屏幕、换放法时重新算
+    private var windowHeight: CGFloat = 0
+    private var windowKey = ""
+    private var hideWork: DispatchWorkItem?
+
+    /// 黑色形状在屏幕上的位置（动画终点）
+    private var shapeScreenRect: NSRect {
+        let r = vm.panelRect, f = panel.frame
+        guard r.width > 0 else { return .zero }
+        return NSRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height)
+    }
+
     private func layout() {
         notifyBadge()
         let p = placement
-        if p == .hidden || (p == .menuBar && vm.state == .idle) {
-            panel.orderOut(nil)
+        hideWork?.cancel()
+        if p == .hidden { panel.orderOut(nil); return }
+        if p == .menuBar && vm.state == .idle {
+            // 菜单栏模式收起：等形状缩回去再藏窗口
+            guard panel.isVisible else { return }
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.placement == .menuBar, self.vm.state == .idle else { return }
+                self.panel.orderOut(nil)
+            }
+            hideWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (vm.reduceMotion ? 0.2 : 0.45), execute: work)
             return
         }
         guard let screen = (p == .menuBar ? menuScreen() : Self.targetScreen()) else { return }
@@ -324,27 +388,34 @@ public final class NotchController {
             }
         }
         if g != vm.geometry { vm.geometry = g }
-        host.layoutSubtreeIfNeeded()
-        let size = host.fittingSize
-        let w = ceil(size.width), h = ceil(max(size.height, 10))
+
+        let pad = NotchGeometry.shadowPad
+        let key = "\(p.rawValue) \(screen.frame) \(g.notchWidth)"
+        if key != windowKey { windowKey = key; windowHeight = 0 }
+        let need = vm.panelRect.height + NotchGeometry.stripRoom + pad * 1.5
+        windowHeight = min(max(windowHeight, need, 160), screen.frame.height * 0.9)
+        let h = ceil(windowHeight)
         var frame: NSRect
         if p == .notch {
-            // 刘海总在内建屏正中
+            // 收起时两侧耳朵最宽也就七八十，展开宽度装得下
+            let w = ceil(max(NotchGeometry.openWidth, g.notchWidth + 200) + 2 * NotchGeometry.flare + 2 * pad)
+            // 刘海总在内建屏正中，窗口顶边贴屏幕顶
             frame = NSRect(x: round(screen.frame.midX - w / 2), y: screen.frame.maxY - h, width: w, height: h)
         } else {
+            let w = NotchGeometry.menuWidth + 2 * pad
             let a = menuAnchor ?? NSRect(x: screen.frame.maxX - 120, y: screen.visibleFrame.maxY, width: 24, height: 0)
             let vis = screen.visibleFrame
-            let x = min(max(vis.minX + 8, a.midX - w / 2), vis.maxX - w - 8)
+            let x = min(max(vis.minX + 8 - pad, a.midX - w / 2), vis.maxX - w - 8 + pad)
             frame = NSRect(x: round(x), y: round(a.minY - 6 - h), width: w, height: h)
         }
-        panel.hasShadow = vm.state != .idle
         if panel.frame != frame {
             panel.setFrame(frame, display: true)
             host.frame = container.bounds
         }
         if !panel.isVisible { panel.orderFrontRegardless() }
         if panel.keyAllowed && !panel.isKeyWindow && vm.machine.keyAllowed { panel.makeKey() }
-        panel.invalidateShadow()
+        // 形状变了，鼠标可能已经在里面或外面了
+        pointerMoved()
     }
 
     private func menuScreen() -> NSScreen? {
@@ -367,17 +438,35 @@ public final class NotchController {
     /// 把面板现在的样子画成 PNG（只画自己的窗口，不用屏幕录制权限）。演示程序截图用
     public func snapshotPNG() -> Data? {
         guard let v = panel.contentView, v.bounds.width > 0 else { return nil }
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return nil }
-        v.cacheDisplay(in: v.bounds, to: rep)
+        // 只截形状加一圈阴影，窗口其余是透明的
+        var crop = v.bounds
+        let r = vm.panelRect
+        if r.width > 0 {
+            let pad: CGFloat = 16, below = NotchGeometry.stripRoom + pad
+            // panelRect 左上角为原点，NSView 这里左下角为原点；顶边贴着窗口顶
+            crop = NSRect(x: r.minX - pad, y: v.bounds.height - r.maxY - below,
+                          width: r.width + 2 * pad, height: r.maxY + below).intersection(v.bounds).integral
+        }
+        guard let rep = v.bitmapImageRepForCachingDisplay(in: crop) else { return nil }
+        v.cacheDisplay(in: crop, to: rep)
         return rep.representation(using: .png, properties: [:])
     }
 
-    /// 面板现在的位置（屏幕坐标）。演示程序截图用
-    public var panelFrame: NSRect? { panel.isVisible ? panel.frame : nil }
+    /// 黑色形状现在的位置（屏幕坐标）。演示程序截图用
+    public var panelFrame: NSRect? { panel.isVisible ? shapeScreenRect : nil }
     /// 面板是不是键盘焦点窗口
     public var isKey: Bool { panel.isKeyWindow }
     /// 队列里选中的那件
     public var selectedQueueID: String? { vm.cursor.selectedID }
+}
+
+/// 悬停展开、收起要等多久
+enum HoverTiming {
+    static let enterDelay: TimeInterval = 0.03
+    static let sweepDelay: TimeInterval = 0.14
+    static let exitDelay: TimeInterval = 0.1
+    /// 比这快算横扫（点每秒）
+    static let sweepSpeed: CGFloat = 1400
 }
 
 // MARK: - 窗口和视图
@@ -402,28 +491,12 @@ final class NotchPanel: NSPanel {
     }
 }
 
-/// 负责鼠标进出：应用不在前台时也要能感知（`.activeAlways`）
+/// 面板的底：鼠标进出由控制器按形状判断（窗口比形状大，见 `pointerMoved`）
 final class NotchContainerView: NSView {
-    var onHover: ((Bool) -> Void)?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                       owner: self, userInfo: nil))
-    }
-
-    override func mouseEntered(with event: NSEvent) { onHover?(true) }
-    override func mouseExited(with event: NSEvent) { onHover?(false) }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
-/// 面板不是焦点窗口时第一下点击也要直接生效；内容大小变了告诉控制器重新摆
+/// 面板不是焦点窗口时第一下点击也要直接生效
 final class NotchHostingView: NSHostingView<NotchRootView> {
-    var onSizeChange: (() -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func invalidateIntrinsicContentSize() {
-        super.invalidateIntrinsicContentSize()
-        onSizeChange?()
-    }
 }
