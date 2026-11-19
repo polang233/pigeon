@@ -22,7 +22,7 @@ import { $ } from './dom.js';
 import { toast } from './views/toast.js';
 import { initShared } from './views/shared.js';
 import { mountTooltip } from './views/tooltip.js';
-import { mountNav } from './views/nav.js';
+import { mountNav, NAV } from './views/nav.js';
 import { mountSettings } from './views/settings.js';
 import { mountHud } from './views/hud.js';
 import { initStage, mountStage } from './views/stage.js';
@@ -106,11 +106,18 @@ mountSettings(store);
 if (!live) mountHud(store); // 应用里的刘海是原生的
 
 const main = $('#main');
-let unmount = null;
+let unmount = null, shown = null;
+const ORDER = NAV.map(([v]) => v);
+const quiet = matchMedia('(prefers-reduced-motion: reduce)');
+// 换页：往下翻（侧栏里更靠下的一页）新页从下面滑进来，往上翻从上面；减少动态效果时直接换
 function show() {
-  unmount?.();
-  unmount = PAGES[st.ui.view](main) || null;
-  main.scrollTop = 0;
+  const swap = () => { unmount?.(); unmount = PAGES[st.ui.view](main) || null; main.scrollTop = 0; };
+  const from = shown; shown = st.ui.view;
+  if (!from || from === shown || quiet.matches) return swap();
+  document.documentElement.dataset.nav = ORDER.indexOf(shown) > ORDER.indexOf(from) ? 'down' : 'up';
+  if (document.startViewTransition) { document.startViewTransition(swap); return; }
+  swap();
+  main.classList.remove('page-in'); void main.offsetWidth; main.classList.add('page-in');
 }
 store.on(['ui.view'], show);
 show();
