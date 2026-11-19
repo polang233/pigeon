@@ -1,6 +1,7 @@
 // 指挥台：一台设备一页，底部翻页。画面只放身份和状态：会动的形象、名字、模型、一排小圆点（每个点是一个对话）。
 // 在做什么留给悬停提示、右侧详情和底部轮播。任务是沿着连线飞的信鸽，颜色跟着发信的那个 agent。
-// 别的电脑在指挥那一页上默认收成一张卡片，点卡片右上角的按钮展开，展开后那块底右上角的按钮收起。节点按 core/layout.js 自动排，不能拖。
+// 别的电脑在指挥那一页上默认收成一张卡片，点卡片右上角的按钮展开，展开后那块底右上角的按钮收起。
+// 节点按 core/layout.js 自动排；按住拖动时显出网格，松手吸附到最近的空格，位置按设备记在本机，“自动排布”清掉。
 //
 // 这一页分几块，各自按话题重画：
 //   head      页头（全部暂停、派活）                 paused
@@ -16,7 +17,7 @@ import { $, $$, patch, part, reduce } from '../dom.js';
 import { AG, ST, TS, TH, ACT, LIVE } from '../core/labels.js';
 import { by, cross, kids, worst, shortDev, jumpLabel, isPaused, isYou, leadSession, leadKey, canLead, canTake, online } from '../core/names.js';
 import { pagesOf, stateOf, parentOf, edgeOf, modelOf, poseOf, pageSessions, events } from '../core/pages.js';
-import { zoomOf, gridOf, leavesOf, placeCells, cellXY, edgePath } from '../core/layout.js';
+import { zoomOf, gridOf, leavesOf, placeCells, cellXY, edgePath, cellsOf, freeCell, saveCell, loadCell, nearestCell } from '../core/layout.js';
 import { qc } from '../core/quota.js';
 import { rst } from '../core/time.js';
 import { g, stTag, taskSt, devIc, devBadge, quotaDisc, modelTag, LINK, icOf } from './parts.js';
@@ -28,6 +29,12 @@ import { toast, after } from './toast.js';
 let store, st, ui, root = null;
 let PAGES = [];
 const GEO = [];
+
+// 拖过的位置：{ 设备: { 节点 key: [列比例, 行比例] } }，只记在这台电脑的浏览器存储里
+const PIN_KEY = 'pigeon.stage.pins';
+let PINS = (() => { try { return JSON.parse(localStorage.getItem(PIN_KEY)) || {}; } catch { return {}; } })();
+const savePins = () => { try { localStorage.setItem(PIN_KEY, JSON.stringify(PINS)); } catch {} };
+const hasPins = key => Object.keys(PINS[key] || {}).length > 0;
 
 // 当前配色里的颜色（连线渐变、鸽子要用实色）
 const hex = a => getComputedStyle(document.documentElement).getPropertyValue('--' + a).trim() || '#999999';
@@ -110,6 +117,7 @@ function pageHTML(p, i, sk) {
   return html`<section class="page ${i === ui.stage.page ? 'on' : ''} ${isPaused(st, p.key) ? 'paused' : ''}" aria-label="${p.title}" data-i="${i}" ${i === ui.stage.page ? '' : raw('inert')}>
     <canvas class="scene" aria-hidden="true"></canvas>
     <div class="page-title"><span class="g dev">${svg(IC[p.os])}</span><h2>${p.title}</h2></div>
+    <button class="ghost relayout" type="button" data-action="reset-layout" data-dev="${p.key}" data-tip="清掉拖过的位置，按默认重新排" ${hasPins(p.key) ? '' : raw('hidden')}>${icon('undo')}自动排布</button>
     ${off ? html`<div class="offbar" role="status">${icon('x')}<span><b>连不上 ${p.title}</b>往这台派的活发不出去，会记成“连不上，没发出”</span><button class="ghost" type="button" data-action="reconnect" data-dev="${p.key}" ${st.mode === 'live' ? raw('data-tip="经中继对话重新读一次远程电脑，要花一些 token"') : ''}>${st.mode === 'live' ? '重新读一次' : '重试'}</button></div>` : ''}
     ${only ? html`<div class="emptyhint"><span>只有这台电脑。要把活派到别的电脑上，先添加一台。</span><button class="ghost" type="button" data-action="adddev">${icon('plus')}添加设备</button></div>` : ''}
     <div class="orbit"><svg class="wires" aria-hidden="true"></svg>
@@ -152,7 +160,8 @@ function layout() {
     const nw = rest.length ? Math.max(...rest.map(el => el.offsetWidth)) * z : 118 * z, nh = rest.length ? Math.max(...rest.map(el => el.offsetHeight)) * z : 120 * z;
     const G = { ...gridOf(W, H, nw, nh, z, leavesOf(p)), i, p, orbit };
     els.forEach(el => { if (el.classList.contains('k-group')) { el.classList.remove('compact'); el.style.width = (2 * G.cw - 20 * z) / z + 'px'; } });
-    const cells = placeCells(G, p, all.map(n => (n.kind === 'group' ? 2 : 1)));
+    const pins = PINS[p.key] || {};
+    const cells = placeCells(G, p, all.map(n => (n.kind === 'group' ? 2 : 1)), all.map(n => pins[n.key] ? loadCell(G, pins[n.key]) : null));
     // 地方不够放两格：卡片缩成一格，里面的 logo 变小
     G.b = els.map((el, k) => {
       const { c, span, compact } = cells[k];
@@ -219,6 +228,85 @@ function paintBg(sk) {
   view.style.setProperty('--moon', `url(${moonArt()})`); view.style.setProperty('--sun', `url(${sunArt()})`);
   view.style.setProperty('--bird', Brand().pigeon(hex('bird-far'), 'far').url);
   if (sk) sk.bg(view, { hex, isDark });
+}
+
+/* ---------- 拖动节点：显出网格，松手吸附到最近的空格 ---------- */
+let drag = null, swallowClick = false;
+const DRAG_START = 5; // 按下后挪过这么多像素才算拖，不然是点击
+function takenBy(G, skip) {
+  const t = new Set();
+  G.b.forEach((o, k) => { if (k !== skip) cellsOf(o.c, o.span).forEach(q => t.add(q)); });
+  return t;
+}
+function dragBegin() {
+  const { G, node } = drag;
+  drag.on = true;
+  showNodeTip(null);
+  G.orbit.classList.add('dragging'); node.classList.add('lifting');
+  const layer = document.createElement('div'); layer.className = 'gridlayer'; layer.setAttribute('aria-hidden', 'true');
+  const taken = takenBy(G, drag.k);
+  let dots = '';
+  for (let c = 0; c < G.cols; c++) for (let r = 0; r < G.rows; r++) {
+    const [x, y] = cellXY(G, [c, r]);
+    dots += `<i class="${taken.has(`${c},${r}`) ? 'full' : ''}" style="left:${x}px;top:${y}px"></i>`;
+  }
+  layer.innerHTML = dots + '<b class="gtarget"></b>';
+  G.orbit.insertBefore(layer, G.orbit.firstChild);
+  drag.layer = layer;
+}
+// 松手会落到哪一格：拖到的位置最近的格子，被占了就找最近的空格
+function dragTarget() {
+  const { G, o } = drag;
+  return freeCell(G, nearestCell(G, o.x, o.y, o.span), takenBy(G, drag.k), o.span) || o.c;
+}
+function dragShowTarget() {
+  const { G, o, layer } = drag, c = dragTarget(), [x, y] = cellXY(G, c, o.span), tg = $('.gtarget', layer);
+  tg.style.cssText = `left:${x}px;top:${y}px;width:${o.span * G.cw - 10 * G.z}px;height:${G.ch - 10 * G.z}px`;
+}
+// 节点从当前位置滑到 (x, y)，连线跟着走
+function glide(G, i, k, x, y, done) {
+  const o = G.b[k], x0 = o.x, y0 = o.y, t0 = performance.now(), dur = reduce ? 0 : 220;
+  const step = now => {
+    const t = dur ? Math.min(1, (now - t0) / dur) : 1, e = 1 - Math.pow(1 - t, 3);
+    o.x = x0 + (x - x0) * e; o.y = y0 + (y - y0) * e; put(G, k); wire(i);
+    if (t < 1) requestAnimationFrame(step); else done?.();
+  };
+  requestAnimationFrame(step);
+}
+function dragEnd(cancel) {
+  const { G, i, k, o, node, layer, home } = drag, p = G.p;
+  const c = cancel ? home : dragTarget(), [x, y] = cellXY(G, c, o.span);
+  o.c = c;
+  layer.remove(); G.orbit.classList.remove('dragging');
+  glide(G, i, k, x, y, () => node.classList.remove('lifting'));
+  if (cancel) return;
+  const n = k === 0 ? p.center : p.nodes[k - 1];
+  (PINS[p.key] ??= {})[n.key] = saveCell(G, c);
+  savePins();
+  $(`.page[data-i="${i}"] .relayout`, root)?.removeAttribute('hidden');
+}
+function dragDown(e) {
+  if (e.button !== 0 || drag) return;
+  const node = e.target.closest('.orbit .node');
+  if (!node || e.target.closest('.gx')) return;
+  const i = +node.closest('.page').dataset.i, G = GEO[i];
+  if (!G || i !== ui.stage.page) return;
+  const k = node.hasAttribute('data-center') ? 0 : +node.dataset.k + 1, o = G.b[k], r = G.orbit.getBoundingClientRect();
+  drag = { i, k, G, o, node, id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: o.x - (e.clientX - r.left), oy: o.y - (e.clientY - r.top), r, on: false, home: o.c };
+}
+function dragMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.on) { if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < DRAG_START) return; dragBegin(); }
+  const { G, o, r } = drag;
+  o.x = Math.max(o.w / 2, Math.min(G.W - o.w / 2, e.clientX - r.left + drag.ox));
+  o.y = Math.max(o.h / 2, Math.min(G.H - o.h / 2, e.clientY - r.top + drag.oy));
+  put(G, drag.k); wire(drag.i); dragShowTarget();
+  e.preventDefault();
+}
+function dragUp(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (drag.on) { dragEnd(e.type === 'pointercancel'); swallowClick = true; setTimeout(() => { swallowClick = false; }, 0); }
+  drag = null;
 }
 
 /* ---------- 底部轮播：一次一件正在发生的事，对应的连线跟着亮起来 ---------- */
@@ -371,6 +459,7 @@ function drawView() {
 }
 // 舞台大小变了（窗口缩放、暂停横幅出现或收起）：节点重新排、连线重画，不重建
 function relayout() {
+  if (drag?.on) return;
   const sk = skinNow();
   if (sk === undefined || !$('#track', root)) return;
   paintScene(sk); layout(); paintBg(sk);
@@ -423,10 +512,18 @@ export function mountStage(main) {
   const resize = () => { clearTimeout(rz); rz = setTimeout(() => { if (root) relayout(); }, 150); };
   main.addEventListener('mouseover', over); main.addEventListener('focusin', fin); main.addEventListener('focusout', fout);
   addEventListener('resize', resize);
+  // 拖节点：拖完松手的那一下不算点击；Esc 放回原处
+  const noClick = e => { if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); } };
+  const esc = e => { if (e.key === 'Escape' && drag?.on) { dragEnd(true); drag = null; e.stopPropagation(); } };
+  main.addEventListener('pointerdown', dragDown); addEventListener('pointermove', dragMove); addEventListener('pointerup', dragUp); addEventListener('pointercancel', dragUp);
+  main.addEventListener('click', noClick, true); addEventListener('keydown', esc, true);
   return () => {
     offs.forEach(f => f());
     main.removeEventListener('mouseover', over); main.removeEventListener('focusin', fin); main.removeEventListener('focusout', fout);
     removeEventListener('resize', resize);
+    main.removeEventListener('pointerdown', dragDown); removeEventListener('pointermove', dragMove); removeEventListener('pointerup', dragUp); removeEventListener('pointercancel', dragUp);
+    main.removeEventListener('click', noClick, true); removeEventListener('keydown', esc, true);
+    drag = null;
     clearTimeout(tkTimer); anim = []; root = null; tipFor = null;
   };
 }
@@ -445,6 +542,15 @@ export function initStage(s) {
     'go-dev': ({ d }) => { const i = PAGES.findIndex(p => p.key === d.dev); if (i >= 0) store.setPage(i); },
     'open-dev': ({ d }) => store.setOpen(d.dev, true),
     'fold-dev': ({ d }) => store.setOpen(d.dev, false),
+    // 清掉拖过的位置：按默认重新排，每个节点从原处滑到新格子
+    'reset-layout': ({ d }) => {
+      delete PINS[d.dev]; savePins();
+      const i = PAGES.findIndex(p => p.key === d.dev), old = GEO[i]?.b.map(o => [o.x, o.y]);
+      relayout();
+      const G = GEO[i];
+      if (old && G && old.length === G.b.length) G.b.forEach((o, k) => { const [x, y] = [o.x, o.y]; [o.x, o.y] = old[k]; glide(G, i, k, x, y); });
+      $$(`.relayout[data-dev="${CSS.escape(d.dev)}"]`, root).forEach(b => { b.hidden = true; });
+    },
     lead: ({ d }) => after(store.setLead({ kind: 'agent', agent: d.a, dev: d.dev }), ok => { if (ok) toast(`${AG[d.a].name}（${shortDev(st, d.dev, true)}）现在是指挥`); }),
     'retry-session': ({ d }) => after(store.retrySession(d.id), ok => toast(ok ? '重试了，它接着干活' : '还是连不上，先看看那台开没开')),
   });

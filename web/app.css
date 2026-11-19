@@ -1070,3 +1070,52 @@ button.chip2 { border: 0; font: inherit; font-size: 11.5px; cursor: pointer; }
 .sheet .snote { color: var(--wait); margin: 8px 0 0; }
 .sheet .found .fd svg { width: 16px; height: 16px; }
 span.fd { cursor: default; }
+
+/* ---------- 指挥台：拖动节点 ---------- */
+/* 按住节点拖：显出网格的点，落点画一个虚框；松手吸附。拖过以后右上角出现“自动排布” */
+.orbit .node { touch-action: none; }
+.orbit.dragging, .orbit.dragging .node { cursor: grabbing; }
+.orbit .node.lifting { z-index: 6; transition: none; }
+.orbit .node.lifting .ava, .orbit .node.lifting .gcard { box-shadow: 0 0 0 1px var(--line2), 0 14px 30px rgba(0,0,0,.28); }
+.orbit .node.lifting:not(.k-group) { filter: drop-shadow(0 10px 18px rgba(0,0,0,.22)); }
+.gridlayer { position: absolute; inset: 0; z-index: 1; pointer-events: none; animation: gridIn .18s var(--ease) both; }
+.gridlayer i { position: absolute; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--line2); }
+.gridlayer i.full { background: transparent; box-shadow: inset 0 0 0 1px var(--line2); }
+.gridlayer .gtarget { position: absolute; transform: translate(-50%, -50%); border-radius: 14px; border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 6%, transparent); transition: left .12s var(--ease), top .12s var(--ease), width .12s var(--ease); }
+@keyframes gridIn { from { opacity: 0; } to { opacity: 1; } }
+.page .relayout { position: absolute; right: 20px; top: 12px; z-index: 3; font-size: 12px; padding: 4px 9px; }
+.page .relayout svg { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }
+@media (prefers-reduced-motion: reduce) { .gridlayer, .gridlayer .gtarget { animation: none; transition: none; } }
+
+/* ---------- 侧栏和换页的过渡 ---------- */
+/* 侧栏选中项底下一块滑块，换页时滑过去；按钮自己不再画选中底色 */
+nav { position: relative; }
+.nav-items { display: flex; flex-direction: column; gap: 2px; position: relative; z-index: 1; }
+.nav-pill { position: absolute; left: 0; top: 0; width: 0; height: 0; border-radius: 7px; background: var(--sel); opacity: 0; pointer-events: none;
+  transition: transform .32s var(--ease), width .32s var(--ease), height .32s var(--ease), opacity .2s; }
+nav button { transition: background-color .15s ease, color .15s ease; }
+nav button[aria-current="page"] { background: none; }
+nav button:not([aria-current="page"]):hover { background: color-mix(in srgb, var(--sel) 55%, transparent); }
+nav button svg { transition: transform .2s var(--ease); }
+nav button:active svg { transform: scale(.9); }
+
+/* 按钮按下去有一点回弹；悬停颜色渐变而不是一下跳 */
+.btn, .ghost { transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease, transform .12s var(--ease); }
+.btn:active, .ghost:active { transform: scale(.97); }
+
+/* 换页：系统支持 View Transitions 时旧页淡出、新页从切换方向滑进来 */
+main { view-transition-name: page; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-old(page) { animation: pageOut .14s ease-in both; }
+::view-transition-new(page) { animation: pageInDown .3s var(--ease) both; }
+html[data-nav="up"]::view-transition-new(page) { animation-name: pageInUp; }
+/* 不支持时：只做新页滑进来 */
+main.page-in > * { animation: pageInDown .3s var(--ease) both; }
+html[data-nav="up"] main.page-in > * { animation-name: pageInUp; }
+@keyframes pageOut { to { opacity: 0; } }
+@keyframes pageInDown { from { opacity: 0; transform: translateY(10px); } }
+@keyframes pageInUp { from { opacity: 0; transform: translateY(-10px); } }
+@media (prefers-reduced-motion: reduce) {
+  .nav-pill { transition: none; }
+  ::view-transition-old(page), ::view-transition-new(page) { animation: none; }
+}

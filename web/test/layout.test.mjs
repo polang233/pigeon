@@ -1,7 +1,7 @@
 // 指挥台的排布：默认格子、撞了找空格、放不下两格时卡片缩成一格；连线形状；一页上有哪些节点
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultCells, freeCell, placeCells, cellsOf, gridOf, leavesOf, edgePath, zoomOf } from '../src/core/layout.js';
+import { defaultCells, freeCell, placeCells, cellsOf, gridOf, leavesOf, edgePath, zoomOf, saveCell, loadCell, nearestCell } from '../src/core/layout.js';
 import { devicePage, pagesOf, edgeOf, stateOf, poseOf, events } from '../src/core/pages.js';
 import { freshState, rehome } from './helpers.mjs';
 
@@ -124,4 +124,25 @@ test('换个能发出的 agent 当指挥：它最近一次派活的对话画在�
   assert.equal(mac.center.a, 'codex');
   assert.deepEqual(mac.center.ids, ['s2']);
   assert.ok(mac.nodes.some(n => n.a === 'claude'));
+});
+
+test('拖过的节点先占位，别的绕开；位置按比例换算到新网格', () => {
+  const G = { cols: 8, rows: 5 }, p = tree(-1, -1, 0), spans = [1, 1, 1, 1];
+  const def = placeCells(G, p, spans);
+  // 把第三个节点钉到第一个节点默认的格子上：它拿到这格，第一个节点挪到别处
+  const pinned = [null, null, null, def[1].c];
+  const placed = placeCells(G, p, spans, pinned);
+  assert.deepEqual(placed[3].c, def[1].c);
+  assert.ok(placed[3].pinned && !placed[1].pinned);
+  assert.notDeepEqual(placed[1].c, def[1].c);
+  noOverlap(placed);
+  // 比例记法：网格从 8×5 变成 11×7，最右下角还是最右下角
+  const f = saveCell(G, [7, 4]);
+  assert.deepEqual(loadCell({ cols: 11, rows: 7 }, f), [10, 6]);
+  assert.deepEqual(loadCell(G, saveCell(G, [3, 2])), [3, 2]);
+  // 像素到最近的格子，出界的夹回网格里
+  const g = { cols: 6, rows: 4, cw: 100, ch: 80, ox: 50, oy: 40 };
+  assert.deepEqual(nearestCell(g, 260, 130), [2, 1]);
+  assert.deepEqual(nearestCell(g, 9999, -50), [5, 0]);
+  assert.deepEqual(nearestCell(g, 560, 40, 2), [4, 0]);
 });

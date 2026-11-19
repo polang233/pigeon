@@ -1,6 +1,6 @@
 // 指挥台的排布和连线的形状。纯几何，不碰 DOM（测试见 test/layout.test.mjs）。
 // 一张看不见的网格：指挥在最左边，往右一列一层，像往右边发任务；一层里从上往下排，父节点放在它的孩子中间。
-// 收起的远程设备占横着两格。节点不能拖，一律按这里算出来的格子放。
+// 收起的远程设备占横着两格。拖过的节点放在记下的格子，别的绕开它们（拖动在 views/stage.js）。
 
 // 网格多大：舞台宽高 W×H，普通节点最大 nw×nh（已乘过 z），leaves 是叶子节点数
 export const zoomOf = (W, H) => Math.max(1, Math.min(1.3, W / 880, H / 500));
@@ -51,17 +51,27 @@ export function freeCell(G, c, taken, span = 1) {
 export const cellXY = (G, [c, r], span = 1) => [G.ox + (c + (span - 1) / 2) * G.cw, G.oy + r * G.ch];
 
 // 按默认格子逐个放下去，撞了就找最近的空格。spans 是每个节点占几格（和 defaultCells 的顺序一样）。
+// pinned 是拖过的节点要放的格子（同样的顺序，没拖过的是 null）：拖过的先占位，别的绕开它们。
 // 地方不够放两格的卡片缩成一格（compact），里面的 logo 变小
-export function placeCells(G, p, spans) {
-  const def = defaultCells(p, G.cols, G.rows), taken = new Set();
-  return def.map((want, k) => {
+export function placeCells(G, p, spans, pinned = []) {
+  const def = defaultCells(p, G.cols, G.rows), taken = new Set(), out = [];
+  const order = def.map((_, k) => k).sort((a, b) => (pinned[b] ? 1 : 0) - (pinned[a] ? 1 : 0));
+  for (const k of order) {
+    const want = pinned[k] || def[k];
     let span = spans[k], compact = false, c = freeCell(G, want, taken, span);
     if (!c && span === 2) { span = 1; compact = true; c = freeCell(G, want, taken, 1); }
     c ||= clampCell(G, want, span);
     cellsOf(c, span).forEach(q => taken.add(q));
-    return { c, span, compact };
-  });
+    out[k] = { c, span, compact, pinned: !!pinned[k] };
+  }
+  return out;
 }
+
+// 拖过的位置按网格的比例记：窗口大小变了、网格行列数变了，按比例换算到新网格上
+export const saveCell = (G, [c, r]) => [c / Math.max(1, G.cols - 1), r / Math.max(1, G.rows - 1)];
+export const loadCell = (G, [fc, fr]) => [Math.round(fc * Math.max(1, G.cols - 1)), Math.round(fr * Math.max(1, G.rows - 1))];
+// 拖到的像素位置最近的格子（节点中心）
+export const nearestCell = (G, x, y, span = 1) => clampCell(G, [Math.round((x - G.ox) / G.cw - (span - 1) / 2), Math.round((y - G.oy) / G.ch)], span);
 
 // 一条连线的路径。a、c 是两头头像的中心和半径 {cx, cy, rx, ry}，z 是缩放。
 // 像素折线：从头像右边出发，拐一个圆角的弯进到下一个头像的左边；上下排着时从下边出发进到上边。arc 是上一版的弧线。
