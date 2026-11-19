@@ -1119,3 +1119,5 @@ html[data-nav="up"] main.page-in > * { animation-name: pageInUp; }
   .nav-pill { transition: none; }
   ::view-transition-old(page), ::view-transition-new(page) { animation: none; }
 }
+/* 页面看不见时（窗口关了、最小化、被盖住）停下所有循环动画，回来接着动。开关在 src/visible.js */
+.page-hidden *, .page-hidden *::before, .page-hidden *::after { animation-play-state: paused !important; }

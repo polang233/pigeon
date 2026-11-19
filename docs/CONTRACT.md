@@ -26,7 +26,7 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 |---|---|
 | `GET /events` | Server-Sent Events。每条消息是一行 `data: <json>`。连上时先推一条 `detect`。 |
 
-消息格式（`hook` 的 payload 里可能是 Claude Code 的 hook、`PigeonRun`、`PigeonNote` 或 Codex 的 hook）：
+消息格式（`hook` 只转网页用得到的 `PigeonNote`、`PigeonRun`，以及旧名字 `MeerkatCodex`；Claude Code 自己的 hook 和 Codex 的 hook 只在应用里用，不经 `/events` 转出去）：
 
 ```json
 { "type": "hook",   "ts": 1730000000000, "payload": { ...原始 hook JSON... } }
@@ -282,7 +282,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 
 ### `PigeonNote` 事件
 
-插件发到 `POST /ev`，应用原样经 SSE 广播为 `{type:"hook", payload}`：
+插件发到 `POST /ev`，应用把原文原样经 SSE 广播为 `{type:"hook", payload}`（`PigeonRun` 也一样）：
 
 ```json
 { "hook_event_name": "PigeonNote", "ts": 1794370024000,

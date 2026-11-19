@@ -11,6 +11,7 @@ import { g, devIc, thinkPick, secretBody, secretNote } from './parts.js';
 import { secretsIn } from '../core/secrets.js';
 import { registerAll, onKey } from '../actions.js';
 import { toast } from './toast.js';
+import { whileVisible } from '../visible.js';
 import { doQ as doQueue, setFly } from './shared.js';
 
 let store, st, ui;
@@ -177,7 +178,7 @@ export function mountHud(s) {
   const inPanel = () => over || hudEl().contains(document.activeElement);
 
   let nI = 0;
-  setInterval(() => { const r = notchRoutes(); if (r.length) flyNotch(...r[nI++ % r.length]); }, 4200);
+  whileVisible(() => { const r = notchRoutes(); if (r.length) flyNotch(...r[nI++ % r.length]); }, 4200);
   setTimeout(() => { const r = notchRoutes(); if (r.length) flyNotch(...r[0]); }, 900);
 
   registerAll({

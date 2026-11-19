@@ -358,6 +358,28 @@ private func ctx(_ s: NotchState = .queue, pointer: Bool = false, focus: Bool = 
         #expect(GlowLayout.center(of: 5, count: 4, width: 200) == nil)
     }
 
+    @Test func 光带空闲时不动() {
+        // 全都闲着、关着：没有一段呼吸，光带是静止的
+        #expect(!GlowStyle.animates([.idle, .done, .off], still: false))
+        #expect(GlowStyle.animates([.idle, .run], still: false))
+        #expect(GlowStyle.animates([.wait], still: false))
+        #expect(GlowStyle.animates([.error], still: false))
+        // 减少动态效果时什么都不动，干活的给最亮
+        #expect(!GlowStyle.animates([.run, .wait, .error], still: true))
+        #expect(GlowStyle.look(.run, still: true).alpha == 1)
+    }
+
+    @Test func 光带亮度() {
+        let idle = GlowStyle.look(.idle, still: false), off = GlowStyle.look(.off, still: false)
+        let run = GlowStyle.look(.run, still: false)
+        #expect(off.alpha < idle.alpha && idle.alpha >= 0.5)
+        #expect(run.breath != nil && run.breath!.low > idle.alpha && run.breath!.high == 1)
+        #expect(GlowStyle.look(.wait, still: false).breath!.period < run.breath!.period)
+        #expect(GlowStyle.height >= 3)
+        // 光带占的高度装得下亮一下时长出来的那截
+        #expect(NotchGeometry.stripRoom >= GlowStyle.height + GlowStyle.pulseExtra)
+    }
+
     @Test func 哪些任务要飞() {
         let a = Endpoint(agent: .claude), b = Endpoint(agent: .codex)
         let far = Endpoint(agent: .codex, device: "x", deviceName: "X", isLocal: false)

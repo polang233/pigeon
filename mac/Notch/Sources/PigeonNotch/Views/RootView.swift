@@ -221,7 +221,7 @@ struct EarsRow: View {
                         .fixedSize()
                 } else {
                     ForEach(m.runningAgents, id: \.self) { a in
-                        Pip(color: Theme.identity(a), breathing: !reduce && !vm.reduceMotion)
+                        Pip(agent: a, breathing: !reduce && !vm.reduceMotion)
                             .help("\(a.displayName) 在干活")
                     }
                 }
@@ -258,56 +258,26 @@ struct EarsRow: View {
     }
 }
 
+/// 在干活的 agent 的小圆点。呼吸由 Core Animation 跑，不在干活时这个点根本不在
 struct Pip: View {
-    var color: Color
+    var agent: AgentKind
     var breathing: Bool
-    @State private var dim = false
 
     var body: some View {
-        Circle().fill(color).frame(width: 8, height: 8)
-            .opacity(dim ? 0.35 : 1)
-            .onAppear {
-                guard breathing else { return }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
-            }
+        PipLayer(hex: agent.identityHex, breathing: breathing).frame(width: 8, height: 8)
     }
 }
 
-/// 下沿的光带：每个本机 agent 一段，身份色；在干活的、等你的会呼吸，空闲的淡
+/// 下沿的光带：每个本机 agent 一段，身份色；在干活的、等你的会呼吸，空闲的淡。
+/// 没有一段在呼吸时就是一张静止的图，不占 CPU
 struct GlowStrip: View {
     @Bindable var vm: NotchViewModel
     @Environment(\.accessibilityReduceMotion) private var reduce
 
     var body: some View {
-        let agents = vm.model.agents
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduce || vm.reduceMotion)) { ctx in
-            Canvas { g, size in
-                let segs = GlowLayout.segments(count: agents.count, width: size.width)
-                let t = ctx.date.timeIntervalSinceReferenceDate
-                for (i, a) in agents.enumerated() {
-                    let s = segs[i]
-                    var alpha = 0.9
-                    let still = reduce || vm.reduceMotion
-                    switch a.state {
-                    case .idle, .done: alpha = 0.35
-                    case .off: alpha = 0.15
-                    case .run: alpha = still ? 0.9 : 0.625 + 0.275 * cos(t * 2 * .pi / 1.6)
-                    case .wait, .error: alpha = still ? 0.9 : 0.625 + 0.275 * cos(t * 2 * .pi / 1.1)
-                    }
-                    var h: CGFloat = 2
-                    if let p = vm.pulse[a.agent], !still {
-                        let age = ctx.date.timeIntervalSince(p)
-                        if age < 0.6 { let k = 1 - age / 0.6; h += 4 * k; alpha = min(1, alpha + k) }
-                    }
-                    let rect = CGRect(x: s.x, y: 0, width: s.w, height: h)
-                    let color = Theme.identity(a.agent)
-                    var layer = g
-                    layer.addFilter(.shadow(color: color.opacity(0.6), radius: 3))
-                    layer.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color.opacity(alpha)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        GlowStripLayers(segments: vm.model.agents.map { GlowSegment(agent: $0.agent, state: $0.state) },
+                        pulse: vm.pulse, still: reduce || vm.reduceMotion)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

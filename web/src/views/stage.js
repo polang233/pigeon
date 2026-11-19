@@ -14,6 +14,7 @@
 import { html, raw, bool } from '../html.js';
 import { svg, IC, icon, Brand, brand } from '../icons.js';
 import { $, $$, patch, part, reduce } from '../dom.js';
+import { whileVisible } from '../visible.js';
 import { AG, ST, TS, TH, ACT, LIVE } from '../core/labels.js';
 import { by, cross, kids, worst, shortDev, jumpLabel, isPaused, isYou, leadSession, leadKey, canLead, canTake, online } from '../core/names.js';
 import { pagesOf, stateOf, parentOf, edgeOf, modelOf, poseOf, pageSessions, events } from '../core/pages.js';
@@ -212,7 +213,7 @@ function wire(i) {
 
 /* ---------- 实验样式的画布：逐帧画头像、画背景 ---------- */
 let anim = [], tickN = 0;
-if (!reduce) setInterval(() => { tickN++; if (document.hidden) return; anim.forEach(a => { const ev = a.every || 3; if (tickN % ev === 0) a.draw(Math.floor(tickN / ev)); }); }, 160);
+if (!reduce) whileVisible(() => { tickN++; anim.forEach(a => { const ev = a.every || 3; if (tickN % ev === 0) a.draw(Math.floor(tickN / ev)); }); }, 160);
 function paintScene(sk) {
   const view = $('.pager-view', root);
   anim = sk && view ? sk.paint(view, { hex, isDark }) : [];
