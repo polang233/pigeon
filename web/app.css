@@ -1070,3 +1070,6 @@ button.chip2 { border: 0; font: inherit; font-size: 11.5px; cursor: pointer; }
 .sheet .snote { color: var(--wait); margin: 8px 0 0; }
 .sheet .found .fd svg { width: 16px; height: 16px; }
 span.fd { cursor: default; }
+
+/* 页面看不见时（窗口关了、最小化、被盖住）停下所有循环动画，回来接着动。开关在 src/visible.js */
+.page-hidden *, .page-hidden *::before, .page-hidden *::after { animation-play-state: paused !important; }
