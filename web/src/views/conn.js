@@ -32,10 +32,10 @@ function mpanelHTML(c) {
 
 /* ---------- 本机 Codex 的设置（应用模式）：Codex 自己的事件、中继对话、交给 Codex 的活怎么跑 ---------- */
 const CODEX0 = { preferForImages: true, imageMode: 'builtin', imageModel: 'gpt-image-2', imageQuality: 'medium', imageAspect: 'square', imageTransparent: false, imageDir: 'assets/generated',
-  sessionMode: 'keep', autoOpen: false, routeAll: true, model: '', effort: '', sandbox: 'auto', timeoutMin: 10, maxConcurrent: 2, summaryChars: 300 };
+  sessionMode: 'keep', openWhen: 'end', routeAll: true, model: '', effort: '', sandbox: 'auto', timeoutMin: 10, maxConcurrent: 2, summaryChars: 300 };
 const EFFORT = { none: '不推理', minimal: '极少', low: '低', medium: '中', high: '高', xhigh: '很高', max: '最高', ultra: '超高' };
 function cxHTML() {
-  const cx = k => { const v = srv(st, ['codex', k], undefined); if (k === 'sessionMode' && v === undefined && srv(st, ['codex', 'showInCodex'], true) === false) return 'temp'; return v === undefined ? CODEX0[k] : v; };
+  const cx = k => { const v = srv(st, ['codex', k], undefined); if (k === 'sessionMode' && v === undefined && srv(st, ['codex', 'showInCodex'], true) === false) return 'temp'; if (k === 'openWhen' && !v) return srv(st, ['codex', 'autoOpen'], false) ? 'end' : 'never'; return v === undefined ? CODEX0[k] : v; };
   const sw = (k, label, tip, dis) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span><button class="sw" type="button" role="switch" aria-checked="${bool(cx(k))}" data-action="srv-sw" data-path="codex.${k}" aria-label="${label}" ${dis ? raw('disabled') : ''}></button></span>`;
   const seg = (k, label, opts, tip) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span class="seg" role="group" aria-label="${label}">${opts.map(([v, l]) => html`<button type="button" data-action="srv-set" data-path="codex.${k}" data-v="${v}" aria-pressed="${bool(cx(k) === v)}">${l}</button>`)}</span>`;
   const pick = (path, label, opts, cur, tip, num) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span><select class="pick" data-action="srv-pick" data-path="${path}" ${num ? raw('data-num="1"') : ''} aria-label="${label}">${opts.map(([v, l]) => html`<option value="${v}" ${String(v) === String(cur) ? raw('selected') : ''}>${l}</option>`)}</select></span>`;
@@ -56,7 +56,7 @@ function cxHTML() {
     ${pick('codex.effort', '推理档位', [['', 'Codex 默认'], ...efforts.map(e => [e, `${EFFORT[e] || e}（${e}）`])], cx('effort'))}
     ${pick('codex.sandbox', '沙箱', [['auto', '按任务自动'], ['read-only', '只读'], ['workspace-write', '可写工作区']], cx('sandbox'), '按任务自动：审查和其他任务只读，写代码和生图可写工作区')}
     ${seg('sessionMode', '对话记录', [['keep', '留在 Codex 里'], ['temp', '临时任务']], '留在 Codex 里：在 Codex 应用里能看到这段对话')}
-    ${sw('autoOpen', '做完后打开对话', '在 Codex 应用里跳到这段对话', cx('sessionMode') === 'temp')}
+    ${cx('sessionMode') === 'temp' ? '' : seg('openWhen', '在 Codex 里打开', [['start', '一开始'], ['end', '做完后'], ['never', '不打开']], 'Codex 应用的对话列表不列 Pigeon 派的活，要靠这里打开。一开始就打开能看着它做，但跑完前只能看、不能接着说')}
     ${num('timeoutMin', '超时', 1, 120, '分钟')}
     ${num('maxConcurrent', '同时最多', 1, 8, '件')}
     ${num('summaryChars', '结果摘要最长', 60, 2000, '字')}

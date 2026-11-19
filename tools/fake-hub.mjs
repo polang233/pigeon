@@ -30,7 +30,7 @@ let settings = {
   version: 1,
   notify: { done: true, failed: true, waiting: true, turnEnd: true, turnMinSec: 60, noteHome: true, noteLost: true },
   scene: { theme: 'loft', seats: 3, showSubLabels: true, hoverCards: true },
-  codex: { preferForImages: true, imageMode: 'builtin', imageModel: 'gpt-image-2', imageQuality: 'medium', imageAspect: 'square', imageTransparent: false, imageDir: 'assets/generated', sessionMode: 'keep', routeAll: true, autoOpen: false, model: '', effort: '', sandbox: 'auto', timeoutMin: 10, maxConcurrent: 2, summaryChars: 300 },
+  codex: { preferForImages: true, imageMode: 'builtin', imageModel: 'gpt-image-2', imageQuality: 'medium', imageAspect: 'square', imageTransparent: false, imageDir: 'assets/generated', sessionMode: 'keep', routeAll: true, openWhen: 'end', model: '', effort: '', sandbox: 'auto', timeoutMin: 10, maxConcurrent: 2, summaryChars: 300 },
   post: { relayThread: 'th-relay-0001', maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, askRelay: true, askSplit: true, crossTimeoutSec: 90 },
   perch: { enabled: true, notch: true },
   quota: { show: 'hover', low: 20 },

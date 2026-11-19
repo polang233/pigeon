@@ -12,6 +12,8 @@ const KINDS = ['image', 'code', 'review', 'general'];
 const report = ev => emit('PigeonRun', ev);
 
 export const keepOf = s => (s.sessionMode ? s.sessionMode !== 'temp' : s.showInCodex !== false);
+export const openWhenOf = s => (['start', 'end', 'never'].includes(s.openWhen) ? s.openWhen : s.autoOpen ? 'end' : 'never');
+const OPEN_WHEN = { start: '（一开始就在 Codex 里打开，跑完前只能看）', end: '（做完后在 Codex 里打开）', never: '' };
 
 // Codex 默认用哪个模型：读 ~/.codex/config.toml 顶层的 model
 function defaultModel() {
@@ -100,6 +102,7 @@ export async function run(args) {
 
   // 这次任务保不保留会话：命令行 --temp / --keep 优先，其次是设置
   const keep = args.temp ? false : args.keep ? true : keepOf(s);
+  const openWhen = openWhenOf(s);
   const model = s.model || defaultModel();
   const prompt = buildPrompt(kind, brief, s, cwd);
   const lastFile = path.join(runsDir(), `${taskId}.last.md`);
@@ -130,7 +133,11 @@ export async function run(args) {
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
       let ev; try { ev = JSON.parse(line); } catch { continue; }
-      if (ev.type === 'thread.started') { threadId = ev.thread_id; report({ phase: 'thread', task_id: taskId, thread_id: threadId }); }
+      if (ev.type === 'thread.started') {
+        threadId = ev.thread_id; report({ phase: 'thread', task_id: taskId, thread_id: threadId });
+        // 一开始就打开：Codex 应用的列表不列 Pigeon 派的对话，只能靠链接打开；-g 不抢焦点
+        if (keep && openWhen === 'start') { try { spawn('open', ['-g', `codex://threads/${threadId}`], { stdio: 'ignore', detached: true }).unref(); } catch {} }
+      }
       const it = ev.item || {};
       if (ev.type === 'item.started' && it.type === 'command_execution') {
         report({ phase: 'activity', task_id: taskId, activity: activityOfCommand(it.command), detail: oneLine(cleanCommand(it.command), 80) });
@@ -155,7 +162,7 @@ export async function run(args) {
   const summary = oneLine(timedOut ? `超时：${s.timeoutMin} 分钟内没完成` : ok ? lastMsg : (errs[0] || lastMsg || `codex 退出码 ${code}`), Number(s.summaryChars) || 300);
 
   await report({ phase: 'end', task_id: taskId, status, summary, files, thread_id: threadId, usage, model });
-  if (ok && threadId && keep && s.autoOpen) { try { execFileSync('open', [`codex://threads/${threadId}`]); } catch {} }
+  if (ok && threadId && keep && openWhen === 'end') { try { execFileSync('open', [`codex://threads/${threadId}`]); } catch {} }
 
   const lines = [
     `${ok ? 'Codex 完成' : timedOut ? 'Codex 超时' : 'Codex 出错'}（用时 ${fmtDur(Date.now() - t0)}）`,
@@ -200,7 +207,7 @@ export async function settingsCmd() {
     `- 生图优先交给 Codex：${s.preferForImages ? '是' : '否'}`,
     `- 生图方式：${s.imageMode === 'api' ? `API（模型 ${s.imageModel}，质量 ${s.imageQuality}${process.env.OPENAI_API_KEY ? '' : '；但没检测到 OPENAI_API_KEY，会退回内置方式'}）` : '内置 image_gen（不需要 key，模型和质量不可选）'}`,
     `- 图片比例：${ASPECT[s.imageAspect] || s.imageAspect}${s.imageTransparent ? '，透明背景' : ''}；保存到项目的 ${s.imageDir}/`,
-    `- 对话记录：${keepOf(s) ? '保留到 Codex 应用' : '临时任务，不保留'}${keepOf(s) && s.autoOpen ? '（完成后自动打开）' : ''}；单次可用 --temp / --keep 改`,
+    `- 对话记录：${keepOf(s) ? '保留到 Codex 应用' : '临时任务，不保留'}${keepOf(s) ? OPEN_WHEN[openWhenOf(s)] : ''}；单次可用 --temp / --keep 改`,
     `- 统一走包装层：${s.routeAll !== false ? '是（直接跑 codex exec 会被拦下）' : '否'}`,
     `- 模型：${s.model || 'Codex 默认'}；推理档位：${s.effort || 'Codex 默认'}；沙箱：${s.sandbox === 'auto' ? '按任务类型自动' : s.sandbox}`,
     `- 超时 ${s.timeoutMin} 分钟；同时最多 ${s.maxConcurrent} 个；摘要最长 ${s.summaryChars} 字`,

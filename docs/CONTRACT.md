@@ -104,7 +104,7 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
     "imageDir": "assets/generated",
     "sessionMode": "keep",
     "routeAll": true,
-    "autoOpen": false,
+    "openWhen": "end",
     "model": "",
     "effort": "",
     "sandbox": "auto",

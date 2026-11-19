@@ -92,7 +92,8 @@ export const CODEX_DEFAULTS = {
   imageDir: 'assets/generated',
   showInCodex: true,
   sessionMode: '', // 'keep' 保留到 Codex 应用 / 'temp' 临时任务；空着时按旧的 showInCodex
-  autoOpen: false,
+  autoOpen: false, // 旧字段：true 等于 openWhen 'end'
+  openWhen: '', // 什么时候在 Codex 应用里打开这段对话：'start' 一开始 / 'end' 做完 / 'never' 不打开；空着时按旧的 autoOpen
   routeAll: true, // 直接跑 codex exec 时拦下来，改走包装层（见 route-codex.mjs）
   model: '',
   effort: '',
