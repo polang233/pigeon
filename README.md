@@ -1,12 +1,27 @@
-# Pigeon（信鸽）
+<p align="center">
+  <img src="assets/brand/pigeon-app-icon.svg" width="128" height="128" alt="Pigeon 标志">
+</p>
 
-当前版本 0.2.0，只有 Mac 版。要做的事见 [docs/TODO.md](docs/TODO.md)。
+<h1 align="center">Pigeon（信鸽）</h1>
 
-Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让你的 agent（能自己干活的 AI 程序，比如 Claude Code、Codex）互相传话：一个 agent 写一条消息，发给另一个 agent，等对方做完，再把回信取回来。消息可以发给本机的 Codex 对话，也可以经过 Codex 已连接的远程设备，发到另一台电脑上。每条消息发到了哪里、现在什么状态，都能在应用里看到。
+<p align="center">让你的 AI agent 互相派活、传话：跨工具，也跨电脑。每一件事去了哪、做到哪，你都看得见、拦得住。</p>
 
-应用的窗口是一个普通的应用界面，有四页：指挥台（谁在给谁派活）、任务（每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
+<p align="center">
+  <img alt="版本 0.2.0" src="https://img.shields.io/badge/版本-0.2.0-e3262a">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-242426">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-f05138">
+  <img alt="Claude Code 插件" src="https://img.shields.io/badge/Claude%20Code-插件-d97757">
+</p>
 
-> 界面在 2026-11-14 改成了这一版，原来的像素鸽舍降为"实验样式"。方案和做到哪了见 [docs/DESIGN.md](docs/DESIGN.md)。这一版自动测试都过了，但**没有对真的 Codex 应用试过，原生刘海面板也没有人手动操作过**，详见下面"限制和没做的事"。
+Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（能自己干活的 AI 程序，比如 Claude Code、Codex）互相传话：一个 agent 写一条消息，发给另一个 agent，等对方做完，再把回信取回来。消息可以发给本机的 Codex 对话，也可以经过 Codex 已连接的远程设备，发到另一台电脑上。
+
+<p align="center">
+  <img src="docs/images/notch-overview.png" width="440" alt="刘海面板：等你处理的事、新回信、正在进行的任务（演示数据）">
+</p>
+
+应用的窗口有四页：指挥台（谁在给谁派活）、任务（每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，鼠标移上去就展开，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
+
+> **现在的状态：** 0.2.0，早期版本，只有 Mac 版，没有发布安装包，需要自己构建（见下面"运行"）。更新记录见 [CHANGELOG.md](CHANGELOG.md)，还没做的事见 [docs/TODO.md](docs/TODO.md)，界面方案见 [docs/DESIGN.md](docs/DESIGN.md)。
 
 ## 能做什么
 
