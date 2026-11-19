@@ -38,6 +38,29 @@ final class WindowChrome: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// 主窗口的网页，连同 pigeonWindow 消息处理一起建。每次重建都是新的一套
+    @MainActor static func makeWebView(background: NSColor) -> ChromeWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        config.mediaTypesRequiringUserActionForPlayback = []
+        let view = ChromeWebView(frame: .zero, configuration: config)
+        // userContentController 强引用处理器，处理器只弱引用网页，不成环；丢掉网页时还是显式拿掉
+        config.userContentController.add(WindowChrome(webView: view), name: name)
+        view.isInspectable = true
+        view.underPageBackgroundColor = background
+        view.setValue(false, forKey: "drawsBackground")
+        return view
+    }
+
+    /// 丢掉网页：停下加载、拿掉消息处理，从窗口上摘下来。之后没有别的引用，WebKit 会回收它的 WebContent 进程
+    @MainActor static func tearDown(_ view: ChromeWebView) {
+        view.stopLoading()
+        let controller = view.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: name)
+        controller.removeAllUserScripts()
+        view.removeFromSuperview()
+    }
+
     /// 透明标题栏：内容铺到最顶上，标题不显示；加一个空工具栏让三个按钮落在 52pt 高的一行正中
     static func style(_ window: NSWindow) {
         window.styleMask.insert(.fullSizeContentView)

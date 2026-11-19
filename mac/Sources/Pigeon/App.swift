@@ -28,9 +28,15 @@ extension PigeonMain {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var window: NSWindow!
-    private var webView: WKWebView!
+    /// 主窗口里的网页。窗口关掉或最小化一阵子后整个丢掉（连同 WebContent 进程占的内存），再打开时重建
+    private var webView: ChromeWebView?
+    private var releaseTask: Task<Void, Never>?
+    /// 网页还没加载好时要翻到的那一页，加载完再翻
+    private var pendingPage: String?
+    /// 关窗、最小化后过多久丢掉网页
+    private static let releaseDelay: Duration = .seconds(30)
     private var hub: Hub!
     private var statusBar: StatusBar!
     private var notifier: Notifier!
@@ -106,14 +112,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { window.makeKeyAndOrderFront(nil) }
+        if !flag { showMainWindow(nil) }
         return true
     }
 
     private func serverDidStart() {
         serverReady = true
         log("Pigeon 已启动：\(Hub.origin)/ ，网页目录 \(hub.webRoot.path)")
-        webView.load(URLRequest(url: URL(string: Hub.origin + "/")!))
+        webView?.load(URLRequest(url: URL(string: Hub.origin + "/")!))
         if let dir = Paths.envValue("PIGEON_SNAPSHOT_DIR") {
             let delay = Double(Paths.envValue("PIGEON_SNAPSHOT_DELAY") ?? "") ?? 5
             Task { @MainActor [weak self] in
@@ -135,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         for page in ["stage", "tasks", "rules", "devices"] {
             showPage(page)
             await pause(1)
-            let image = try? await webView.takeSnapshot(configuration: nil)
+            let image = try? await webView?.takeSnapshot(configuration: nil)
             let png = image?.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
             save(png.flatMap { withWindowButtons($0) } ?? png, "window-\(page)")
         }
@@ -183,18 +189,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // MARK: 窗口
 
     private func buildWindow() {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        config.mediaTypesRequiringUserActionForPlayback = []
-        let chromeView = ChromeWebView(frame: .zero, configuration: config)
-        chromeView.configuration.userContentController.add(WindowChrome(webView: chromeView), name: WindowChrome.name)
-        webView = chromeView
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
-        webView.isInspectable = true
-        webView.underPageBackgroundColor = night
-        webView.setValue(false, forKey: "drawsBackground")
-
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -205,14 +199,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.contentMinSize = NSSize(width: 640, height: 420)
         window.backgroundColor = night
         window.isReleasedWhenClosed = false
-        window.contentView = webView
+        window.delegate = self
+        ensureWebView()
         window.center()
         window.setFrameAutosaveName("PigeonMainWindow")
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// 网页不在就建一个（连同拖窗口的消息处理），服务已经起来就加载
+    private func ensureWebView() {
+        releaseTask?.cancel()
+        releaseTask = nil
+        guard webView == nil else { return }
+        let view = WindowChrome.makeWebView(background: night)
+        view.navigationDelegate = self
+        view.uiDelegate = self
+        webView = view
+        window.contentView = view
+        if serverReady { view.load(URLRequest(url: URL(string: Hub.origin + "/")!)) }
+    }
+
+    /// 窗口关了或最小化了：过一阵子还没回来就丢掉网页。页面里的连接（/events）跟着断，重建时页面自己重新连、重新读
+    private func scheduleRelease() {
+        releaseTask?.cancel()
+        releaseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.releaseDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.releaseTask = nil
+            guard !self.window.isVisible || self.window.isMiniaturized else { return }
+            self.releaseWebView()
+        }
+    }
+
+    private func releaseWebView() {
+        guard let view = webView else { return }
+        webView = nil
+        pendingPage = nil
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
+        WindowChrome.tearDown(view)
+        // 留一块同色的底，最小化时 Dock 里的缩略图、再打开那一下都不会是白的
+        let blank = NSView()
+        blank.wantsLayer = true
+        blank.layer?.backgroundColor = night.cgColor
+        window.contentView = blank
+        log("主窗口的网页已释放")
+    }
+
+    func windowWillClose(_ notification: Notification) { scheduleRelease() }
+    func windowDidMiniaturize(_ notification: Notification) { scheduleRelease() }
+    func windowDidDeminiaturize(_ notification: Notification) { ensureWebView() }
+    func windowDidBecomeKey(_ notification: Notification) { ensureWebView() }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let page = pendingPage else { return }
+        pendingPage = nil
+        openPage(page)
+    }
+
     @objc private func reloadPage(_ sender: Any?) {
         guard serverReady else { return }
+        guard let webView else { ensureWebView(); return }
         if webView.url == nil {
             webView.load(URLRequest(url: URL(string: Hub.origin + "/")!))
         } else {
@@ -241,11 +288,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func showPage(_ page: String) {
         showMainWindow(nil)
         guard !page.isEmpty, page.allSatisfy({ $0.isLetter }) else { return }
-        webView.evaluateJavaScript("window.PigeonApp && window.PigeonApp.open && window.PigeonApp.open('\(page)')", completionHandler: nil)
+        // 网页刚重建、还在加载：等加载完再翻
+        if webView.map({ $0.isLoading || $0.url == nil }) ?? true { pendingPage = page; return }
+        openPage(page)
+    }
+
+    private func openPage(_ page: String) {
+        webView?.evaluateJavaScript("window.PigeonApp && window.PigeonApp.open && window.PigeonApp.open('\(page)')", completionHandler: nil)
     }
 
     @objc private func showMainWindow(_ sender: Any?) {
         NSApp.activate()
+        ensureWebView()
         window.makeKeyAndOrderFront(nil)
     }
 
