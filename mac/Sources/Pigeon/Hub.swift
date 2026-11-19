@@ -404,38 +404,50 @@ final class Hub: @unchecked Sendable {
 
     // MARK: hook
 
-    /// `codexTask` 不为 nil 表示这是 Codex 自己的 hook（/ev/codex）：给原文加上 source 和包装层任务 id 再广播。
+    /// 网页只用得到这几种 hook（任务和消息的进度）；别的只在应用里用（对话状态、刘海、用量），不经 SSE 转给网页。
+    /// Codex 自己的 hook 也不转：对话的状态由应用算好放进 lofts 里。
+    static let forwardedHooks: Set<String> = ["PigeonNote", "PigeonRun", "MeerkatCodex"]
+
+    static func forwardsHook(_ payload: [String: Any]) -> Bool {
+        guard (payload["source"] as? String) != "codex" else { return false }
+        return forwardedHooks.contains(payload["hook_event_name"] as? String ?? "")
+    }
+
+    /// 已经在服务自己的队列上（连接都跑在 queue 上）。请求体只解析一次。
+    /// `codexTask` 不为 nil 表示这是 Codex 自己的 hook（/ev/codex）：给它加上 source 和包装层任务 id 再往下交。
     private func handleHook(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool, codexTask: String? = nil) {
-        var raw = req.body
-        if let codexTask, var obj = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] {
-            obj["source"] = "codex"
-            // 新名字给新页面，旧名字给还没改过来的读取方
-            obj["pigeon_task_id"] = codexTask
-            obj["meerkat_task_id"] = codexTask
-            raw = (try? JSONSerialization.data(withJSONObject: obj)) ?? raw
-        }
-        let body = raw
-        if codexTask != nil { queue.async { [weak self] in self?.lastCodexHookAt = Date() } }
-        guard (try? JSONSerialization.jsonObject(with: body)) is [String: Any] else {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard var payload = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any] else {
             conn.respond(status: 400, headers: Self.cors, body: Data("body must be a JSON object".utf8),
                          contentType: "text/plain; charset=utf-8", keepAlive: keepAlive)
             return
         }
         conn.respond(status: 204, headers: Self.cors, keepAlive: keepAlive)
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.lastHookAt = Date()
-            self.broadcast(Self.envelope(type: "hook", key: "payload", json: Self.singleLine(body)))
-            if let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] {
-                if self.sessions.ingest(payload) { self.scheduleLoftsPush() }
-                let alert = self.watch.ingest(payload, notify: self.notify, watching: self.watching)
-                self.onWatch?(self.watch.snapshot, alert)
-                self.trackUsage(body)
-            }
-            if self.lastAgents?.claude.running != true {
-                self.runDetection(forceBroadcast: false)
-            }
+        if let codexTask {
+            payload["source"] = "codex"
+            // 新名字给新读取方，旧名字给还没改过来的
+            payload["pigeon_task_id"] = codexTask
+            payload["meerkat_task_id"] = codexTask
+            lastCodexHookAt = Date()
         }
+        lastHookAt = Date()
+        // 转给网页的那几种原文本来就是插件发来的样子，直接用收到的字节
+        if Self.forwardsHook(payload) {
+            broadcast(Self.envelope(type: "hook", key: "payload", json: Self.singleLine(req.body)))
+        }
+        if sessions.ingest(payload) { scheduleLoftsPush() }
+        let alert = watch.ingest(payload, notify: notify, watching: watching)
+        onWatch?(watch.snapshot, alert)
+        trackUsage(HookPayload(payload))
+        if lastAgents?.claude.running != true {
+            runDetection(forceBroadcast: false)
+        }
+    }
+
+    /// 解析好的 hook 原文，交给用量的队列读。只读不改，所以可以跨队列
+    struct HookPayload: @unchecked Sendable {
+        let value: [String: Any]
+        init(_ value: [String: Any]) { self.value = value }
     }
 
     /// JSON 字符串里的换行一定是转义过的，所以裸 CR/LF 只能是空白，换成空格不改变内容。
@@ -456,9 +468,10 @@ final class Hub: @unchecked Sendable {
     // MARK: 用量
 
     /// 从 hook 原文里找对话记录文件，交给 Usage 在自己的队列上读；有变化时（最多每 2 秒一次）广播摘要。
-    private func trackUsage(_ body: Data) {
+    private func trackUsage(_ hook: HookPayload) {
         usage.queue.async { [weak self] in
-            guard let self, let p = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return }
+            guard let self else { return }
+            let p = hook.value
             let event = p["hook_event_name"] as? String ?? ""
             let fromCodex = (p["source"] as? String) == "codex"
             let force = event == "Stop" || event == "SubagentStop"
