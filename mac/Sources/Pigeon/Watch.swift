@@ -465,8 +465,7 @@ struct NotifyPrefs: Sendable {
 
     static func load() -> NotifyPrefs {
         var prefs = NotifyPrefs()
-        guard let root = try? JSONSerialization.jsonObject(with: Settings.load()) as? [String: Any],
-              let n = root["notify"] as? [String: Any] else { return prefs }
+        guard let n = Settings.object()["notify"] as? [String: Any] else { return prefs }
         if let v = n["done"] as? Bool { prefs.done = v }
         if let v = n["failed"] as? Bool { prefs.failed = v }
         if let v = n["waiting"] as? Bool { prefs.waiting = v }

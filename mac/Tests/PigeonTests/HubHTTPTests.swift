@@ -355,3 +355,20 @@ final class Box<T: Sendable>: @unchecked Sendable {
     var value: T { lock.lock(); defer { lock.unlock() }; return v }
     func mutate(_ f: (inout T) -> Void) { lock.lock(); f(&v); lock.unlock() }
 }
+
+extension HubHTTPTests {
+    /// 设置留在内存里，但别处改了文件（命令行、手改）要读到新的
+    @Test func settingsCacheFollowsFile() throws {
+        TestEnv.prepare()
+        #expect(Settings.object().isEmpty)
+        try Settings.save(Data(#"{"perch":{"notch":false}}"#.utf8))
+        #expect(!Settings.notchEnabled())
+        // 绕过 Settings 直接改文件
+        try Data(#"{"perch":{"notch":true},"lead":"x"}"#.utf8).write(to: Paths.settingsFile, options: .atomic)
+        #expect(Settings.notchEnabled())
+        #expect(Settings.object()["lead"] as? String == "x")
+        try FileManager.default.removeItem(at: Paths.settingsFile)
+        #expect(Settings.object().isEmpty)
+        #expect(String(decoding: Settings.load(), as: UTF8.self) == "{}")
+    }
+}

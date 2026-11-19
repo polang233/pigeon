@@ -1,29 +1,69 @@
 import Foundation
 
 /// 设置文件读写和 Codex 模型列表。设置按收到的原文保存，只要求顶层是 JSON 对象。
+///
+/// 读过的设置留在内存里：文件的修改时间、大小、inode 都没变就不再读盘、不再解析。
+/// 主线程（菜单、刘海）和服务的队列都会读，所以用一把锁护着，不绑在哪个队列上。
 enum Settings {
     enum SaveError: Error { case notObject, io(Error) }
 
-    static func load() -> Data {
-        guard let data = try? Data(contentsOf: Paths.settingsFile), isObject(data) else { return Data("{}".utf8) }
-        return data
+    /// 文件的“指纹”：别处（命令行、手改）写了文件，这几样至少变一样
+    private struct Stamp: Equatable {
+        var modified: Date?
+        var size: Int
+        var inode: Int
     }
 
+    private struct Cache {
+        var stamp: Stamp?
+        var data: Data
+        var object: [String: Any]
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: Cache?
+
+    private static func stamp() -> Stamp? {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: Paths.settingsFile.path) else { return nil }
+        return Stamp(modified: a[.modificationDate] as? Date, size: (a[.size] as? NSNumber)?.intValue ?? -1,
+                     inode: (a[.systemFileNumber] as? NSNumber)?.intValue ?? -1)
+    }
+
+    /// 读盘（或拿内存里的）。文件不存在或坏了时是 `{}`
+    private static func current() -> Cache {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = stamp()
+        if let c = cache, c.stamp == now { return c }
+        var c = Cache(stamp: now, data: Data("{}".utf8), object: [:])
+        if now != nil, let data = try? Data(contentsOf: Paths.settingsFile),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            c.data = data
+            c.object = obj
+        }
+        cache = c
+        return c
+    }
+
+    static func load() -> Data { current().data }
+
     static func save(_ body: Data) throws(SaveError) {
-        guard isObject(body) else { throw .notObject }
+        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { throw .notObject }
         let url = Paths.settingsFile
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            lock.lock()
+            defer { lock.unlock() }
             try body.write(to: url, options: .atomic)
+            // 刚写的就是最新的，不用再读一次
+            cache = Cache(stamp: stamp(), data: body, object: obj)
         } catch {
             throw .io(error)
         }
     }
 
     /// 读成字典；文件不存在或坏了时是空字典
-    static func object() -> [String: Any] {
-        (try? JSONSerialization.jsonObject(with: load())) as? [String: Any] ?? [:]
-    }
+    static func object() -> [String: Any] { current().object }
 
     /// 改一处字段再存回去，其余字段（包括不认识的）原样保留。返回存下的内容。
     @discardableResult
@@ -59,10 +99,6 @@ enum Settings {
     static func notchEnabled() -> Bool {
         let perch = object()["perch"] as? [String: Any]
         return (perch?["notch"] as? Bool) ?? (perch?["enabled"] as? Bool) ?? true
-    }
-
-    private static func isObject(_ data: Data) -> Bool {
-        (try? JSONSerialization.jsonObject(with: data)) is [String: Any]
     }
 
     struct CodexModel: Encodable {
