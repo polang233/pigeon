@@ -142,7 +142,8 @@ h1, h2, h3, p { margin: 0; }
 /* ---------- 窗口 ---------- */
 .win { flex: 1; min-height: 0; margin: 14px 18px 18px; background: var(--win); border-radius: 12px; box-shadow: var(--shadow), 0 0 0 1px var(--line2); display: grid; grid-template-columns: 196px 1fr; overflow: hidden; }
 .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 14px 10px 12px; min-width: 0; }
-.traffic { display: flex; gap: 8px; padding: 2px 6px 18px; } .traffic i { width: 12px; height: 12px; border-radius: 50%; background: var(--line2); }
+.side-top { display: flex; align-items: center; gap: 14px; padding: 2px 6px 18px; min-width: 0; }
+.traffic { display: flex; gap: 8px; } .traffic i { width: 12px; height: 12px; border-radius: 50%; background: var(--line2); }
 .traffic i:nth-child(1) { background: #ff5f57; } .traffic i:nth-child(2) { background: #febc2e; } .traffic i:nth-child(3) { background: #28c840; }
 nav { display: flex; flex-direction: column; gap: 2px; }
 nav button { display: flex; align-items: center; gap: 9px; border: 0; background: none; text-align: left; padding: 7px 9px; border-radius: 7px; color: var(--mut); }
@@ -156,7 +157,7 @@ nav button .count { margin-left: auto; font-size: 11px; color: var(--wait); font
 main { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 @media (max-width: 860px) {
   .win { grid-template-columns: 52px 1fr; margin: 10px; }
-  nav button span, nav button .count, .side-foot p, .traffic { display: none; } .side { padding-top: 12px; align-items: center; } .side-foot .setbtn span { display: none; } .side-foot .setbtn { padding: 6px; }
+  nav button span, nav button .count, .side-foot p, .traffic, .brand b { display: none; } .side { padding-top: 12px; align-items: center; } .side-foot .setbtn span { display: none; } .side-foot .setbtn { padding: 6px; }
 }
 
 .head { display: flex; align-items: center; gap: 12px; padding: 14px 20px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
@@ -1004,6 +1005,27 @@ input.rename { font: inherit; color: var(--text); background: var(--win); border
 /* ---------- 应用模式：没有假的菜单栏、刘海和窗口按钮，页面铺满应用的窗口 ---------- */
 :root[data-mode="live"] .win { margin: 0; border-radius: 0; box-shadow: none; }
 :root[data-mode="live"] .side { padding-top: 16px; }
+
+/* 侧栏顶上的标志：透明的鸽子剪影，跟着文字颜色走 */
+.brand { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: var(--text); }
+.brand .mk { width: 18px; height: 18px; flex: none; background: currentColor; -webkit-mask: url(assets/mark.png) center / contain no-repeat; mask: url(assets/mark.png) center / contain no-repeat; }
+.brand b { font-size: 14px; font-weight: 650; letter-spacing: .01em; white-space: nowrap; }
+
+/* ---------- 应用的窗口：没有标题栏横条，侧栏就是窗口底色，主内容是一块圆角面板 ---------- */
+:root[data-chrome="native"], :root[data-chrome="native"] body, :root[data-chrome="native"] .desk { background: var(--side); }
+:root[data-chrome="native"] .win { background: var(--side); grid-template-columns: 208px 1fr; }
+:root[data-chrome="native"] .side { border-right: 0; padding: 0 10px 12px; }
+/* 系统的红黄绿按钮在左上角 52pt 高的一行正中，标志排在它们右边 */
+:root[data-chrome="native"] .side-top { height: 52px; padding: 0 0 0 70px; margin-bottom: 6px; }
+:root[data-chrome="native"] [data-drag], :root[data-chrome="native"] .head { -webkit-user-select: none; user-select: none; cursor: default; }
+:root[data-chrome="native"] main { margin: 6px 6px 6px 0; background: var(--win); border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 1px 3px rgba(0,0,0,.12); }
+/* 各页标题行顶在面板最上面，和红黄绿按钮差不多同一高度；内容往下滚时它留着，好拖窗口 */
+:root[data-chrome="native"] .head { position: sticky; top: 0; z-index: 5; min-height: 40px; padding: 4px 18px; background: var(--win); border-radius: 12px 12px 0 0; }
+@media (max-width: 860px) {
+  :root[data-chrome="native"] .win { grid-template-columns: 76px 1fr; }
+  :root[data-chrome="native"] .side-top { padding-left: 0; }
+  :root[data-chrome="native"] .brand { display: none; }
+}
 .side-foot p.warn { color: var(--wait); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
