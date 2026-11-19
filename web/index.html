@@ -26,7 +26,11 @@
 
   <div class="win">
     <aside class="side">
-      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <!-- 侧栏顶上一行：红黄绿按钮（演示里是画的，应用里是系统的）加标志；应用里这一行能拖窗口 -->
+      <div class="side-top" data-drag>
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="brand"><i class="mk" aria-hidden="true"></i><b>Pigeon</b></span>
+      </div>
       <nav id="nav" aria-label="页面"></nav>
       <div class="side-foot">
         <button class="ghost setbtn" id="settings" type="button" data-action="settings" aria-label="设置" aria-expanded="false" aria-controls="setpop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg><span>设置</span></button>

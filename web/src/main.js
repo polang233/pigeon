@@ -37,6 +37,15 @@ document.documentElement.dataset.mode = live ? 'live' : 'demo';
 document.title = live ? 'Pigeon' : 'Pigeon 演示';
 if (live) { $('.menubar')?.remove(); $('.traffic')?.remove(); }
 
+/* ---------- 应用的窗口没有标题栏：标了 data-drag 的空白处和各页标题行，按住拖窗口、双击缩放 ---------- */
+const chrome = window.webkit?.messageHandlers?.pigeonWindow;
+if (chrome) {
+  document.documentElement.dataset.chrome = 'native';
+  const dragZone = t => t instanceof Element && t.closest('[data-drag], .head') && !t.closest('button, a, input, select, textarea, label, [data-action], [contenteditable], [role="switch"]');
+  document.addEventListener('mousedown', e => { if (e.button === 0 && e.detail === 1 && dragZone(e.target)) chrome.postMessage('drag'); });
+  document.addEventListener('dblclick', e => { if (dragZone(e.target)) chrome.postMessage('zoom'); });
+}
+
 /* ---------- 浏览器里记住的东西：读不到（隐私模式等）就用默认值 ---------- */
 // 应用模式只记纯外观的设置和哪些远程设备展开着，别的都以应用里存的为准
 const P = live ? 'pigeon' : 'pigeon-demo';

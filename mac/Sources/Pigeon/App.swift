@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             await pause(1)
             let image = try? await webView.takeSnapshot(configuration: nil)
             let png = image?.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
-            save(png, "window-\(page)")
+            save(png.flatMap { withWindowButtons($0) } ?? png, "window-\(page)")
         }
         for state in [NotchState.idle, .overview, .queue, .reply, .compose] {
             if state == .idle { notch.notch.collapse() } else { notch.notch.show(state, takeFocus: false) }
@@ -145,6 +145,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             save(notch.notch.snapshotPNG(), "notch-\(state.rawValue)")
         }
         NSApp.terminate(nil)
+    }
+
+    /// 网页截图里没有系统的红黄绿按钮（它们画在标题栏那一层），自检时把它们按实际位置叠上去
+    private func withWindowButtons(_ png: Data) -> Data? {
+        guard let base = NSBitmapImageRep(data: png), let content = window.contentView else { return nil }
+        let scale = CGFloat(base.pixelsWide) / content.bounds.width
+        let image = NSImage(size: NSSize(width: base.pixelsWide, height: base.pixelsHigh))
+        image.lockFocus()
+        base.draw(in: NSRect(origin: .zero, size: image.size))
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(kind), let rep = button.bitmapImageRepForCachingDisplay(in: button.bounds) else { continue }
+            button.cacheDisplay(in: button.bounds, to: rep)
+            let frame = content.convert(button.bounds, from: button)
+            let y = content.isFlipped ? content.bounds.height - frame.maxY : frame.minY
+            rep.draw(in: NSRect(x: frame.minX * scale, y: y * scale, width: frame.width * scale, height: frame.height * scale))
+        }
+        image.unlockFocus()
+        return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) }
     }
 
     private func serverDidFail(_ message: String) {
@@ -168,7 +186,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.mediaTypesRequiringUserActionForPlayback = []
-        webView = WKWebView(frame: .zero, configuration: config)
+        let chromeView = ChromeWebView(frame: .zero, configuration: config)
+        chromeView.configuration.userContentController.add(WindowChrome(webView: chromeView), name: WindowChrome.name)
+        webView = chromeView
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.isInspectable = true
@@ -181,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             backing: .buffered, defer: false
         )
         window.title = "Pigeon"
+        WindowChrome.style(window)
         window.contentMinSize = NSSize(width: 640, height: 420)
         window.backgroundColor = night
         window.isReleasedWhenClosed = false
