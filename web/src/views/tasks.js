@@ -1,4 +1,4 @@
-// 任务：agent 之间发出的每一件事，谁给谁、什么状态、走到哪一步、回信、为什么给它、交出去多少上下文。
+// 全部任务（频道页里的“全部”，见 views/channels.js）：agent 之间发出的每一件事，谁给谁、什么状态、走到哪一步、回信、为什么给它、交出去多少上下文。
 // 跨设备的任务在这里放行或拦下；没回音、没人理、连不上的可以重发。几块：head 页头和筛选、list 列表、drawer 展开的那件。
 // 状态和原因照契约：asking / queued / flying / delivered / home / refused（reason）/ lost，暂停是 paused 叠在上面。
 import { html } from '../html.js';
@@ -16,13 +16,13 @@ let store, st, ui, shown = '';
 const FILTERS = [['all', '全部', () => true], ['mine', '等我', t => t.state === 'asking'], ['cross', '跨设备', t => cross(st, t)]];
 const listOf = () => st.T.filter(FILTERS.find(f => f[0] === ui.tasks.filter)[2]);
 // 能重发的：没回音、没人理、连不上。应用模式下只有应用自己发的（retryable，应用留着原文）
-const canRetry = t => (st.mode !== 'live' || t.retryable) && (t.state === 'lost' || (t.state === 'refused' && ['timeout', 'offline'].includes(t.reason)));
+export const canRetry = t => (st.mode !== 'live' || t.retryable) && (t.state === 'lost' || (t.state === 'refused' && ['timeout', 'offline'].includes(t.reason)));
 // 用了多久：应用模式下还在路上的按现在算
 const durOf = t => (st.mode === 'live' && t.created && (LIVE.includes(t.state) || t.state === 'asking') ? durZh(store.clock() - t.created) : t.dur);
 const isReply = t => !t.why && t.kind === '回信';
 
 // 为什么交给它：一个小标签放在任务那一行，详细的写在下面。why.kind：rule、quota、override、lead
-function whyChip(t) {
+export function whyChip(t) {
   const w = t.why; if (!w) return '';
   const r = w.rule && ruleById(st, w.rule), n = r ? st.RULES.indexOf(r) + 1 : 0, sug = w.suggested && keyOfEnd(w.suggested);
   if (w.kind === 'override') return html`<i class="why over" data-tip="规则建议给 ${nameOf(st, sug)}，${t.from === 'you' ? '你' : '指挥'}没照做">${t.from === 'you' ? '你改判' : '指挥改判'}</i>`;
@@ -31,7 +31,7 @@ function whyChip(t) {
   if (w.kind === 'lead') return html`<i class="why lead" data-tip="没有规则命中，${t.from === 'you' ? '你自己派的' : '指挥自己判断的'}">${t.from === 'you' ? '你派的' : '指挥判断'}</i>`;
   return '';
 }
-function whyHTML(t) {
+export function whyHTML(t) {
   const w = t.why;
   if (!w) return isReply(t) ? html`<h4>为什么给它</h4><p class="why-p">这是回信，原路送回给发活的那一方，不走分派规则。</p>` : '';
   const to = keyOf(by(st, t.to)), r = w.rule && ruleById(st, w.rule), rl = r ? `命中规则「${r.when}」` : '', sug = w.suggested && keyOfEnd(w.suggested);
@@ -45,7 +45,7 @@ function whyHTML(t) {
     : w.kind === 'lead' ? html`<button class="ghost" type="button" data-action="rule-from" data-id="${t.id}">照这件加一条规则</button>` : '';
   return html`<h4>为什么给它</h4><p class="why-p">${p}</p>${act ? html`<div class="acts">${act}</div>` : ''}`;
 }
-function ctxHTML(t) {
+export function ctxHTML(t) {
   if (!t.ctx) return '';
   const { tokens, files } = t.ctx, b = by(st, t.to), win = t.ctx.window || (st.CTXW || {})[b.model] || 0, k = +(tokens / 1000).toFixed(1);
   const pct = win ? Math.round(tokens / win * 100) : 0, big = pct >= 25;
@@ -56,7 +56,7 @@ function ctxHTML(t) {
 
 const headHTML = () => {
   const n = Object.fromEntries(FILTERS.map(([k, , f]) => [k, st.T.filter(f).length]));
-  return html`<div class="head" data-part="head"><h1>任务</h1><p>agent 之间发出的每一件事，正文不落盘，只记谁给谁、什么状态、为什么给它</p><span class="sp"></span>
+  return html`<div class="head" data-part="head"><h1>全部任务</h1><p>所有频道里的每一件事，只记谁给谁、什么状态、为什么给它</p><span class="sp"></span>
     <div class="seg">${FILTERS.map(([k, l]) => html`<button type="button" data-action="task-filter" data-f="${k}" aria-pressed="${ui.tasks.filter === k ? 'true' : 'false'}">${l} <span class="num mut">${n[k]}</span></button>`)}</div></div>`;
 };
 function listHTML(list) {
@@ -72,7 +72,7 @@ function listHTML(list) {
 }
 // 走到哪一步：跨设备的多一步“你确认”。failed 是经 pigeon run 交出去的活跑失败了，停在“送达”
 const STEPS = { asking: ['你确认', '跨设备才需要'], queued: ['排队', '等对方空闲，不打断'], flying: ['送出', '在路上'], delivered: ['送达', '对方在做'], home: ['回信', ''] };
-function stepsHTML(t, x) {
+export function stepsHTML(t, x) {
   const order = [...(x ? ['asking'] : []), 'queued', 'flying', 'delivered', 'home'];
   // 没发出停在哪一步：拦下、没人理停在“你确认”，其余停在“排队”；没回音停在“送达”
   const bad = t.state === 'refused' ? (['blocked', 'timeout'].includes(t.reason) && x ? 0 : order.indexOf('queued')) : t.state === 'lost' || t.state === 'failed' ? order.indexOf('delivered') : -1;
@@ -117,7 +117,8 @@ export function initTasks(s) {
   store = s; st = s.state; ui = st.ui;
   const RETRIED = { asking: '重发了，跨设备的先在刘海上确认一次', flying: '重发了', paused: '重发了，暂停中先排着', offline: '那台还是连不上，没发出', no_target: '对方不在了，没发出', sent: '重发了，跨设备的会先在刘海上问你' };
   registerAll({
-    'open-task': ({ d }) => { store.openTask(d.id); if (ui.view !== 'tasks') store.setView('tasks'); },
+    // 点开一件任务：在看“全部”就展开它，在看某个频道就翻到它所在的频道、滚过去
+    'open-task': ({ d }) => { store.openTask(d.id); store.chanFocus(d.id); if (ui.view !== 'tasks') store.setView('tasks'); },
     'task-filter': ({ d }) => store.setTaskFilter(d.f),
     'retry-task': ({ d }) => after(store.retryTask(d.id), r => { if (!r) return; if (r.result === 'asking') store.hud('confirm'); toast(RETRIED[r.result] || '重发了'); }),
     // 在分派规则里看：把这件的标题填进试算框

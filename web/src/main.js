@@ -26,7 +26,8 @@ import { mountNav, NAV } from './views/nav.js';
 import { mountSettings } from './views/settings.js';
 import { mountHud } from './views/hud.js';
 import { initStage, mountStage } from './views/stage.js';
-import { initTasks, mountTasks } from './views/tasks.js';
+import { initTasks } from './views/tasks.js';
+import { initChannels, mountChannels } from './views/channels.js';
 import { initRoute, mountRoute } from './views/route.js';
 import { initConn, mountConn } from './views/conn.js';
 
@@ -98,8 +99,8 @@ onKey(e => {
 });
 
 /* ---------- 各页 ---------- */
-const PAGES = { stage: mountStage, tasks: mountTasks, route: mountRoute, conn: mountConn };
-[initStage, initTasks, initRoute, initConn].forEach(f => f(store));
+const PAGES = { stage: mountStage, tasks: mountChannels, route: mountRoute, conn: mountConn };
+[initStage, initTasks, initChannels, initRoute, initConn].forEach(f => f(store));
 mountTooltip();
 mountNav(store);
 mountSettings(store);

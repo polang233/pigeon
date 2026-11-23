@@ -30,7 +30,7 @@ const NOTE_STATES = ['asking', 'queued', 'flying', 'delivered', 'home', 'refused
 const TERMINAL = new Set(['home', 'refused', 'lost']);
 const endpoint = (o, old = {}) => {
   const v = obj(o), out = { ...old };
-  for (const k of ['loft', 'loft_name', 'agent', 'session', 'title']) if (v[k] != null && v[k] !== '') out[k] = String(v[k]);
+  for (const k of ['loft', 'loft_name', 'agent', 'session', 'title', 'cwd']) if (v[k] != null && v[k] !== '') out[k] = String(v[k]);
   out.loft = out.loft || HOME; out.agent = out.agent || ''; out.session = out.session || ''; out.title = out.title || '';
   return out;
 };
@@ -178,9 +178,10 @@ export function mapLive(raw, now = Date.now()) {
     const dev = e.loft || HOME;
     if (dev !== HOME && hidden.has(dev)) return null;
     if (!DEV[dev]) addDev(dev, e.loft_name || '', null);
-    if (e.session) { const s = find(dev, e.session); if (s) return s.id; }
+    if (e.session) { const s = find(dev, e.session); if (s) { if (e.cwd && !s.cwd) s.cwd = e.cwd; return s.id; } }
     const id = e.session || `${a}@${dev}#${tag}`;
-    if (!S.some(s => s.id === id)) S.push({ id, agent: a, dev, title: oneLine(e.title || title, 40) || (e.session ? '没列出的对话' : '新开的对话'), state, model: '', think: '', note: e.session ? '这个对话不在最近的对话列表里' : '还没建好的对话', stub: true });
+    if (!S.some(s => s.id === id)) S.push({ id, agent: a, dev, title: oneLine(e.title || title, 40) || (e.session ? '没列出的对话' : '新开的对话'), state, model: '', think: '', note: e.session ? '这个对话不在最近的对话列表里' : '还没建好的对话', stub: true, ...(e.cwd ? { cwd: e.cwd } : {}) });
+    else if (e.cwd) { const s = S.find(s => s.id === id); if (!s.cwd) s.cwd = e.cwd; }
     return id;
   }
 
@@ -224,7 +225,7 @@ export function mapLive(raw, now = Date.now()) {
     const from = r.session && find(HOME, r.session) ? r.session : party({ loft: HOME, agent: 'claude', session: '' }, 'run-lead', { title: 'Claude Code 的对话' });
     const to = r.thread && find(HOME, r.thread) ? r.thread : party({ loft: HOME, agent: 'codex', session: '' }, `run:${r.id}`, { title: r.title, state: sstate });
     if (!from || !to) continue;
-    const ss = S.find(s => s.id === to); if (ss?.stub) { ss.state = sstate; ss.note = r.status === 'running' ? (r.detail || '经 pigeon run 在跑') : r.summary || '跑完了'; if (r.model) ss.model = r.model; }
+    const ss = S.find(s => s.id === to); if (ss?.stub) { ss.state = sstate; ss.note = r.status === 'running' ? (r.detail || '经 pigeon run 在跑') : r.summary || '跑完了'; if (r.model) ss.model = r.model; if (r.cwd && !ss.cwd) ss.cwd = r.cwd; }
     T.push({ id: r.id, time: whenZh(r.started, now), created: r.started, from, to, kind: RUN_KIND[r.kind] || '派活', title: r.title, dur: durZh((r.ended || now) - r.started),
       state: r.status === 'running' ? (r.thread ? 'delivered' : 'flying') : r.status === 'done' ? 'home' : 'failed', ...(r.summary ? { reply: r.summary } : {}), via: 'run', files: r.files || [] });
   }

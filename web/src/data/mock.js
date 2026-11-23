@@ -49,17 +49,17 @@ export function createMock(now = Date.now()) {
   };
 
   // 对话。state 取 run、wait、idle、done、error（error 带一句 error）；activity 是在做什么，形象按它挑动作；
-  // via 表示这个对话要经那台设备上的 Codex 带起；parent 是它从哪个对话拆出来的
+  // via 表示这个对话要经那台设备上的 Codex 带起；parent 是它从哪个对话拆出来的；cwd 是它的项目目录，频道按目录名把对话归成一个项目（子对话跟着父对话）
   const S = [
-    { id: 's1', agent: 'claude', dev: 'mac', title: 'Pigeon 重构', state: 'run', activity: 'delegating', model: 'Opus 5.5', think: 'high', note: '正在把活分给 3 个 agent' },
-    { id: 's2', agent: 'codex', dev: 'mac', title: '画应用图标', state: 'run', activity: 'typing', model: 'GPT-5.5', think: 'medium', note: '生图中，已跑 2 分 10 秒' },
-    { id: 's3', agent: 'codex', dev: 'mac', title: '审查确认框改动', state: 'done', model: 'GPT-5.5', think: 'high', note: '回信：两处建议' },
-    { id: 's4', agent: 'cursor', dev: 'mac', title: '设置页表单', state: 'run', activity: 'typing', model: 'Composer 2', think: '', note: '正在改 settings.js' },
-    { id: 's5', agent: 'dsh', dev: 'mac', title: '批量改文案', state: 'idle', model: 'DeepSeek V4 Flash', think: 'low', note: '空闲 12 分钟' },
-    { id: 's6', agent: 'codex', dev: 'win', title: 'Windows 构建', state: 'run', activity: 'building', model: 'GPT-5.5', think: 'high', note: 'cargo build，已跑 4 分钟' },
-    { id: 's7', agent: 'codex', dev: 'win', title: '问候', state: 'idle', model: 'GPT-5.5', think: 'low', note: '空闲' },
-    { id: 's8', agent: 'claude', dev: 'win', via: 'codex', title: '跑测试集', state: 'wait', activity: 'waiting', model: 'Sonnet 5.5', think: 'medium', note: '这个任务在等你确认才发过去' },
-    { id: 's9', agent: 'cursor', dev: 'win', via: 'codex', title: '改安装脚本', state: 'error', error: '连不上：那台的 Codex 没开，Cursor 带不起来', model: 'Composer 2', think: '', note: '出错了' },
+    { id: 's1', cwd: '/Users/demo/Code/pigeon', agent: 'claude', dev: 'mac', title: 'Pigeon 重构', state: 'run', activity: 'delegating', model: 'Opus 5.5', think: 'high', note: '正在把活分给 3 个 agent' },
+    { id: 's2', cwd: '/Users/demo/Code/pigeon', agent: 'codex', dev: 'mac', title: '画应用图标', state: 'run', activity: 'typing', model: 'GPT-5.5', think: 'medium', note: '生图中，已跑 2 分 10 秒' },
+    { id: 's3', cwd: '/Users/demo/Code/pigeon', agent: 'codex', dev: 'mac', title: '审查确认框改动', state: 'done', model: 'GPT-5.5', think: 'high', note: '回信：两处建议' },
+    { id: 's4', cwd: '/Users/demo/Code/pigeon', agent: 'cursor', dev: 'mac', title: '设置页表单', state: 'run', activity: 'typing', model: 'Composer 2', think: '', note: '正在改 settings.js' },
+    { id: 's5', cwd: '/Users/demo/Code/site', agent: 'dsh', dev: 'mac', title: '批量改文案', state: 'idle', model: 'DeepSeek V4 Flash', think: 'low', note: '空闲 12 分钟' },
+    { id: 's6', cwd: 'F:\\Code\\pigeon', agent: 'codex', dev: 'win', title: 'Windows 构建', state: 'run', activity: 'building', model: 'GPT-5.5', think: 'high', note: 'cargo build，已跑 4 分钟' },
+    { id: 's7', cwd: 'F:\\Code\\pigeon', agent: 'codex', dev: 'win', title: '问候', state: 'idle', model: 'GPT-5.5', think: 'low', note: '空闲' },
+    { id: 's8', cwd: 'F:\\Code\\pigeon', agent: 'claude', dev: 'win', via: 'codex', title: '跑测试集', state: 'wait', activity: 'waiting', model: 'Sonnet 5.5', think: 'medium', note: '这个任务在等你确认才发过去' },
+    { id: 's9', cwd: 'F:\\Code\\pigeon-installer', agent: 'cursor', dev: 'win', via: 'codex', title: '改安装脚本', state: 'error', error: '连不上：那台的 Codex 没开，Cursor 带不起来', model: 'Composer 2', think: '', note: '出错了' },
     { id: 's1a', agent: 'claude', dev: 'mac', parent: 's1', title: '子代理：查回调文档', state: 'run', activity: 'reading', model: 'Haiku 5.5', think: 'low', note: '读文档中' },
     { id: 's6a', agent: 'codex', dev: 'win', parent: 's6', title: '跑单元测试', state: 'run', activity: 'testing', model: 'GPT-5.5 mini', think: 'low', note: '子对话，已跑 1 分钟' },
     { id: 's6b', agent: 'codex', dev: 'win', parent: 's6', title: '查链接报错', state: 'done', model: 'GPT-5.5 mini', think: 'low', note: '子对话，已回报' },
@@ -124,6 +124,9 @@ export function createMock(now = Date.now()) {
     { id: 'q1', kind: 'cross', band: 't-3a07', from: { dev: 'mac', agent: 'claude', session: 's1' }, to: { dev: 'win', agent: 'claude', session: 's8' }, preview: '在 Windows 上跑测试集，失败的贴回来', rule: 'r3', created: ago(25), deadline: ago(25) + 90000, secrets: ['npm token'] },
   ];
 
+  // 频道里你写的留言（只记在频道里，不送给任何 agent），按频道 id 分。seq 决定排在哪两件任务之间：任务从旧到新是 1、2、3……
+  const NOTES = { 'p:pigeon': [{ id: 'n-1', seq: 6.5, time: '10:33', text: '图标先出两版就行，我晚上一起挑。Windows 那边测试过了再合。' }] };
+
   // 同一个 Codex 账号下能找到的其他电脑
   const FOUND = [{ name: 'LIN-MBP16', os: 'mac' }, { name: 'home-ubuntu', os: 'linux' }, { name: 'CHEN-Y9000P2023', os: 'win', added: true }];
   // 本机 magpie 里加过的远程 magpie：id 是它在 magpie 里的名字，mcp 是“把它的 MCP 服务加进 Library”开没开，helper 是那台装没装 Pigeon 小助手，apps 是小助手在那台找到的应用
@@ -145,5 +148,5 @@ export function createMock(now = Date.now()) {
     split: { from: { dev: 'mac', agent: 'claude', session: 's1' }, parts: [{ to: { dev: 'mac', agent: 'codex', session: '' }, preview: '画三张空状态插图' }, { to: { dev: 'mac', agent: 'cursor', session: '' }, preview: '把空状态接进任务页' }, { to: { dev: 'mac', agent: 'dsh', session: '' }, preview: '空状态的文案过一遍' }] },
   };
 
-  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO };
+  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, NOTES, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO };
 }

@@ -39,6 +39,12 @@ export const IC = {
   x: 'M6 6l12 12M18 6L6 18',
   gear: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
   undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',
+  // 频道：聊天气泡、项目文件夹、@、成员
+  chan: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
+  folder: 'M3 6a1 1 0 011-1h5l2 2h9a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1z',
+  at: 'M16 12a4 4 0 10-1.2 2.8M16 8v5a2.5 2.5 0 005 0v-1a9 9 0 10-3.6 7.2',
+  users: 'M9 11a4 4 0 100-8 4 4 0 000 8zM2 21a7 7 0 0114 0M17 3.5a4 4 0 010 7M22 21a7 7 0 00-4-6.3',
+  note: 'M5 4h14v12l-4 4H5zM15 20v-4h4M8 9h8M8 13h5',
 };
 
 export const icon = name => svg(IC[name]);

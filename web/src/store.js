@@ -24,13 +24,16 @@
 //   USAGE      用量统计（只有应用模式）
 //   HOOKS      Codex 回调的开关状态（只有应用模式）
 //   link       和应用的连接断了或者连上了（只有应用模式）
-//   ui.*       界面状态：ui.view 当前页、ui.open 远程设备展开、ui.stage.page/sel、ui.tasks、ui.route.try/hit、
+//   NOTES      频道里的留言
+//   ui.*       界面状态：ui.view 当前页、ui.open 远程设备展开、ui.stage.page/sel、ui.tasks、ui.chan、ui.route.try/hit、
 //              ui.conn.plan/mp/cx/sheet/rm、ui.hud、ui.settingsOpen；
-//              sheetText、draft 是输入框打字（不重画输入框本身），hudTarget 是打字时按规则自动换了派活对象
+//              sheetText、draft 是输入框打字（不重画输入框本身），hudTarget 是打字时按规则自动换了派活对象；
+//              ui.chan.picks 是频道输入框里 @ 了谁（chanPicks），打字本身不发话题
 //   art        有图片加载失败，要退回像素标志
 import { SETTINGS0 } from './core/labels.js';
 import { by, keyOf, agOf, levelsOf, midLevel, leadSession, isYou, validLead } from './core/names.js';
 import { routeOf, alive } from './core/route.js';
+import { taskChan, seqNow } from './core/channels.js';
 import { createDemo } from './backend/demo.js';
 
 const matches = (sub, changed) => changed === sub || changed.startsWith(sub + '.');
@@ -41,6 +44,7 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
     mode: 'demo',
     ...data,
     NAMES: { ...(data.NAMES || {}), ...(saved.names || {}) },
+    NOTES: data.NOTES || {},
     MPQ: { state: 'demo', ver: '', at: '', cards: 0 }, // 额度从哪来：demo 全是示例，live 本机 magpie，off 连不上 magpie，wait 还没读
     paused: data.paused || { all: false, dev: {} },
     settings: { ...SETTINGS0, ...(data.settings || {}), ...(saved.settings || {}) },
@@ -49,6 +53,9 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
       open: { ...(saved.open || {}) },
       stage: { page: 0, sel: null },
       tasks: { open: data.DEMO.openTask, filter: 'all' },
+      // 频道：id 选中的频道（空串是还没选，'all' 是全部任务），focus 要滚到并亮一下的那件任务，
+      // picks 输入框里 @ 了谁，mode task 派活 / note 留言，draft 输入框里的字，seen 每个频道看过几封回信，extra 手动拉进来的对话，people 右栏开没开
+      chan: { id: '', focus: '', picks: [], mode: 'task', draft: '', seen: {}, extra: {}, people: true },
       route: { try: '', hit: -1, hitTo: '', hitFb: false },
       conn: { plan: false, mp: '', cx: false, sheet: null, fresh: '', rm: '' },
       // 刘海：state 五种样子，pinned 鼠标移开也不收，target 派活对象，mode new 新开对话 / msg 发给 session 那个对话，
@@ -149,6 +156,28 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
     // 流向图上亮哪条：i 是规则的序号（-1 不亮，-2 是“其他的”），to 亮哪家，fb 走的是不是改派那条线
     setHit(i, to = '', fb = false) { Object.assign(ui.route, { hit: i, hitTo: to, hitFb: fb }); emit('ui.route.hit'); },
     openTask(id) { ui.tasks.open = id; emit('ui.tasks'); },
+    /* ---------- 频道 ---------- */
+    setChan(id) { if (ui.chan.id !== id) { ui.chan.id = id; ui.chan.focus = ''; ui.chan.picks = []; } emit('ui.chan'); },
+    // 从别处点开一件任务：没在看“全部”就翻到它所在的频道，滚过去亮一下
+    chanFocus(taskId) {
+      const t = st.T.find(x => x.id === taskId); if (!t) return;
+      if (ui.chan.id !== 'all') { const id = taskChan(st, t); if (ui.chan.id !== id) { ui.chan.id = id; ui.chan.picks = []; } }
+      ui.chan.focus = taskId; emit('ui.chan');
+    },
+    chanPick(m) { if (!ui.chan.picks.some(x => x.k === m.k && x.session === m.session)) ui.chan.picks.push(m); ui.chan.mode = 'task'; emit('ui.chan.picks'); },
+    chanUnpick(i) { ui.chan.picks.splice(i, 1); emit('ui.chan.picks'); },
+    chanMode(mode) { ui.chan.mode = mode; emit('ui.chan.picks'); },
+    chanDraft(v) { ui.chan.draft = v; },
+    chanSeen(id, n) { if ((ui.chan.seen[id] || 0) !== n) { ui.chan.seen[id] = n; emit('ui.chan.seen'); } },
+    togglePeople() { ui.chan.people = !ui.chan.people; emit('ui.chan'); },
+    // 把一个对话拉进频道（0.3a 只记在这个页面里，刷新就没了）
+    chanPull(id, sid) { const xs = (ui.chan.extra[id] ??= []); if (!xs.includes(sid)) xs.push(sid); emit('ui.chan'); },
+    // 留言：只记在频道里，不送给任何 agent
+    chanNote(id, text) {
+      const now = clock(), d = new Date(now), time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      (st.NOTES[id] ??= []).push({ id: newId('n-'), seq: seqNow(st, now) + (st.NOTES[id].length * 1e-3), time: st.mode === 'live' ? time : st.DEMO.clock, text });
+      emit('NOTES');
+    },
     setTaskFilter(f) { ui.tasks.filter = f; emit('ui.tasks'); },
   };
 

@@ -44,10 +44,10 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
     send(t);
     return 'flying';
   }
-  // 给 agent@设备 找一个能接活的对话（不是指挥、不是子对话），没有就新开一个
-  function sessionFor(k, title, model) {
+  // 给 agent@设备 找一个能接活的对话（不是指挥、不是子对话），没有就新开一个；fresh 为真时一定新开
+  function sessionFor(k, title, model, fresh = false) {
     const L = leadSession(st);
-    const s = st.S.find(x => keyOf(x) === k && !x.parent && x !== L && x.state !== 'error');
+    const s = !fresh && st.S.find(x => keyOf(x) === k && !x.parent && x !== L && x.state !== 'error');
     if (s) return [s, false];
     const [a, d] = [agOf(k), dvOf(k)], c = (st.CONN[d] || []).find(x => x.a === a), gate = (st.CONN[d] || []).find(x => x.role === 'gate');
     const n = { id: newId('n'), agent: a, dev: d, title: title.slice(0, 24), state: 'idle', model: model?.m || c?.model || '', think: model?.t ?? c?.think ?? '', note: '新开的对话', ...(c?.role === 'via' && gate ? { via: gate.a } : {}) };
@@ -262,6 +262,22 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
       if (result === 'asking') { ui.hud.q = st.Q.length - 1; m.hud('confirm'); } else m.hud('idle');
       emit('T', 'S', 'Q', 'draft');
       return { result, task: t, fresh };
+    },
+    // 频道里发出去：targets 是 @ 了谁（没 @ 时页面已经换成指挥），每个各派一件，发件人是你。
+    // 0.3a 正文就是你写的这句；以后（0.3b）会附上频道背景：成员名单和最近几条的摘要
+    chanSend({ targets, text, chan }) {
+      const v = text.trim();
+      if (!v || !targets.length) return { empty: true };
+      const results = targets.map(x => {
+        const k = x.k, p = m.pickOf(k), given = x.session && by(st, x.session);
+        const [to, fresh] = given ? [given, false] : sessionFor(k, v, p, !!x.fresh);
+        if (fresh) { to.model = p.m; to.think = p.t; const at = chan?.paths?.find(x => x.dev === to.dev) || chan?.paths?.[0]; if (at && !to.cwd) to.cwd = at.path; } // 新开的对话放进这个频道的项目目录
+        const why = x.lead && !x.picked ? { kind: 'lead', reason: '在频道里没 @ 谁，交给指挥分派' } : whyFor(v, k);
+        const t = newTask(by(st, 'you'), to, v, { why, ctx: { tokens: Math.max(200, v.length * 40) + 900, window: 200000, files: [] } });
+        return { result: launch(t, { fresh }), task: t, fresh };
+      });
+      emit('T', 'S', 'Q');
+      return { results };
     },
     // 放行或拦下等你的第 i 件。暂停中（全部或那台）点放行：留在队里标 paused，继续后再送出。
     // 返回 { msg 提示, fly [从谁, 到谁] 刘海上飞一只鸽子 }

@@ -312,6 +312,8 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
         .then(r => { if (r?.band) { ui.tasks.open = r.band; emit('ui.tasks'); } return { result: 'sent', task: { id: r?.band || '' } }; });
     },
     send() { return no('在刘海上派活'); },
+    // 频道里直接派活要等频道接上应用（0.3b）；现在先用刘海或命令行派
+    chanSend() { return no('频道里直接派活还没接上应用，先在刘海上派活'); },
 
     /* ---------- 等你的一队：POST /api/queue/<id> { action: release | block | release_masked } ---------- */
     qDo(i, ok, opt = {}) {
