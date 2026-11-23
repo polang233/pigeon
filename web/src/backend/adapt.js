@@ -58,7 +58,7 @@ export function mergeNote(prev, p, ts = Date.now()) {
   return n;
 }
 
-/* ---------- pigeon run：Claude Code 经包装层交给 Codex 的活（SSE 的 PigeonRun，旧名 MeerkatCodex） ---------- */
+/* ---------- pigeon run：Claude Code 经包装层交给 Codex 的活（SSE 的 PigeonRun） ---------- */
 export function mergeRun(prev, p, ts = Date.now()) {
   if (p.phase === 'start') return { id: p.task_id, title: oneLine(p.title, 40) || 'Codex 任务', kind: p.kind || '', model: p.model || '', cwd: p.cwd || '', session: p.session_id || '', status: 'running', started: Number(p.ts) || ts, updated: ts, thread: '', detail: '', summary: '', files: [] };
   if (!prev) return null;

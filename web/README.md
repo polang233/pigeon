@@ -83,7 +83,7 @@ node --test web/test
 
 都在 `src/backend/live.js`，字段照 `docs/CONTRACT.md`：
 
-- 读：`GET /api/lofts`、`/api/detect`、`/api/settings`、`/api/notes`、`/api/queue`、`/api/usage`、`/api/codex/models`、`/api/codex/hooks`、`/api/magpie/models`、`/api/magpie/quotas`、`/api/magpie/hello`；`GET /events` 收 `detect`、`lofts`、`queue`、`usage`、`settings`、`hook`（`PigeonNote`、`PigeonRun`/`MeerkatCodex`）。
+- 读：`GET /api/lofts`、`/api/detect`、`/api/settings`、`/api/notes`、`/api/queue`、`/api/usage`、`/api/codex/models`、`/api/codex/hooks`、`/api/magpie/models`、`/api/magpie/quotas`、`/api/magpie/hello`；`GET /events` 收 `detect`、`lofts`、`queue`、`usage`、`settings`、`hook`（`PigeonNote`、`PigeonRun`）。
 - 写：`PATCH /api/settings`（先 GET 完整设置，在上面改，算出改了哪几处，只把这几处交给应用去合并）、`POST /api/pause`、`POST /api/queue/<id>`、`POST /api/send`（只用来重发）、`POST /api/open`、`POST /api/notch`、`POST /api/lofts/refresh`、`POST /api/codex/hooks`、`PUT /api/dispatch`。
 
 ## 存在浏览器里的东西

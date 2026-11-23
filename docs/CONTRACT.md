@@ -2,8 +2,6 @@
 
 Mac 应用（`mac/`）、前端（`web/`）和插件（`plugin/`）之间只靠下面这几条接口沟通。各自改实现都没关系，只要接口不变。
 
-项目原名 Meerkat，2026-11-11 改名 Pigeon（见 `archive/PIGEON-PLAN.md`）。本文里用新名字，凡是旧名字仍被兼容的地方，在"改名和兼容"一节集中列出。
-
 应用内置一个只监听本机的小 HTTP 服务：`127.0.0.1:47321`。它不是单独的网关进程，随应用启动、随应用退出。
 
 ## 静态页面
@@ -26,7 +24,7 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 |---|---|
 | `GET /events` | Server-Sent Events。每条消息是一行 `data: <json>`。连上时先推一条 `detect`。 |
 
-消息格式（`hook` 只转网页用得到的 `PigeonNote`、`PigeonRun`，以及旧名字 `MeerkatCodex`；Claude Code 自己的 hook 和 Codex 的 hook 只在应用里用，不经 `/events` 转出去）：
+消息格式（`hook` 只转网页用得到的 `PigeonNote`、`PigeonRun`；Claude Code 自己的 hook 和 Codex 的 hook 只在应用里用，不经 `/events` 转出去）：
 
 ```json
 { "type": "hook",   "ts": 1730000000000, "payload": { ...原始 hook JSON... } }
@@ -72,7 +70,7 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 
 ## 设置
 
-设置由应用保存在 `~/Library/Application Support/Pigeon/settings.json`（旧路径 `…/Meerkat/settings.json` 的迁移和兼容见"改名和兼容"）。插件里的包装层和页面都通过接口读写；应用没开时，包装层直接读这个文件，读不到再读旧的 Meerkat 路径，都没有就用内置默认值。
+设置由应用保存在 `~/Library/Application Support/Pigeon/settings.json`。插件里的包装层和页面都通过接口读写；应用没开时，包装层直接读这个文件，读不到就用内置默认值。
 
 | 请求 | 说明 |
 |---|---|
@@ -119,7 +117,7 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 
 ## 包装层上报的 Codex 事件（`pigeon run`）
 
-包装层（`pigeon run`，旧入口 `meerkat-codex` 转发到同一处）把 Codex 的执行过程也发到 `POST /ev`，`hook_event_name` 固定为 `PigeonRun`（旧名 `MeerkatCodex`，接收方两个都认）。任务 id 前缀是 `pg-`（旧前缀 `mk-`）：
+包装层（`pigeon run`）把 Codex 的执行过程也发到 `POST /ev`，`hook_event_name` 固定为 `PigeonRun`。任务 id 前缀是 `pg-`：
 
 ```json
 { "hook_event_name": "PigeonRun", "phase": "start",    "task_id": "pg-…", "title": "…", "kind": "image", "prompt": "…", "cwd": "…", "model": "gpt-6.1-sol" }
@@ -130,19 +128,19 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 
 ## Codex 自己的 hook
 
-Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 固定为 `"codex"`。字段包括 `hook_event_name`（`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop` / `SubagentStart` / `SubagentStop`）、`session_id`、`turn_id`、`cwd`、`model`、`tool_name`、`tool_input`、`tool_response`、`prompt`、`last_assistant_message`、`pigeon_task_id`（旧名 `meerkat_task_id`，读取方新旧都认）。最后一个字段仅包装层派活时有值，否则为空串。
+Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 固定为 `"codex"`。字段包括 `hook_event_name`（`SessionStart` / `UserPromptSubmit` / `PreToolUse` / `PostToolUse` / `PermissionRequest` / `Stop` / `SubagentStart` / `SubagentStop`）、`session_id`、`turn_id`、`cwd`、`model`、`tool_name`、`tool_input`、`tool_response`、`prompt`、`last_assistant_message`、`pigeon_task_id`。最后一个字段仅包装层派活时有值，否则为空串。
 
 新界面里，这些事件由页面和应用按下面的规则处理（旧前端 `web/js/store.js` 里按任务展示这些事件的那套逻辑已经删除，不再是约定）：
 
 - 页面（`web/src/backend/adapt.js` 的 `mergeRun`）：把 `PigeonRun` 的 `start`、`thread`、`activity`、`end` 合并成一件"交给 Codex 的活"，和 `PigeonNote` 的消息一起放进任务列表。
 - 应用（`mac/Sources/Pigeon/Sessions.swift`）：按 `payload.source` 区分 Codex 和 Claude Code 的 hook，算出每个对话的 `state`、`activity`（见「对话的状态和在做什么」）；`PermissionRequest` 让对话变成 `wait`、`activity` 是 `waiting`。
-- `pigeon_task_id`（旧名 `meerkat_task_id`，读取方新旧都认）仅在 `pigeon run` 派活时有值，用来把 Codex 的事件对上那件活。
+- `pigeon_task_id` 仅在 `pigeon run` 派活时有值，用来把 Codex 的事件对上那件活。
 
 ## Codex hook 开关
 
 | 请求 | 说明 |
 |---|---|
-| `GET /api/codex/hooks` | 返回 `{installed, working, detail, legacy}`。`installed` 表示已安装，`working` 表示已收到事件，`detail` 是给人看的中文状态，`legacy` 为 true 表示装的是 Meerkat 时期的 `~/.meerkat/codex-hook.sh`（仍算已安装、还能用；关掉再打开一次会换成新脚本 `~/.pigeon/codex-hook.sh`）。 |
+| `GET /api/codex/hooks` | 返回 `{installed, working, detail}`。`installed` 表示已安装（`~/.codex/hooks.json` 里有指向 `~/.pigeon/codex-hook.sh` 的 hook），`working` 表示已收到事件，`detail` 是给人看的中文状态。 |
 | `POST /api/codex/hooks` | 请求体 `{"enable":true}` 或 `{"enable":false}`，立刻安装或停用，返回更新后的同结构状态。会修改本机 Codex 配置。 |
 
 设置面板每次打开都 GET 状态，开关反映 `installed`，显示 `detail`。切换立即 POST，失败回拨并显示错误；不进入 `settings.json`，也不等“保存”。
@@ -185,7 +183,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 
 ### 端口和环境变量
 
-端口不变：`127.0.0.1:47321`。环境变量 `PIGEON_PORT` 优先，没有时读 `MEERKAT_PORT`。包装层上报事件的目标端口按同样的规则取。
+端口：`127.0.0.1:47321`，环境变量 `PIGEON_PORT` 可以改。包装层上报事件的目标端口按同样的规则取。
 
 ### 环境变量
 
@@ -193,12 +191,12 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 
 | 变量 | 说明 |
 |---|---|
-| `PIGEON_PORT` | 应用端口，优先于 `MEERKAT_PORT` |
+| `PIGEON_PORT` | 应用端口，默认 47321 |
 | `PIGEON_HOME` | 数据目录，默认 `~/.pigeon`（应用和插件都认） |
 | `PIGEON_SETTINGS_FILE` | 指定设置文件，设了就不再找默认位置 |
-| `PIGEON_CODEX_BIN` | 指定 `codex` 命令（兼容 `MEERKAT_CODEX_BIN`） |
-| `PIGEON_WEB_ROOT` | 应用使用的网页目录（兼容 `MEERKAT_WEB_ROOT`） |
-| `PIGEON_TASK_ID` | `pigeon run` 给 Codex 子进程设置的任务 id；同时设置旧名 `MEERKAT_TASK_ID` |
+| `PIGEON_CODEX_BIN` | 指定 `codex` 命令 |
+| `PIGEON_WEB_ROOT` | 应用使用的网页目录 |
+| `PIGEON_TASK_ID` | `pigeon run` 给 Codex 子进程设置的任务 id |
 
 `pigeon run` 的并发槽位放在 `~/.pigeon/running`。
 
@@ -208,7 +206,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 |---|---|
 | `~/.pigeon/journal.json` | 任务记录。插件写，应用读。保留最近 7 天。 |
 | `~/.pigeon/lofts.json` | 设备和对话的缓存。插件写，应用读。 |
-| `~/.pigeon/runs/` | `pigeon run` 的记录（原 `~/.meerkat/runs/`）。旧目录不迁移，也不删。 |
+| `~/.pigeon/runs/` | `pigeon run` 的记录。 |
 | `~/Library/Application Support/Pigeon/settings.json` | 设置，应用写。 |
 
 `journal.json`：
@@ -599,24 +597,3 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 ### 给自动检查存图
 
 环境变量 `PIGEON_SNAPSHOT_DIR=<目录>` 时，应用启动后（等 `PIGEON_SNAPSHOT_DELAY` 秒，没设时 5 秒）把主窗口的四页和刘海的五种状态各存一张 PNG 到这个目录，然后退出。图是应用自己的窗口画出来的（`mac/Sources/Pigeon/App.swift`），用来在没人操作时看界面画得对不对。它和 `PIGEON_HEADLESS` 不是一回事：存图需要真的开窗口。
-
-## 改名和兼容
-
-| 项目 | 旧（Meerkat） | 新（Pigeon） | 兼容情况 |
-|---|---|---|---|
-| 设置文件 | `~/Library/Application Support/Meerkat/settings.json` | `~/Library/Application Support/Pigeon/settings.json` | 应用启动时，新文件不存在而旧文件存在就复制一次，不删旧的；插件在应用没开时先读新路径，读不到再读旧路径 |
-| 派活记录目录 | `~/.meerkat/runs/` | `~/.pigeon/runs/` | 旧目录不迁移，不删 |
-| 派活事件名 | `MeerkatCodex` | `PigeonRun` | 应用和页面两个名字都认；字段和 `phase` 不变 |
-| 任务 id 前缀 | `mk-` | `pg-` | 以接口约定为准，旧前缀的历史任务不受影响 |
-| Codex hook 里的任务 id 字段 | `meerkat_task_id` | `pigeon_task_id` | 读取方新旧都认 |
-| 任务 id 环境变量 | `MEERKAT_TASK_ID` | `PIGEON_TASK_ID` | `pigeon run` 两个都设；读取方新旧都认 |
-| Codex 转发的请求头 | `x-meerkat-task` | `x-pigeon-task` | `/ev/codex` 先读新的，没有再读旧的；转发的 payload 同时带 `pigeon_task_id` 和 `meerkat_task_id` |
-| Codex 转发脚本 | `~/.meerkat/codex-hook.sh` | `~/.pigeon/codex-hook.sh` | 旧脚本仍算已装（`GET /api/codex/hooks` 的 `legacy`） |
-| 前端本地存储键 | `meerkat-theme` | `pigeon-theme` | 旧界面的键，新界面不读 |
-| 前端主题 id | `studio`、`illustrated` | `loft`、`pixel-studio` | 旧界面的主题，新界面不读；设置文件里的 `scene.theme` 原样保留 |
-| 端口环境变量 | `MEERKAT_PORT` | `PIGEON_PORT` | `PIGEON_PORT` 优先，没有时读 `MEERKAT_PORT` |
-| 包装层入口 | `plugin/scripts/meerkat-codex.mjs` | `plugin/scripts/pigeon.mjs` | 旧文件保留成转发到新入口的薄壳 |
-| 插件和 marketplace 名 | `meerkat` | `pigeon` | 不兼容，需要重新添加 marketplace 并安装 |
-| 应用 | `Meerkat.app` | `Pigeon.app`（bundle id `dev.polang.pigeon`） | 无 |
-
-`forward.sh`、`route-codex.mjs`、`prompt-hint.mjs` 的文件名没变（已安装的插件按这些路径调用）。

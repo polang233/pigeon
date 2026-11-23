@@ -102,7 +102,7 @@ python3 tools/serve.py 5190
 cd mac && swift run
 ```
 
-应用启动后会在本机 `127.0.0.1:47321` 开一个只给本机用的小服务。要换端口，用环境变量 `PIGEON_PORT`（没设时也读旧的 `MEERKAT_PORT`）。
+应用启动后会在本机 `127.0.0.1:47321` 开一个只给本机用的小服务。要换端口，用环境变量 `PIGEON_PORT`。
 
 ### 测试
 
@@ -254,7 +254,7 @@ pigeon lofts --refresh
 
 ## 派活：`pigeon run`
 
-用 `pigeon run` 把一次性的活交给 Codex，行为和旧版的 `meerkat-codex run` 一样。它会用 ChatGPT 应用自带的 Codex 命令行，关闭 stdin（避免卡死）、按设置计时和限制并发，把每一步实时报给应用，生图结果复制到项目的 `assets/generated/`，最后只输出精简结果和 `codex://threads/<id>` 链接。
+用 `pigeon run` 把一次性的活交给 Codex。它会用 ChatGPT 应用自带的 Codex 命令行，关闭 stdin（避免卡死）、按设置计时和限制并发，把每一步实时报给应用，生图结果复制到项目的 `assets/generated/`，最后只输出精简结果和 `codex://threads/<id>` 链接。
 
 先检查环境：
 
@@ -271,7 +271,6 @@ pigeon run --kind image --title "登录页插图" --cwd <项目目录> --brief-f
 - 并发中的任务在 `~/.pigeon/running` 里各占一个槽位文件。
 - 单次任务可以加 `--temp`（临时任务，不在 Codex 应用里留对话）或 `--keep`；默认按设置里的"对话记录"。
 - 设置里开着"统一走包装层"时，Claude 直接跑 `codex exec`、`codex queue` 或调用 Codex 的 MCP 派活工具会被插件拦下，提示它改用 `pigeon run` 或 `pigeon send`（关掉这个设置就不拦），这样所有派给 Codex 的活都能看到进度、按设置执行。
-- 旧入口 `plugin/scripts/meerkat-codex.mjs` 保留，只是转发到 `pigeon.mjs`，已有的调用不用改。
 
 ## 接收 Codex 自己的事件
 
@@ -292,16 +291,6 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 - `mac/scripts/build-app.sh` 现在会把 `plugin/scripts/` 一起打进应用。脚本从头跑过，打包后的程序不开界面起过一次，能放出自带的网页、能跑自带的命令行；带界面的打包应用没有打开用过。
 - 中继站的指令和消息末尾那一行说明（`（Pigeon 纸条 b-…，来自…）`）还是旧词，因为 Codex 读它、命令行也解析它，要先拿真的 Codex 试过才能改。
 - 官网（`site/`）这一版没有更新，内容还是旧版的。
-
-## 从旧版（Meerkat）升级
-
-这个项目原名 Meerkat（狐獴）。如果你装过旧版：
-
-1. 在 Claude Code 里重新添加 marketplace 并安装 `pigeon` 插件（命令见上文"接入 Claude Code"）。旧的 `meerkat` 插件可以卸载。
-2. 设置文件会自动迁移：Pigeon 第一次启动时，如果 `~/Library/Application Support/Pigeon/settings.json` 还不存在，而旧的 `~/Library/Application Support/Meerkat/settings.json` 存在，就复制一份过去（不删旧的）。
-3. 旧的 `~/.meerkat/`（派活记录等）**不会迁移**，也不会被删除。新的数据放在 `~/.pigeon/`。
-4. 兼容旧名字：端口环境变量 `MEERKAT_PORT`、事件名 `MeerkatCodex`、任务 id 字段 `meerkat_task_id` 和环境变量 `MEERKAT_TASK_ID` 仍然能被识别。
-5. 如果你开过"接收 Codex 自己的事件"：旧版的转发脚本 `~/.meerkat/codex-hook.sh` 仍然算已安装、还能用。想换成新脚本，在设置里把这个开关关掉再打开一次；之后要在 Codex 里重新信任一次 hook。
 
 ## 目录
 

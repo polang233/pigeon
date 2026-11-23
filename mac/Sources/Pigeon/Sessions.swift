@@ -39,7 +39,7 @@ enum Activity {
 
     private static let testPattern = #"\b(tests?|pytest|jest|vitest|xctest|mocha|rspec|unittest)\b"#
     private static let buildPattern = #"\b(build|make|cmake|cargo|xcodebuild|gradle|gradlew|mvn|tsc|webpack|compile|bazel)\b"#
-    private static let delegationPattern = #"(^|[\s;&|(])codex(\s|$)|pigeon(\.mjs)?\s+(send|new|run)\b|meerkat-codex"#
+    private static let delegationPattern = #"(^|[\s;&|(])codex(\s|$)|pigeon(\.mjs)?\s+(send|new|run)\b"#
 
     private static func isDelegation(_ cmd: String) -> Bool { matches(cmd, delegationPattern) }
 
@@ -93,7 +93,7 @@ struct SessionTracker {
     @discardableResult
     mutating func ingest(_ p: [String: Any], now: Date = Date()) -> Bool {
         let event = p["hook_event_name"] as? String ?? ""
-        if event == "PigeonNote" || event == "PigeonRun" || event == "MeerkatCodex" { return false }
+        if event == "PigeonNote" || event == "PigeonRun" { return false }
         guard let sid = p["session_id"] as? String, !sid.isEmpty else { return false }
         let agent = (p["source"] as? String) == "codex" ? "codex" : "claude"
         let key = "\(agent):\(sid)"

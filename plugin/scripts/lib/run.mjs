@@ -1,4 +1,4 @@
-// pigeon run：Claude 把活交给 Codex 时统一走这里（原 meerkat-codex run，行为不变）。
+// pigeon run：Claude 把活交给 Codex 时统一走这里。
 // 读设置拼 codex exec 参数，处理 Codex 的老毛病（stdin 卡死、超时、噪音输出、图片不在项目里），
 // 把执行过程实时报给 Pigeon 应用（PigeonRun 事件），最后只把精简结果交还给 Claude。
 import { spawn, execFileSync } from 'node:child_process';
@@ -120,8 +120,8 @@ export async function run(args) {
 
   const log = fs.createWriteStream(logFile);
   // stdin 必须关掉，否则 codex exec 会一直等“更多输入”
-  // PIGEON_TASK_ID 给 Codex 自己的 hook 认任务；旧的 MEERKAT_TASK_ID 也带上，已装的旧 hook 照样能认
-  const child = spawn(bin, cliArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PIGEON_TASK_ID: taskId, MEERKAT_TASK_ID: taskId } });
+  // PIGEON_TASK_ID 给 Codex 自己的 hook 认任务
+  const child = spawn(bin, cliArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PIGEON_TASK_ID: taskId } });
   let threadId = null, lastMsg = '', usage = null, timedOut = false, buf = '';
   const errs = [];
   const killer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 5000); }, timeoutMs);

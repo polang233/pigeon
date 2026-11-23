@@ -61,7 +61,7 @@ extension NotchModel {
                                   QueuePart(to: local(.deepseek), preview: "把文档里的旧叫法都换成“刘海”")]),
                 QueueItem(id: "q1", kind: .cross, band: "t-3a07", from: lead, to: far(.claude, "s8", "跑测试集"),
                           preview: "在 Windows 上跑测试集，失败的贴回来", text: crossText, files: ["tests/README.md"],
-                          project: "meerkat", contextTokens: 2400, ruleLabel: "要在 Windows 上做的", created: ago(25),
+                          project: "pigeon", contextTokens: 2400, ruleLabel: "要在 Windows 上做的", created: ago(25),
                           deadline: ago(25).addingTimeInterval(90), secrets: ["npm token"]),
             ],
             prompts: [

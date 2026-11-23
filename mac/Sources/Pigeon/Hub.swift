@@ -131,7 +131,7 @@ final class Hub: @unchecked Sendable {
 
     private static func describe(_ error: Error, port: UInt16) -> String {
         if let nwError = error as? NWError, case let .posix(code) = nwError, code == .EADDRINUSE {
-            return "端口 \(port) 已被占用。可能已经开着另一个 Pigeon（或旧版 Meerkat），或者有别的程序在用这个端口。"
+            return "端口 \(port) 已被占用。可能已经开着另一个 Pigeon，或者有别的程序在用这个端口。"
         }
         return "无法在 127.0.0.1:\(port) 上启动本机服务：\(error.localizedDescription)"
     }
@@ -200,7 +200,7 @@ final class Hub: @unchecked Sendable {
         case ("POST", "/ev"):
             handleHook(req, conn: conn, keepAlive: keepAlive)
         case ("POST", "/ev/codex"):
-            let task = req.header("x-pigeon-task").flatMap { $0.isEmpty ? nil : $0 } ?? req.header("x-meerkat-task") ?? ""
+            let task = req.header("x-pigeon-task") ?? ""
             handleHook(req, conn: conn, keepAlive: keepAlive, codexTask: task)
         case (_, "/ev"):
             methodNotAllowed(conn, keepAlive: keepAlive)
@@ -406,7 +406,7 @@ final class Hub: @unchecked Sendable {
 
     /// 网页只用得到这几种 hook（任务和消息的进度）；别的只在应用里用（对话状态、刘海、用量），不经 SSE 转给网页。
     /// Codex 自己的 hook 也不转：对话的状态由应用算好放进 lofts 里。
-    static let forwardedHooks: Set<String> = ["PigeonNote", "PigeonRun", "MeerkatCodex"]
+    static let forwardedHooks: Set<String> = ["PigeonNote", "PigeonRun"]
 
     static func forwardsHook(_ payload: [String: Any]) -> Bool {
         guard (payload["source"] as? String) != "codex" else { return false }
@@ -425,9 +425,7 @@ final class Hub: @unchecked Sendable {
         conn.respond(status: 204, headers: Self.cors, keepAlive: keepAlive)
         if let codexTask {
             payload["source"] = "codex"
-            // 新名字给新读取方，旧名字给还没改过来的
             payload["pigeon_task_id"] = codexTask
-            payload["meerkat_task_id"] = codexTask
             lastCodexHookAt = Date()
         }
         lastHookAt = Date()
@@ -476,7 +474,7 @@ final class Hub: @unchecked Sendable {
             let fromCodex = (p["source"] as? String) == "codex"
             let force = event == "Stop" || event == "SubagentStop"
             var changed = false
-            if event == "PigeonRun" || event == "MeerkatCodex", p["phase"] as? String == "end" {
+            if event == "PigeonRun", p["phase"] as? String == "end" {
                 // 包装层任务：优先读它的会话记录（和 Codex hook 读到的是同一份，不会重复计）；临时任务没有记录，用它报的总量
                 if let thread = p["thread_id"] as? String, let path = Usage.codexRollout(thread: thread) {
                     changed = self.usage.scan(path: path, agent: "codex", kind: .codex, force: true)

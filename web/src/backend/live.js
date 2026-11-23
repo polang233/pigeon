@@ -174,7 +174,7 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
         const p = msg.payload || {}, ev = p.hook_event_name, ts = Number(msg.ts) || Date.now();
         if (p.source === 'codex') break; // Codex 自己的事件：对话的状态由应用算好放进 lofts 里
         if (ev === 'PigeonNote' && p.band) { notes.set(p.band, mergeNote(notes.get(p.band) || null, p, ts)); trim(); rebuildSoon(); }
-        else if ((ev === 'PigeonRun' || ev === 'MeerkatCodex') && p.task_id) { const r = mergeRun(runs.get(p.task_id) || null, p, ts); if (r) { runs.set(r.id, r); trim(); rebuildSoon(); } }
+        else if (ev === 'PigeonRun' && p.task_id) { const r = mergeRun(runs.get(p.task_id) || null, p, ts); if (r) { runs.set(r.id, r); trim(); rebuildSoon(); } }
         break;
       }
     }

@@ -7,7 +7,7 @@ description: 用户电脑上装了 Codex（OpenAI 的编程 agent），它有真
 
 Codex 是用户电脑上的另一个编程 agent。所有派活都走 Pigeon 的 `run` 命令：它按用户在 Pigeon 应用里的设置拼参数，处理 Codex 的老毛病（stdin 卡死、超时、输出噪音、图片不在项目里），把过程实时显示在 Pigeon 里，只把精简结果交还给你。
 
-命令在这个 skill 目录往上两级的 `scripts/pigeon.mjs`。下面用 `PG` 指代它的绝对路径（用本 skill 的 Base directory 拼出来，例如 `<base>/../../scripts/pigeon.mjs`）。旧入口 `scripts/meerkat-codex.mjs` 还能用，效果一样。
+命令在这个 skill 目录往上两级的 `scripts/pigeon.mjs`。下面用 `PG` 指代它的绝对路径（用本 skill 的 Base directory 拼出来，例如 `<base>/../../scripts/pigeon.mjs`）。
 
 `run` 是开一个新的一次性任务。要给 Codex 里**已有的**对话传话、在另一台电脑上开对话、或者等对方回信，用 `pigeon-post` skill（`pigeon send` / `pigeon new`）。
 

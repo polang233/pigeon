@@ -11,10 +11,10 @@ let prompt = '';
 try { prompt = String(JSON.parse(input).prompt || ''); } catch {}
 
 const support = path.join(os.homedir(), 'Library/Application Support');
-// 设置文件：PIGEON_SETTINGS_FILE 优先（和 lib/common.mjs 一致），否则新旧两个位置里第一个读得到的
+// 设置文件：PIGEON_SETTINGS_FILE 优先（和 lib/common.mjs 一致），否则读应用的设置文件
 const settingsFiles = process.env.PIGEON_SETTINGS_FILE
   ? [process.env.PIGEON_SETTINGS_FILE]
-  : [path.join(support, 'Pigeon/settings.json'), path.join(support, 'Meerkat/settings.json')];
+  : [path.join(support, 'Pigeon/settings.json')];
 let settings = {};
 for (const f of settingsFiles) {
   try { settings = JSON.parse(fs.readFileSync(f, 'utf8')) || {}; break; } catch {}

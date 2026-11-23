@@ -209,7 +209,7 @@ struct Watch {
                   let task = running.values.first(where: { $0.kind == .subagent && $0.agentID == agent }) else { return nil }
             running[task.id] = nil
             alert = finished(task, ok: true, folder: folder, notify: notify)
-        case "PigeonRun", "MeerkatCodex":
+        case "PigeonRun":
             guard let id = p["task_id"] as? String else { return nil }
             switch p["phase"] as? String {
             case "start":
@@ -229,12 +229,12 @@ struct Watch {
     }
 
     /// Codex 自己的 hook 事件（Pigeon 装在 ~/.codex/hooks.json 里的）。
-    /// 包装层派的任务带 pigeon_task_id（旧版叫 meerkat_task_id），开始和结束已经由包装层报过，这里只管"等你批准"。
+    /// 包装层派的任务带 pigeon_task_id，开始和结束已经由包装层报过，这里只管"等你批准"。
     /// 用户自己在 Codex 里聊的，每一轮算一件 Codex 的活。
     private mutating func codex(_ p: [String: Any], event: String, session: String, folder: String,
                                 notify: NotifyPrefs, now: Date) -> Alert? {
         let key = "codex:" + session
-        let viaWrapper = !((p["pigeon_task_id"] as? String) ?? "").isEmpty || !((p["meerkat_task_id"] as? String) ?? "").isEmpty
+        let viaWrapper = !((p["pigeon_task_id"] as? String) ?? "").isEmpty
         switch event {
         case "UserPromptSubmit":
             waiting[key] = nil

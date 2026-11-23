@@ -27,9 +27,8 @@ test('route-codex：拦下直接的 codex exec 和 codex queue', () => {
   assert.match(q.permissionDecisionReason, /pigeon\.mjs" send/);
 });
 
-test('route-codex：放行走 pigeon.mjs 或旧入口 meerkat-codex.mjs 的命令，以及无关命令', () => {
+test('route-codex：放行走 pigeon.mjs 的命令，以及无关命令', () => {
   assert.equal(route('node /x/plugin/scripts/pigeon.mjs run --kind image -- codex exec 画图'), null);
-  assert.equal(route('node /x/plugin/scripts/meerkat-codex.mjs run --kind review -- codex exec'), null);
   assert.equal(route('codex --version'), null);
   assert.equal(route('codex login status'), null);
   assert.equal(route('echo executable'), null);
@@ -50,13 +49,11 @@ test('route-codex：命令里想换掉确认程序的一律拦下，关掉统一
   assert.match(runHook('route-codex.mjs', { tool_name: 'Bash', tool_input: { command: swap } }, h), /deny/);
 });
 
-test('route-codex：设置里关掉统一走包装层就不拦（新旧设置路径都认）', () => {
-  for (const app of ['Pigeon', 'Meerkat']) {
-    const h = fs.mkdtempSync(path.join(os.tmpdir(), 'pigeon-hooks-'));
-    fs.mkdirSync(path.join(h, 'Library/Application Support', app), { recursive: true });
-    fs.writeFileSync(path.join(h, 'Library/Application Support', app, 'settings.json'), JSON.stringify({ codex: { routeAll: false } }));
-    assert.equal(runHook('route-codex.mjs', { tool_name: 'Bash', tool_input: { command: 'codex exec hi' } }, h), '');
-  }
+test('route-codex：设置里关掉统一走包装层就不拦', () => {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'pigeon-hooks-'));
+  fs.mkdirSync(path.join(h, 'Library/Application Support/Pigeon'), { recursive: true });
+  fs.writeFileSync(path.join(h, 'Library/Application Support/Pigeon/settings.json'), JSON.stringify({ codex: { routeAll: false } }));
+  assert.equal(runHook('route-codex.mjs', { tool_name: 'Bash', tool_input: { command: 'codex exec hi' } }, h), '');
 });
 
 test('prompt-hint：生图、Codex、传话分别提示对应的 skill', () => {

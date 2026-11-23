@@ -101,7 +101,7 @@ const usage = { day: new Date(T0).toISOString().slice(0, 10), agents: {
   subagent: { model: 'claude-haiku-5-5', today: { input: 1200, output: 8800, cacheRead: 220000, cacheWrite: 1000, messages: 14 }, week: { input: 3200, output: 18800, cacheRead: 520000, cacheWrite: 3000, messages: 40 } },
 } };
 const codexModels = [{ slug: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', efforts: ['low', 'medium', 'high', 'xhigh'] }, { slug: 'gpt-6.1-mini', name: 'GPT-6.1 mini', efforts: ['minimal', 'low', 'medium', 'high'] }];
-let hooks = { installed: true, working: true, detail: '已收到 Codex 的事件', legacy: false };
+let hooks = { installed: true, working: true, detail: '已收到 Codex 的事件' };
 let magpieOn = process.env.FAKE_MAGPIE !== 'off';
 const iso = s => new Date(T0 + s * 1000).toISOString();
 const magpie = {

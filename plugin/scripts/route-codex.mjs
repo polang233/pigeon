@@ -2,7 +2,7 @@
 // PreToolUse hook：Claude 绕过 Pigeon 直接调 Codex 时拦下来，让它改用 pigeon.mjs。
 // 包装层会关 stdin、计时、限并发、按设置决定临时任务、记任务记录，还会把进度报给 Pigeon 应用；直接跑就都没有了。
 // 只拦"派活"和"送信"：Bash 里的 codex exec / codex e / codex queue，以及 Codex 的 MCP 派活工具。
-// codex --version、codex login 之类照常放行；命令本身就是走 pigeon.mjs 或旧入口 meerkat-codex.mjs 的也放行。
+// codex --version、codex login 之类照常放行；命令本身就是走 pigeon.mjs 的也放行。
 // 设置里关掉"统一走包装层"（codex.routeAll = false）就不拦。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,15 +24,13 @@ if ((p.tool_name || '') === 'Bash' && /PIGEON_CONFIRM_BIN=/.test(String(p.tool_i
 
 const support = path.join(os.homedir(), 'Library/Application Support');
 let s = null;
-for (const f of [path.join(support, 'Pigeon/settings.json'), path.join(support, 'Meerkat/settings.json')]) {
-  try { s = JSON.parse(fs.readFileSync(f, 'utf8')); break; } catch {}
-}
+try { s = JSON.parse(fs.readFileSync(path.join(support, 'Pigeon/settings.json'), 'utf8')); } catch {}
 if (s && s.codex && s.codex.routeAll === false) process.exit(0);
 
 const wrapper = path.join(path.dirname(fileURLToPath(import.meta.url)), 'pigeon.mjs');
 const name = p.tool_name || '';
 const cmd = String(p.tool_input?.command || '');
-const viaPigeon = cmd.includes('pigeon.mjs') || cmd.includes('meerkat-codex.mjs');
+const viaPigeon = cmd.includes('pigeon.mjs');
 
 let hit = '';
 if (name === 'Bash' && !viaPigeon) {

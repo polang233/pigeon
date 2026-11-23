@@ -11,7 +11,6 @@ export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const FIX = path.join(HERE, 'fixtures');
 export const SCRIPTS = path.join(HERE, '..', 'scripts');
 export const PIGEON = path.join(SCRIPTS, 'pigeon.mjs');
-export const SHIM = path.join(SCRIPTS, 'meerkat-codex.mjs');
 export const fixture = name => fs.readFileSync(path.join(FIX, name), 'utf8');
 
 export const T = {
@@ -69,7 +68,6 @@ export function makeEnv({ mode = 'reply', settings = {}, threads, confirm = 'ok'
     FAKE_CODEX_LOG: log,
     CLAUDE_CODE_SESSION_ID: 'claude-session-test',
   };
-  delete env.MEERKAT_PORT;
   return { root, codexHome, day, env, settingsFile, log, pigeonHome: env.PIGEON_HOME,
     rollout: id => fs.readdirSync(day).map(f => path.join(day, f)).find(f => f.endsWith(`-${id}.jsonl`)),
     journal: () => JSON.parse(fs.readFileSync(path.join(env.PIGEON_HOME, 'journal.json'), 'utf8')),

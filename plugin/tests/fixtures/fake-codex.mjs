@@ -16,7 +16,7 @@ import path from 'node:path';
 const argv = process.argv.slice(2);
 const home = process.env.CODEX_HOME;
 const mode = process.env.FAKE_CODEX_MODE || 'reply';
-if (process.env.FAKE_CODEX_LOG) fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ argv, env: { PIGEON_TASK_ID: process.env.PIGEON_TASK_ID || '', MEERKAT_TASK_ID: process.env.MEERKAT_TASK_ID || '' } }) + '\n');
+if (process.env.FAKE_CODEX_LOG) fs.appendFileSync(process.env.FAKE_CODEX_LOG, JSON.stringify({ argv, env: { PIGEON_TASK_ID: process.env.PIGEON_TASK_ID || '' } }) + '\n');
 
 const HOST = 'remote-control:env_e_0000test0000aaaa';
 const opt = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : ''; };

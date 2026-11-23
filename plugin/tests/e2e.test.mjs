@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeEnv, fakeApp, pigeon, until, T, SHIM } from './helpers.mjs';
+import { makeEnv, fakeApp, pigeon, until, T } from './helpers.mjs';
 
 async function setup(opts = {}) {
   const e = makeEnv(opts);
@@ -455,13 +455,11 @@ test('run：行为不变，事件改名 PigeonRun、任务 id 前缀 pg-、两�
     assert.match(r.stdout, /完整记录：.*\/runs\/pg-/);
     const ex = e.calls().find(c => c.argv[0] === 'exec');
     assert.match(ex.env.PIGEON_TASK_ID, /^pg-/);
-    assert.equal(ex.env.MEERKAT_TASK_ID, ex.env.PIGEON_TASK_ID);
     assert.equal(ex.argv[ex.argv.indexOf('-s') + 1], 'read-only');
     const runs = app.events.filter(x => x.hook_event_name === 'PigeonRun');
     assert.deepEqual(runs.map(x => x.phase).filter((p, i, a) => a.indexOf(p) === i), ['start', 'thread', 'activity', 'end']);
     assert.ok(runs.every(x => /^pg-/.test(x.task_id)));
     assert.equal(runs.at(-1).status, 'done');
-    assert.ok(!app.events.some(x => x.hook_event_name === 'MeerkatCodex'));
     assert.ok(fs.existsSync(path.join(e.pigeonHome, 'runs')));
   } finally { await done(); }
 });
@@ -473,21 +471,6 @@ test('run：失败时退出码 1，摘要是错误', async () => {
     assert.equal(r.code, 1);
     assert.match(r.stdout, /Codex 出错/);
     assert.match(r.stdout, /model exploded/);
-  } finally { await done(); }
-});
-
-test('meerkat-codex.mjs 薄壳：转发到 pigeon', async () => {
-  const { e, done } = await setup();
-  try {
-    const s = await pigeon(['settings'], e.env, SHIM);
-    assert.equal(s.code, 0, s.stderr);
-    assert.match(s.stdout, /Pigeon 设置/);
-    const d = await pigeon(['doctor'], e.env, SHIM);
-    assert.equal(d.code, 0);
-    assert.match(d.stdout, /codex 命令：.*fake-codex/);
-    const r = await pigeon(['run', '--kind', 'general', '--cwd', e.root, '--', '你好'], e.env, SHIM);
-    assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /Codex 完成/);
   } finally { await done(); }
 });
 

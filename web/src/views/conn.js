@@ -48,7 +48,7 @@ function cxHTML() {
   return html`<div class="cpanel">
     <h4>Codex 和 Pigeon</h4>
     <span class="lb" data-tip="在本机 Codex 的配置里加两条回调，它每一轮开始、结束、调工具时告诉 Pigeon。会改本机 Codex 的配置，马上生效">接收 Codex 自己的事件</span>
-    <span class="hookrow"><button class="sw" type="button" role="switch" aria-checked="${bool(!!H.installed)}" data-action="cx-hooks" aria-label="接收 Codex 自己的事件" ${H.busy || H.installed == null ? raw('disabled') : ''}></button><small class="${H.err ? 'bad' : 'mut'}" role="status">${H.err || (H.busy ? '读取中…' : H.detail || (H.installed == null ? '' : H.working ? '已收到 Codex 的事件' : '还没收到 Codex 的事件'))}${H.legacy ? '（装的是旧脚本，关掉再打开会换成新的）' : ''}</small></span>
+    <span class="hookrow"><button class="sw" type="button" role="switch" aria-checked="${bool(!!H.installed)}" data-action="cx-hooks" aria-label="接收 Codex 自己的事件" ${H.busy || H.installed == null ? raw('disabled') : ''}></button><small class="${H.err ? 'bad' : 'mut'}" role="status">${H.err || (H.busy ? '读取中…' : H.detail || (H.installed == null ? '' : H.working ? '已收到 Codex 的事件' : '还没收到 Codex 的事件'))}</small></span>
     ${pick('post.relayThread', '中继对话', relayOpts, relay, '本机 Codex 里专门用来转发的那个对话。往别的电脑发消息都要经过它，每次转发跑一轮模型。不设就只能给本机的对话发')}
     <h4>Claude Code 经 pigeon run 交给 Codex 的活</h4>
     ${sw('routeAll', '都走 Pigeon', 'Claude Code 直接跑 codex exec 或用 Codex 的 MCP 派活时，改走 pigeon run，这样都能看到进度、按这里的设置跑')}

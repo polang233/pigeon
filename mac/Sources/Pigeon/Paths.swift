@@ -9,11 +9,9 @@ enum Paths {
 
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
-    /// 先看环境变量里的新名字，再看旧名字；空串当作没设
-    static func envValue(_ names: String...) -> String? {
-        for name in names {
-            if let v = env[name], !v.isEmpty { return v }
-        }
+    /// 环境变量的值；空串当作没设
+    static func envValue(_ name: String) -> String? {
+        if let v = env[name], !v.isEmpty { return v }
         return nil
     }
 
@@ -25,15 +23,15 @@ enum Paths {
         return FileManager.default.homeDirectoryForCurrentUser
     }()
 
-    /// 本机服务端口：PIGEON_PORT → MEERKAT_PORT → 47321
+    /// 本机服务端口：PIGEON_PORT，没设时 47321
     static let port: UInt16 = {
-        if let text = envValue("PIGEON_PORT", "MEERKAT_PORT"), let p = UInt16(text), p > 0 { return p }
+        if let text = envValue("PIGEON_PORT"), let p = UInt16(text), p > 0 { return p }
         return 47321
     }()
 
-    /// 顺序：PIGEON_WEB_ROOT / MEERKAT_WEB_ROOT → .app 内 Resources/web → ../web（相对 mac/）→ 当前目录推断
+    /// 顺序：PIGEON_WEB_ROOT → .app 内 Resources/web → ../web（相对 mac/）→ 当前目录推断
     static func resolveWebRoot() -> URL {
-        if let custom = envValue("PIGEON_WEB_ROOT", "MEERKAT_WEB_ROOT") {
+        if let custom = envValue("PIGEON_WEB_ROOT") {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath).standardizedFileURL
         }
         if Bundle.main.bundleIdentifier != nil,
@@ -50,8 +48,6 @@ enum Paths {
     }
 
     static let settingsFile: URL = home.appendingPathComponent("Library/Application Support/Pigeon/settings.json")
-    /// Meerkat 时期的设置文件，只读，用来迁移
-    static let legacySettingsFile: URL = home.appendingPathComponent("Library/Application Support/Meerkat/settings.json")
 
     /// ~/.pigeon：任务记录、设备和对话的缓存、run 记录。PIGEON_HOME 可以改到别处（测试用）。
     static let dataDir: URL = {
@@ -62,18 +58,6 @@ enum Paths {
     }()
     static var journalFile: URL { dataDir.appendingPathComponent("journal.json") }
     static var loftsFile: URL { dataDir.appendingPathComponent("lofts.json") }
-
-    /// 新设置文件不存在而旧的存在时复制一份过来。旧文件不删，旧版应用还能接着用。
-    static func migrateSettingsIfNeeded() {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: settingsFile.path), fm.fileExists(atPath: legacySettingsFile.path) else { return }
-        do {
-            try fm.createDirectory(at: settingsFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.copyItem(at: legacySettingsFile, to: settingsFile)
-        } catch {
-            FileHandle.standardError.write(Data("迁移旧设置失败：\(error.localizedDescription)\n".utf8))
-        }
-    }
 
     static var codexHome: URL {
         if let custom = envValue("CODEX_HOME") {

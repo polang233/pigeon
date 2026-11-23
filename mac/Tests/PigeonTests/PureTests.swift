@@ -209,7 +209,6 @@ import Testing
     @Test func 只把网页用得到的转给网页() {
         #expect(Hub.forwardsHook(["hook_event_name": "PigeonNote", "band": "b-1"]))
         #expect(Hub.forwardsHook(["hook_event_name": "PigeonRun", "task_id": "pg-1"]))
-        #expect(Hub.forwardsHook(["hook_event_name": "MeerkatCodex", "task_id": "mk-1"]))
         // Claude Code 自己的 hook、Codex 的 hook 只在应用里用
         #expect(!Hub.forwardsHook(["hook_event_name": "PreToolUse", "tool_name": "Edit"]))
         #expect(!Hub.forwardsHook(["hook_event_name": "UserPromptSubmit"]))

@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 export const HOME = os.homedir();
-export const port = () => Number(process.env.PIGEON_PORT || process.env.MEERKAT_PORT || 47321);
+export const port = () => Number(process.env.PIGEON_PORT || 47321);
 export const pigeonDir = () => process.env.PIGEON_HOME || path.join(HOME, '.pigeon');
 export const codexHome = () => process.env.CODEX_HOME || path.join(HOME, '.codex');
 export const journalFile = () => path.join(pigeonDir(), 'journal.json');
@@ -18,7 +18,7 @@ export const runningDir = () => path.join(pigeonDir(), 'running');
 const APP_SUPPORT = path.join(HOME, 'Library/Application Support');
 export const settingsFiles = () => process.env.PIGEON_SETTINGS_FILE
   ? [process.env.PIGEON_SETTINGS_FILE]
-  : [path.join(APP_SUPPORT, 'Pigeon/settings.json'), path.join(APP_SUPPORT, 'Meerkat/settings.json')];
+  : [path.join(APP_SUPPORT, 'Pigeon/settings.json')];
 
 export const LOCAL = 'local';
 export const LOCAL_NAME = '这台 Mac';
@@ -138,8 +138,7 @@ export async function loadSettings() {
   return { codex: { ...CODEX_DEFAULTS, ...((raw && raw.codex) || {}) }, post, secrets, raw: raw || {}, source, appOnline: !!r };
 }
 
-// 改一处设置。应用开着时走 PUT（应用负责写文件和广播）；没开时直接改设置文件，
-// 新文件不存在而旧的 Meerkat 文件存在时，先按迁移规则把旧内容带过来，免得应用以后跳过迁移。
+// 改一处设置。应用开着时走 PUT（应用负责写文件和广播）；没开时直接改设置文件。
 export async function patchSettings(mutate) {
   const r = await request('GET', '/api/settings');
   if (r && r.status === 200 && r.json && typeof r.json === 'object') {
@@ -152,8 +151,7 @@ export async function patchSettings(mutate) {
   const files = settingsFiles();
   const target = files[0];
   let raw = {};
-  try { raw = JSON.parse(fs.readFileSync(target, 'utf8')); }
-  catch { for (const f of files.slice(1)) { try { raw = JSON.parse(fs.readFileSync(f, 'utf8')); break; } catch {} } }
+  try { raw = JSON.parse(fs.readFileSync(target, 'utf8')); } catch {}
   if (!raw || typeof raw !== 'object') raw = {};
   if (raw.version == null) raw.version = 1;
   mutate(raw);
@@ -175,7 +173,6 @@ export function readJson(file, fallback) {
 export function codexBin() {
   const cands = [
     process.env.PIGEON_CODEX_BIN,
-    process.env.MEERKAT_CODEX_BIN,
     '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex',
     '/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex',
     '/opt/homebrew/bin/codex', '/usr/local/bin/codex', path.join(HOME, '.local/bin/codex'),

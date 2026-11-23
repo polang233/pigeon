@@ -48,7 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         if Bundle.main.bundleIdentifier == nil, let icon = Paths.devIconURL(), let image = NSImage(contentsOf: icon) {
             NSApp.applicationIconImage = image
         }
-        Paths.migrateSettingsIfNeeded()
         buildMenu()
         buildWindow()
 
