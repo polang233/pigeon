@@ -115,7 +115,8 @@ function show() {
   const from = shown; shown = st.ui.view;
   if (!from || from === shown || quiet.matches) return swap();
   document.documentElement.dataset.nav = ORDER.indexOf(shown) > ORDER.indexOf(from) ? 'down' : 'up';
-  if (document.startViewTransition) { document.startViewTransition(swap); return; }
+  // 页面看不见时（窗口最小化、被盖住）浏览器会放弃这次过渡，直接换
+  if (document.startViewTransition && !document.hidden) { document.startViewTransition(swap).ready.catch(() => {}); return; }
   swap();
   main.classList.remove('page-in'); void main.offsetWidth; main.classList.add('page-in');
 }
