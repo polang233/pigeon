@@ -55,6 +55,8 @@ public final class NotchController {
         panel.becomesKeyOnlyIfNeeded = false
         panel.title = "Pigeon 刘海"
         panel.setAccessibilityLabel("Pigeon 刘海面板")
+        // 刘海永远是黑底：窗口固定深色外观。不然系统是浅色时，灰白色的图标会被当成浅色外观画成黑的
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         // 窗口大小由控制器定（比形状大、只长不缩），不跟着 SwiftUI 内容的尺寸跳
         host.sizingOptions = []
