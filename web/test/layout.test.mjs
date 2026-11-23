@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultCells, freeCell, placeCells, cellsOf, gridOf, leavesOf, edgePath, zoomOf, saveCell, loadCell, nearestCell } from '../src/core/layout.js';
-import { devicePage, pagesOf, edgeOf, stateOf, poseOf, events } from '../src/core/pages.js';
+import { devicePage, pagesOf, edgeOf, stateOf, poseOf, events, leadSessions } from '../src/core/pages.js';
 import { freshState, rehome } from './helpers.mjs';
 
 const tree = (...froms) => ({ center: { kind: 'lead' }, nodes: froms.map(from => ({ kind: 'agent', from })) });
@@ -118,12 +118,32 @@ test('你自己当指挥：中心画“你”，本机的 agent 都挂在你下�
   assert.deepEqual(win.center.agents, ['claude', 'codex', 'cursor', 'dsh']);
 });
 
-test('换个能发出的 agent 当指挥：它最近一次派活的对话画在中心', () => {
+test('换个能发出的 agent 当指挥：它在那台的对话都画在中心，最近一次派活的排第一', () => {
   const st = freshState(); st.lead = { kind: 'agent', agent: 'codex', dev: 'mac' };
   const [mac] = pagesOf(st);
   assert.equal(mac.center.a, 'codex');
-  assert.deepEqual(mac.center.ids, ['s2']);
+  assert.deepEqual(mac.center.ids, ['s2', 's3']);
+  assert.ok(!mac.nodes.some(n => n.kind === 'agent' && n.a === 'codex'), '不再另画一个 Codex');
   assert.ok(mac.nodes.some(n => n.a === 'claude'));
+  // 远程卡片原来挂在本机 Codex 下面，Codex 当指挥时就挂在中心
+  assert.equal(mac.nodes.find(n => n.kind === 'group').from, -1);
+});
+
+test('指挥在本机还有别的对话：都算指挥，收在中心，不再另画一个同名的 agent', () => {
+  const st = freshState();
+  st.S.push({ id: 'c2', agent: 'claude', dev: 'mac', title: '另一个 Claude Code 对话', state: 'wait', activity: 'waiting', model: 'Opus 5.5', think: 'high', note: '等你批准' });
+  const [mac, win] = pagesOf(st);
+  assert.equal(mac.center.kind, 'lead');
+  assert.deepEqual(mac.center.ids, ['s1', 's1a', 'c2'], '最近派活的 s1 和它的子代理在前');
+  assert.ok(!mac.nodes.some(n => n.kind === 'agent' && n.a === 'claude'), '本机那页上只有一个 Claude Code');
+  assert.equal(stateOf(st, mac.center), 'wait', '其中一个对话在等你，指挥就显示在等你');
+  assert.deepEqual(leadSessions(st).map(s => s.id), ['s1', 'c2']);
+  // 别的电脑上的 Claude Code 是另一个，照常画
+  assert.ok(win.nodes.some(n => n.a === 'claude'));
+  // 你当指挥时，本机的 Claude Code 是普通的一个节点，几个对话都在它身上
+  st.lead = { kind: 'you' };
+  const [mac2] = pagesOf(st);
+  assert.deepEqual(mac2.nodes.find(n => n.a === 'claude').ids, ['s1', 's1a', 'c2']);
 });
 
 test('拖过的节点先占位，别的绕开；位置按比例换算到新网格', () => {

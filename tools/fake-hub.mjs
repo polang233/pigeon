@@ -53,6 +53,8 @@ const lofts = {
     { id: 'local', name: '这台 Mac', online: true, projects: [], sessions: [
       { id: 'cl-main-0001', agent: 'claude', title: 'Pigeon 重构', cwd: '/Users/demo/Code/pigeon', updated: ago(5), state: 'run', activity: 'delegating', detail: 'pigeon send', model: 'claude-opus-5-5', effort: 'high' },
       { id: 'cl-main-0001:tu-01', agent: 'claude', title: '子代理：查回调文档', cwd: '/Users/demo/Code/pigeon', updated: ago(8), state: 'run', activity: 'reading', detail: 'Read docs/CONTRACT.md', model: 'claude-haiku-5-5', parent: 'cl-main-0001' },
+      // 本机同时开着的另一个 Claude Code 对话：它也算指挥，指挥台上应该收在指挥身上，不另画一个
+      { id: 'cl-side-0002', agent: 'claude', title: '整理文档', cwd: '/Users/demo/Code/notes', updated: ago(1500), state: 'idle', model: 'claude-sonnet-5-5', effort: 'medium' },
       { id: 'th-relay-0001', agent: 'codex', title: '中继', cwd: '/Users/demo', updated: ago(900), relay: true, state: 'idle' },
       { id: 'th-icon-0002', agent: 'codex', title: '画应用图标', cwd: '/Users/demo/Code/pigeon', updated: ago(30), state: 'run', activity: 'typing', detail: 'apply_patch', model: 'gpt-6.1-sol', effort: 'medium' },
       { id: 'th-review-0003', agent: 'codex', title: '审查确认框改动', cwd: '/Users/demo/Code/pigeon', updated: ago(200), state: 'done', model: 'gpt-6.1-sol', effort: 'high' },

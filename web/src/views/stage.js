@@ -16,8 +16,8 @@ import { svg, IC, icon, Brand, brand } from '../icons.js';
 import { $, $$, patch, part, reduce } from '../dom.js';
 import { whileVisible } from '../visible.js';
 import { AG, ST, TS, TH, ACT, LIVE } from '../core/labels.js';
-import { by, cross, kids, worst, shortDev, jumpLabel, isPaused, isYou, leadSession, leadKey, canLead, canTake, online } from '../core/names.js';
-import { pagesOf, stateOf, parentOf, edgeOf, modelOf, poseOf, pageSessions, events } from '../core/pages.js';
+import { by, cross, kids, worst, shortDev, jumpLabel, isPaused, isYou, leadKey, canLead, canTake, online } from '../core/names.js';
+import { pagesOf, stateOf, parentOf, edgeOf, modelOf, poseOf, pageSessions, events, leadSessions } from '../core/pages.js';
 import { zoomOf, gridOf, leavesOf, placeCells, cellXY, edgePath, cellsOf, freeCell, saveCell, loadCell, nearestCell } from '../core/layout.js';
 import { qc } from '../core/quota.js';
 import { rst } from '../core/time.js';
@@ -398,14 +398,16 @@ function drawInsp() {
   // 能不能给它派活：开着、能接收的（第一版里本机的 Claude Code 还不能接收）
   const takes = (a, d) => canTake((st.CONN[d] || []).find(c => c.a === a));
   if (sel.t === 'session' && by(st, sel.id)) {
-    const s = by(st, sel.id), ts = st.T.filter(t => t.from === s.id || t.to === s.id), ks = kids(st, s), isLead = leadSession(st) === s;
+    // 指挥那台上它的每个对话都算指挥；选中其中一个时，下面列出另外几个，好点过去
+    const s = by(st, sel.id), ts = st.T.filter(t => t.from === s.id || t.to === s.id), ks = kids(st, s), LS = leadSessions(st), isLead = LS.includes(s), others = isLead ? LS.filter(x => x !== s) : [];
     h = html`<div class="who">${g(s.agent, '', s.state)}<div><b>${s.title}</b><small>${AG[s.agent].name} · ${st.DEV[s.dev].name}</small></div></div>
       <div class="acts">${stTag(s.state)}${isLead ? html`<span class="badge">指挥</span>` : ''}${s.state === 'run' && s.activity ? html`<span class="badge">${ACT[s.activity]}</span>` : ''}${s.model ? html`<span class="badge">${s.model}${TH[s.think] ? ' · 思考' + TH[s.think][0] : ''}</span>` : ''}</div>
       ${s.state === 'error' ? html`<div class="errbox" role="alert"><span>${s.error || '出错了'}</span>${st.mode === 'live' ? '' : html`<button class="ghost" type="button" data-action="retry-session" data-id="${s.id}">重试</button>`}</div>` : ''}
       <p class="note">${s.note}${s.via ? `。这台设备只连了 ${AG[s.via].name}，它是由 ${AG[s.via].name} 在那边带起来的` : ''}${s.parent ? `。由「${by(st, s.parent).title}」拆出来` : ''}</p>
       ${ks.length ? html`<h3>它拆出的子对话 · ${ks.length}</h3><div class="list">${ks.map(k => html`<button type="button" class="item" ${selAttrs({ t: 'session', id: k.id })}>${g(k.agent, 'sm')}<div><b>${k.title}</b><small>${k.note}</small></div>${stTag(k.state)}</button>`)}</div>` : ''}
       <div class="acts">${takes(s.agent, s.dev) && !s.stub ? html`<button class="ghost" type="button" data-action="msg" data-s="${s.id}">给它发消息</button>` : ''}${s.stub && st.mode === 'live' ? '' : html`<button class="ghost" type="button" data-action="jump" data-s="${s.id}">${icon('jump')}${jumpLabel(st, s)}</button>`}${s.parent ? '' : leadBtn(s.agent, s.dev)}</div>
-      <h3>它的往来 · ${ts.length}</h3><div class="list">${ts.length ? ts.map(taskRow) : html`<p class="note">还没有往来</p>`}</div>`;
+      <h3>它的往来 · ${ts.length}</h3><div class="list">${ts.length ? ts.map(taskRow) : html`<p class="note">还没有往来</p>`}</div>
+      ${others.length ? html`<h3>指挥的其他对话 · ${others.length}</h3><div class="list">${others.map(o => html`<button type="button" class="item" ${selAttrs({ t: 'session', id: o.id })}>${g(o.agent, 'sm')}<div><b>${o.title}</b><small>${o.state === 'error' ? o.error : o.note}</small></div>${stTag(o.state)}</button>`)}</div>` : ''}`;
   } else if (sel.t === 'you') {
     const ts = st.T.filter(t => t.from === 'you');
     h = html`<div class="who"><span class="g">${icon('bird')}</span><div><b>你</b><small>指挥 · 在 Pigeon 里自己派活</small></div></div>
