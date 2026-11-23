@@ -203,8 +203,8 @@ export function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-// 发件人：在 Claude Code 里跑时是 claude，否则当成用户自己
+// 发件人：在 Claude Code 里跑时是 claude，否则当成用户自己。cwd 是发件那个对话的项目目录，应用按它把消息归进频道
 export function sender() {
   const sid = process.env.CLAUDE_CODE_SESSION_ID || '';
-  return sid ? { loft: LOCAL, agent: 'claude', session: sid, title: '' } : { loft: LOCAL, agent: 'you', session: '', title: '' };
+  return sid ? { loft: LOCAL, agent: 'claude', session: sid, title: '', cwd: process.cwd() } : { loft: LOCAL, agent: 'you', session: '', title: '' };
 }

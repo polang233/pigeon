@@ -244,6 +244,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 - `model` 和 `effort` 是 `pigeon new --model / --effort` 指定的新对话模型和思考强度；没指定是空串，表示用对方的默认设置。本机经 `codex exec` 的 `-m` 和 `model_reasoning_effort` 生效，远程经中继站写进 `create_thread` 的 `model` 和 `thinking` 生效。`send` 给已有对话发时总是空串，已有对话换不了模型。
 - `state` 取六个值，见下表。时间戳是毫秒。
 - 正文不写进文件。
+- `from.cwd`（2026-11-23 起）：发件那个 Claude Code 对话的项目目录。应用按它把消息归进项目频道（见 `CHANNELS.md`）；你自己发的、旧的记录没有这个字段。
 - 每条消息还有一个内部用的 `track` 对象（后台进程的截止时间、中继站对话和记录文件的位置等）。它是额外字段，读取方应忽略不认识的字段。
 
 `lofts.json`：

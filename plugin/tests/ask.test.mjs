@@ -80,7 +80,10 @@ test('ask：放行 → 先发 asking，再排队、进行中；请求体符合�
     const a = app.asks[0];
     assert.equal(a.kind, 'cross');
     assert.equal(a.band, band);
-    assert.deepEqual(a.from, { loft: 'local', agent: 'claude', session: 'claude-session-test', title: '' });
+    // 发件人带上它所在的目录（应用按它把消息归进频道）
+    const { cwd: fromCwd, ...fromRest } = a.from;
+    assert.ok(fromCwd, '发件人带了目录');
+    assert.deepEqual(fromRest, { loft: 'local', agent: 'claude', session: 'claude-session-test', title: '' });
     assert.equal(a.to.loft, T.host);
     assert.equal(a.to.agent, 'codex');
     assert.equal(a.to.session, T.remote);

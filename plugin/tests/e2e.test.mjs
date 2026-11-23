@@ -32,7 +32,10 @@ test('本机发送：排队、看护进程跟到回信到了、回信能读，�
     assert.equal(n.via, 'queue');
     assert.equal(n.chain, band);
     assert.equal(n.count, 1);
-    assert.deepEqual(n.from, { loft: 'local', agent: 'claude', session: 'claude-session-test', title: '' });
+    // 发件人带上它所在的目录（应用按它把消息归进频道）
+    const { cwd: fromCwd, ...fromRest } = n.from;
+    assert.ok(fromCwd, '发件人带了目录');
+    assert.deepEqual(fromRest, { loft: 'local', agent: 'claude', session: 'claude-session-test', title: '' });
     assert.equal(n.to.session, T.local);
     assert.equal(n.to.title, '跑测试');
     assert.ok(!fs.readFileSync(path.join(e.pigeonHome, 'journal.json'), 'utf8').includes('npm test'), '日志里不能有正文');
