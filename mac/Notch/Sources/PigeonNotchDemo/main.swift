@@ -227,6 +227,11 @@ func tour(_ host: DemoHost, dir: String) async {
     host.push()
     await wait(0.6)
     capture(host, to: dir, name: "7-idle-quiet")
+    // 什么事都没有时展开：只有底下一行按钮
+    host.notch.show(.overview, takeFocus: false)
+    await wait(0.6)
+    capture(host, to: dir, name: "8-overview-empty")
+    host.notch.collapse()
 }
 
 @MainActor

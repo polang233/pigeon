@@ -9,18 +9,10 @@ struct QueueView: View {
         let m = vm.model
         VStack(alignment: .leading, spacing: 0) {
             if m.queue.isEmpty && m.prompts.isEmpty {
-                HudHeader(title: "没有等你的事") { EmptyView() }
-                Text("跨设备发送、转派、拆活要你点头时会排在这里。")
-                    .font(.system(size: 12)).foregroundStyle(Theme.dim).padding(.bottom, 10)
-                HStack {
-                    Button("派活") { vm.show(.compose, opener: .click, takeFocus: true) }.buttonStyle(.hud())
-                    Spacer()
-                    PauseButton(vm: vm)
-                }
+                EmptyActions(vm: vm)
             } else {
-                HudHeader(title: "等你 · \(m.waitingCount)") {
-                    if !m.queue.isEmpty { Text("↑↓ 选　↩ 放行　⌫ 拦下").font(.system(size: 10.5)).foregroundStyle(Theme.faint) }
-                }
+                HudHeader(title: "等你 · \(m.waitingCount)") { EmptyView() }
+                    .help(m.queue.isEmpty ? "" : "↑↓ 选，回车放行，删除键拦下")
                 ForEach(m.prompts) { p in PromptRow(vm: vm, prompt: p) }
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -37,12 +29,8 @@ struct QueueView: View {
                         withAnimation(vm.reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id) }
                     }
                 }
-                Divider().overlay(Color.white.opacity(0.08)).padding(.top, 10).padding(.bottom, 10)
-                HStack {
-                    Text(m.paused ? "暂停中：放行的先排着，继续后再送出" : "拿不准时，可以先全部停下")
-                        .font(.system(size: 11.5)).foregroundStyle(m.paused ? Theme.amber : Theme.faint)
-                    Spacer()
-                    PauseButton(vm: vm)
+                HudFooter(vm: vm) {
+                    Button("打开 Pigeon") { vm.openMain(.tasks) }.buttonStyle(.hud())
                 }
             }
         }
@@ -146,18 +134,11 @@ struct QueueDetail: View {
                         .font(.system(size: 11.5)).foregroundStyle(mode == .mask ? Theme.maskedFg : Theme.red)
                         .padding(.bottom, 6)
                 }
-                TimelineView(.periodic(from: .now, by: 1)) { c in
-                    Text(QueueA11y.crossNote(item, now: c.date)).font(.system(size: 11.5)).foregroundStyle(Theme.faint)
-                }
-                .padding(.bottom, 9)
             case .relay:
                 (Text("\(item.from.agent.displayName)\(item.from.sessionTitle.isEmpty ? "" : "（\(item.from.sessionTitle)）") 想把这件转给 ")
                  + Text(item.to.whoText).fontWeight(.semibold))
                     .font(.system(size: 12.5)).foregroundStyle(Theme.soft).padding(.top, 2)
                 fullText(mode)
-                if !item.ruleLabel.isEmpty {
-                    Text("命中规则「\(item.ruleLabel)」").font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(.bottom, 9)
-                }
             case .split:
                 Text("指挥想把「\(item.from.sessionTitle.isEmpty ? item.preview : item.from.sessionTitle)」拆成 \(item.parts.count) 件，同时派出去")
                     .font(.system(size: 12.5)).foregroundStyle(Theme.soft).padding(.top, 2)
@@ -215,7 +196,7 @@ struct QueueDetail: View {
         case .releaseRaw: .plain
         }
         return Button { vm.press(b, on: item) } label: {
-            if b == .jump { Label(title, systemImage: "arrow.up.forward.app") } else { Text(title) }
+            if b == .jump { Label(title, systemImage: "arrow.up.right") } else { Text(title) }
         }
         .buttonStyle(.hud(style))
         .focused(focus, equals: b)

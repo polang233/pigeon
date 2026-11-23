@@ -51,11 +51,10 @@ struct ComposeView: View {
                             }
                         }
                     }
-                    GridRow {
-                        label("思考")
-                        if ComposeLogic.isRouted(agent, model: pick?.model ?? "") {
-                            Text("由 magpie 的路由组决定").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
-                        } else {
+                    // magpie 的路由组自己定思考强度，这一行就不出现
+                    if !ComposeLogic.isRouted(agent, model: pick?.model ?? "") {
+                        GridRow {
+                            label("思考")
                             EffortPicker(levels: ComposeLogic.levels(agent, model: pick?.model ?? ""), current: pick?.effort) {
                                 ComposeLogic.selectEffort(&vm.compose, $0, in: data)
                             }
@@ -82,14 +81,13 @@ struct ComposeView: View {
             } else if s.sentBand != nil {
                 Label("已发出", systemImage: "checkmark").font(.system(size: 11.5)).foregroundStyle(Theme.go).padding(.bottom, 6)
             }
-            HStack {
-                Text(ComposeLogic.footer(s, in: data)).font(.system(size: 11.5)).foregroundStyle(Theme.faint).lineLimit(2)
-                Spacer(minLength: 6)
+            HudFooter(vm: vm, pause: false) {
                 Button("取消") { vm.collapse() }.buttonStyle(.hud())
-                Button(s.sending ? "发送中…" : "发出") { vm.send() }
+                Button { vm.send() } label: { Label(s.sending ? "发送中…" : "发出", systemImage: "paperplane.fill") }
                     .buttonStyle(.hud(.go))
                     .disabled(s.sending || ComposeLogic.blockReason(s, in: data) != nil)
-                    .help(ComposeLogic.blockReason(s, in: data) ?? "回车发出")
+                    // 发到哪、要不要先确认，放在悬停提示里
+                    .help(ComposeLogic.blockReason(s, in: data) ?? "\(ComposeLogic.footer(s, in: data))。回车发出")
             }
         }
         .onAppear { if vm.machine.keyAllowed { fieldFocused = true } }
@@ -105,15 +103,11 @@ struct ComposeView: View {
         let data = vm.model.compose
         if let k = vm.compose.suggestion, let found = ComposeLogic.lookup(k, in: data) {
             let name = found.agent.agent.displayName + (found.device.isLocal ? "" : " @ \(found.device.name)")
-            HStack(spacing: 6) {
-                if k == vm.compose.target {
-                    Text("照分派规则选的：\(name)")
-                } else {
-                    Text("分派规则建议给 \(name)")
-                    Button("选它") { ComposeLogic.selectTarget(&vm.compose, k, in: data) }.buttonStyle(.hud(.link))
-                }
+            if k != vm.compose.target {
+                Button { ComposeLogic.selectTarget(&vm.compose, k, in: data) } label: { Label("按分派规则改给 \(name)", systemImage: "arrow.triangle.branch") }
+                    .buttonStyle(.hud(.link))
+                    .padding(.bottom, 6)
             }
-            .font(.system(size: 11.5)).foregroundStyle(Theme.dim).padding(.bottom, 6)
         }
     }
 }

@@ -158,26 +158,19 @@ struct NotchRootView: View {
     }
 
     @ViewBuilder private var content: some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                switch vm.state {
-                case .idle: EmptyView()
-                case .overview: OverviewView(vm: vm)
-                case .queue: QueueView(vm: vm)
-                case .reply: ReplyView(vm: vm)
-                case .compose: ComposeView(vm: vm)
-                }
+        // 没有关闭按钮：鼠标移开、点面板外面、按 Esc 都会收起
+        Group {
+            switch vm.state {
+            case .idle: EmptyView()
+            case .overview: OverviewView(vm: vm)
+            case .queue: QueueView(vm: vm)
+            case .reply: ReplyView(vm: vm)
+            case .compose: ComposeView(vm: vm)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button { vm.collapse() } label: {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
-            }
-            .buttonStyle(.hud(.link))
-            .padding(.top, -4)
-            .accessibilityLabel("收起刘海面板")
-            .help("收起（Esc）")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(Theme.text)
+        .accessibilityAction(.escape) { vm.collapse() }
     }
 }
 

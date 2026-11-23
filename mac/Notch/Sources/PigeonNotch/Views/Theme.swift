@@ -102,8 +102,6 @@ extension ButtonStyle where Self == HudButtonStyle {
 /// 标题行：左边一句，右边小字
 struct HudHeader<Trailing: View>: View {
     var title: String
-    /// 是面板里的第一行时，给右上角的关闭按钮让地方
-    var reserveClose = true
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -114,9 +112,41 @@ struct HudHeader<Trailing: View>: View {
         }
         .font(.system(size: 11.5, weight: .medium))
         .foregroundStyle(Theme.dim)
-        .padding(.trailing, reserveClose ? 28 : 0)
         .padding(.top, 2)
         .padding(.bottom, 6)
+    }
+}
+
+/// 每一页最底下那行按钮：左边固定是全部暂停（或继续），右边是这一页的操作，主要的那个放最右
+struct HudFooter<Trailing: View>: View {
+    @Bindable var vm: NotchViewModel
+    var pause = true
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if pause { PauseButton(vm: vm) }
+            Spacer(minLength: 6)
+            trailing
+        }
+        .padding(.top, 10)
+        .overlay(alignment: .top) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
+        .padding(.top, 10)
+    }
+}
+
+/// 没什么事的时候：只有底下那一行按钮，和别的页一样的位置，不画分隔线
+struct EmptyActions: View {
+    @Bindable var vm: NotchViewModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            PauseButton(vm: vm)
+            Spacer(minLength: 6)
+            Button("打开 Pigeon") { vm.openMain(.stage) }.buttonStyle(.hud())
+            Button { vm.show(.compose, opener: .click, takeFocus: true) } label: { Label("派活", systemImage: "paperplane.fill") }.buttonStyle(.hud(.go))
+        }
+        .padding(.top, 4)
     }
 }
 
