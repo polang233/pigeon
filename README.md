@@ -19,7 +19,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
   <img src="docs/images/notch-overview.png" width="440" alt="刘海面板：等你处理的事、新回信、正在进行的任务（演示数据）">
 </p>
 
-应用的窗口有四页：指挥台（谁在给谁派活）、任务（每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，鼠标移上去就展开，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
+应用的窗口有四页：指挥台（谁在给谁派活）、频道（按项目看每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，鼠标移上去就展开，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
 
 > **现在的状态：** 0.3.0，早期版本，只有 Mac 版，没有发布安装包，需要自己构建（见下面"运行"）。更新记录见 [CHANGELOG.md](CHANGELOG.md)，还没做的事见 [docs/TODO.md](docs/TODO.md)，界面方案见 [docs/DESIGN.md](docs/DESIGN.md)。
 
@@ -59,6 +59,47 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 - 跨设备发送前，在 Pigeon 自己的面板里确认；等你处理的一队里现在只有这一类事。
 - 添加设备只有"Codex 应用内"（经中继站重读远程电脑）；经 SSH、经 magpie 添加设备、Cursor 和 DeepSeek Harness 的接入都还没做，界面上标"还没接上"或置灰。
 - 接活的 agent 往下转派前问你、指挥一次拆活前问你、会话失败后重试、把回信转给指挥，都还没做。
+
+## 演示里的样子：打算做成什么样
+
+不开 Mac 应用也能看一套用示例数据的演示（`python3 tools/serve.py`，见下面"运行"）。演示里画的比现在真能做到的多，下面这几张图就是要慢慢做到的样子。每张图下面写了现在真的能做到哪。图是 `node tools/shots.mjs` 截的，界面改了可以重新截。
+
+**指挥台：几个 agent 一起干活。** 指挥（本机的 Claude Code）把一件事拆给本机的 Codex、Cursor、DeepSeek Harness，又经 Codex 发到另一台电脑；鸽子在连线上来回送信，右边是选中对话的子代理和来往记录，底下一行轮播正在发生的事。
+
+<img src="docs/images/demo/stage-lead.png" width="800" alt="指挥台演示：Claude Code 当指挥，本机的 Codex、Cursor、DeepSeek Harness 挂在它下面，信鸽在连线上送信">
+
+现在真的能做到：指挥是本机的 Claude Code（或你自己），接活的是本机和远程电脑上的 Codex，对话状态、子代理、来往记录是真数据。Cursor 和 DeepSeek Harness 还没接上，图里它们干活的样子是示例。
+
+**展开另一台电脑，以及那台自己的一页。** 远程设备默认收成一张卡片，展开后能看到那台上的几个 agent；那台的 Claude Code、Cursor 是经那台的 Codex 带起来的。翻到那台自己的一页，指挥那台收成卡片放在最左边，等你确认的跨设备消息停在那一段线上。
+
+<img src="docs/images/demo/stage-expanded.png" width="800" alt="指挥台演示：展开 CHEN-Y9000P2023，里面有 Codex、Claude Code、Cursor">
+
+<img src="docs/images/demo/stage-remote.png" width="800" alt="指挥台演示：远程电脑自己的一页，左边是收起的这台 Mac">
+
+现在真的能做到：远程那台只有 Codex，经本机的中继站对话发过去。经远程 Codex 带起那台的别的 agent 还只是设想。
+
+**频道：按项目看所有往来。** 一个项目一个频道，跨工具、跨电脑的对话都在里面；跨设备的消息就地放行或拦下，像密钥的字符串会标出来；在输入框里 @ 谁就派给谁，不 @ 交给指挥。
+
+<img src="docs/images/demo/channels.png" width="800" alt="频道页演示：pigeon 频道里的消息流、等你确认的跨设备消息、右边的成员栏">
+
+现在真的能做到：频道页能看真数据，按发件对话的项目目录归频道。从频道里直接派活、存消息正文、让 agent 自己 @ 别人还没做，分三步走，见 [docs/CHANNELS.md](docs/CHANNELS.md)。
+
+**刘海：等你处理的一队、快速派活。** 等你处理的事按到来的先后排着，方向键选、回车放行、删除键拦下：除了跨设备发送，还有"接活的 agent 想往下转派""指挥想一次拆成好几件"。快速派活能选本机或远程的 agent、模型和思考强度。
+
+<p>
+<img src="docs/images/demo/notch-confirm.png" width="420" alt="刘海演示：等你处理的三件事，转派、拆活、跨设备">
+<img src="docs/images/demo/notch-compose.png" width="420" alt="刘海演示：快速派活，选 agent、模型和思考强度">
+</p>
+
+现在真的能做到：原生刘海面板已经做了，等你处理的一队里只有跨设备发送一类；转派和拆活要等统一的 MCP。远程设备派活时的模型列表拿的是本机 Codex 的，不一定准；⌥ 空格呼出还没做。
+
+**分派规则和接入。** 规则页把"哪类活交给谁"画成一张图，额度不够时改派给谁、发之前要不要问你，都能按条设；下面能试一句话看它走哪条规则。接入页按设备列出每个 agent 的模型、接法、额度和开关，下面是协作的规矩。
+
+<img src="docs/images/demo/route.png" width="800" alt="分派规则演示：指挥连到五条规则，再连到各个 agent，旁边是额度">
+
+<img src="docs/images/demo/conn.png" width="800" alt="接入页演示：这台 Mac 和 CHEN-Y9000P2023 两张卡片，下面是协作的规矩">
+
+现在真的能做到：规则按关键词匹配，写进 Claude Code 每一轮的提示；额度只读得到本机 magpie 的。接入页上的 Cursor、DeepSeek Harness 是"还没接上"，经 SSH、经 magpie 添加设备置灰；远程设备还没有自己的设置（中继站对话、那台能用的模型和思考强度），正在做。
 
 ## 消息的状态
 
