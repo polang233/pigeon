@@ -7,7 +7,7 @@ import path from 'node:path';
 import http from 'node:http';
 import zlib from 'node:zlib';
 import { makeEnv, fakeApp, pigeon, until } from './helpers.mjs';
-import { dshEvent, readZstdFrames, dshSessions, agyAnswer, agyWaiting, agentOfArg, dshArgs } from '../scripts/lib/agents.mjs';
+import { dshEvent, readZstdFrames, dshSessions, agyAnswer, agyWaiting, agentOfArg, dshArgs, agySlug } from '../scripts/lib/agents.mjs';
 
 const zst = typeof zlib.zstdCompressSync === 'function';
 const frames = lines => Buffer.concat(lines.map(l => zlib.zstdCompressSync(Buffer.from(JSON.stringify(l) + '\n'))));
@@ -56,6 +56,13 @@ test('Antigravity 的回复：只看 from 之后、最后一段非空的', () =>
   assert.equal(agyWaiting(wait), 'Analyzing a.wav：/tmp/a.wav');
   assert.equal(agyWaiting(steps), '');
   assert.equal(agyWaiting(wait, 7), '', '只看 from 之后的');
+  const list = [{ id: 'gemini-4-neon', efforts: ['low', 'high'] }, { id: 'gemini-pro-orchestrator-neon', efforts: [] }];
+  assert.equal(agySlug('gemini-4-neon', 'low', list), 'gemini-4-neon-low');
+  assert.equal(agySlug('gemini-4-neon', '', list), 'gemini-4-neon-high', '没写强度用 high');
+  assert.equal(agySlug('gemini-pro-orchestrator-neon', 'high', list), 'gemini-pro-orchestrator-neon', '不分档的原样');
+  assert.equal(agySlug('gemini-4-neon-low', '', list), 'gemini-4-neon-low', '已经是完整 id');
+  assert.equal(agySlug('flash', '', list), 'flash');
+  assert.equal(agySlug('', 'high', list), '');
 });
 
 // 假的 dsh：把标准输入的第一行回回去，带上对话编号
@@ -102,7 +109,7 @@ test('新开 DSH 对话、接着已有对话说：回信存下来能读；--sand
 
 // 假的 Antigravity：agentapi 脚本 + 本机服务（GetAllCascadeTrajectories、GetCascadeTrajectorySteps），令牌对了才回
 async function fakeAgy(root) {
-  const convs = new Map();
+  const convs = new Map(), models = [];
   const srv = http.createServer((req, res) => {
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
       if (req.headers['x-codeium-csrf-token'] !== 'tok') { res.writeHead(403); return res.end('{}'); }
@@ -110,8 +117,14 @@ async function fakeAgy(root) {
       res.writeHead(200, { 'content-type': 'application/json' });
       if (m === 'GetAllCascadeTrajectories') return res.end(JSON.stringify({ trajectorySummaries: Object.fromEntries([...convs].map(([id, c]) => [id, { summary: c.title, stepCount: c.steps.length, status: 'CASCADE_RUN_STATUS_IDLE', lastModifiedTime: new Date().toISOString(), annotations: { title: c.title } }])) }));
       if (m === 'GetCascadeTrajectorySteps') return res.end(JSON.stringify({ steps: (convs.get(j.cascadeId) || { steps: [] }).steps }));
+      if (m === 'GetAvailableModels') return res.end(JSON.stringify({ response: {
+        defaultAgentModelId: 'gemini-4-neon-high',
+        agentModelSorts: [{ displayName: 'Recommended', groups: [{ modelIds: ['gemini-4-neon-high', 'gemini-4-neon-low', 'gemini-pro-orchestrator-neon', 'claude-opus-5-5-low', 'claude-opus-5-5-high'] }] }],
+        groupedModels: { 'gemini-4-neon': { displayName: 'Gemini 4 Neon', supportedThinkingLevels: [{ thinkingSuffix: 'low' }, { thinkingSuffix: 'high' }, { thinkingSuffix: 'xhigh' }] },
+          'claude-opus-5-5': { displayName: 'Claude Opus 5.5', supportedThinkingLevels: [{ thinkingSuffix: 'low' }, { thinkingSuffix: 'high' }] } },
+        models: { 'gemini-4-neon-high': { tagTitle: 'New' }, 'gemini-4-neon-low': {}, 'gemini-pro-orchestrator-neon': { displayName: 'Orchestrator (Neon)' }, 'claude-opus-5-5-low': {}, 'claude-opus-5-5-high': {} } } }));
       // 假 agentapi 用的两个口子
-      if (m === 'new') { const id = 'agy-' + (convs.size + 1); convs.set(id, { title: j.title || '新对话', steps: [{ type: 'CORTEX_STEP_TYPE_USER_INPUT' }, { type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', plannerResponse: { response: '收到：' + j.prompt.split('\n')[0] } }] }); return res.end(JSON.stringify({ id })); }
+      if (m === 'new') { const id = 'agy-' + (convs.size + 1); models.push(j.model); convs.set(id, { title: j.title || '新对话', steps: [{ type: 'CORTEX_STEP_TYPE_USER_INPUT' }, { type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', plannerResponse: { response: '收到：' + j.prompt.split('\n')[0] } }] }); return res.end(JSON.stringify({ id })); }
       if (m === 'send') { const c = convs.get(j.id); c.steps.push({ type: 'CORTEX_STEP_TYPE_SYSTEM_MESSAGE' }, { type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', plannerResponse: { response: '又收到：' + j.content.split('\n')[0] } }); return res.end('{}'); }
       res.end('{}');
     });
@@ -127,10 +140,10 @@ if (!process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_CSRF_TOKEN !=
 const post = (m, b) => fetch('http://' + process.env.ANTIGRAVITY_LS_ADDRESS + '/x/' + m, { method: 'POST', headers: { 'x-codeium-csrf-token': 'tok' }, body: JSON.stringify(b) }).then(r => r.json());
 const opt = k => (rest.find(a => a.startsWith('--' + k + '=')) || '').split('=')[1] || '';
 const plain = rest.filter(a => !a.startsWith('--'));
-if (cmd === 'new-conversation') { const r = await post('new', { title: opt('title'), prompt: plain[0] }); console.log(JSON.stringify({ response: { newConversation: { prompt: plain[0], conversationId: r.id } } })); }
+if (cmd === 'new-conversation') { const r = await post('new', { title: opt('title'), model: opt('model'), prompt: plain[0] }); console.log(JSON.stringify({ response: { newConversation: { prompt: plain[0], conversationId: r.id } } })); }
 else if (cmd === 'send-message') { await post('send', { id: plain[0], content: plain[1] }); console.log(JSON.stringify({ response: { sendMessage: { recipientId: plain[0] } } })); }
 `, { mode: 0o755 });
-  return { home, api, close: () => new Promise(r => srv.close(r)) };
+  return { home, api, models, close: () => new Promise(r => srv.close(r)) };
 }
 
 test('新开 Antigravity 对话、接着说：经 agentapi 发，读它本机服务等到回复', async () => {
@@ -157,9 +170,27 @@ test('新开 Antigravity 对话、接着说：经 agentapi 发，读它本机服
     r = await pigeon(['read', band], e.env);
     assert.match(r.stdout, /又收到：再听一遍/);
     assert.doesNotMatch(r.stdout, /收到：听听/, '只取这次之后的回复');
-    // Antigravity 不分思考强度
-    r = await pigeon(['new', '--agent', 'antigravity', '--effort', 'high', 'hi'], e.env);
+    // 模型 + 思考强度拼成它认的 id；这个模型没有的强度不发
+    r = await pigeon(['new', '--agent', 'antigravity', '--model', 'gemini-4-neon', '--effort', 'xhigh', 'hi'], e.env);
+    band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    n = e.journal().notes.find(x => x.band === band);
+    assert.deepEqual([n.model, n.effort], ['gemini-4-neon', 'xhigh']);
+    assert.equal(agy.models.at(-1), 'gemini-4-neon-xhigh');
+    r = await pigeon(['new', '--agent', 'antigravity', '--model', 'claude-opus-5-5', '--effort', 'medium', 'hi'], e.env);
     assert.equal(r.code, 64);
+    assert.match(r.stderr, /Claude Opus 5.5 的思考强度只能是 low \/ high/);
+    // 什么都没写：用 Antigravity 自己的默认 gemini-4-neon-high，不是老的 flash 档
+    r = await pigeon(['new', '--agent', 'antigravity', 'hi'], e.env);
+    band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    assert.equal(agy.models.at(-1), 'gemini-4-neon-high');
+    // 模型列表：系列并起来、按它推荐的顺序；存一份
+    r = await pigeon(['models', '--json'], e.env);
+    const l = JSON.parse(r.stdout).antigravity;
+    assert.deepEqual(l.models.map(m => [m.id, m.efforts]), [['gemini-4-neon', ['low', 'high', 'xhigh']], ['gemini-pro-orchestrator-neon', []], ['claude-opus-5-5', ['low', 'high']]]);
+    assert.deepEqual(l.default, { model: 'gemini-4-neon', effort: 'high' });
+    assert.ok(fs.existsSync(path.join(e.env.PIGEON_HOME, 'models', 'antigravity.json')));
   } finally { await agy.close(); await app.close(); e.cleanup(); }
 });
 

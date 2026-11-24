@@ -9,14 +9,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
-import { HOME, pidAlive } from './common.mjs';
+import { HOME, pidAlive, pigeonDir, readJson, writeJsonAtomic } from './common.mjs';
 
 export const DSH = 'deepseek', AGY = 'antigravity';
 // pigeon new --agent 认的写法
 export const agentOfArg = a => ({ dsh: DSH, deepseek: DSH, 'deepseek-harness': DSH, antigravity: AGY, agy: AGY, codex: 'codex' })[String(a || '').toLowerCase()] || '';
 export const AGENT_NAME = { codex: 'Codex', [DSH]: 'DeepSeek Harness', [AGY]: 'Antigravity' };
-// Antigravity 新开对话能选的档位（agentapi --model），也可以写具体的模型 id
-export const AGY_MODELS = [['flash_lite', 'Flash Lite'], ['flash', 'Flash'], ['pro', 'Pro']];
+// Antigravity 老的三个档位（agentapi --model 认）。flash_lite 落到很旧的 gemini-3.5-flash-lite，不要当默认用；
+// 正经的选法是具体的模型 id，比如 gemini-4-neon-high（模型系列 + 思考强度），列表从它本机服务读，见 agyModels
+export const AGY_TIERS = ['flash_lite', 'flash', 'pro'];
 
 /* ---------- DSH ---------- */
 const DSH_CLI = '/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh';
@@ -167,6 +168,47 @@ export function agySessions(hub, { limit = 15 } = {}) {
     return { id: s.id, agent: AGY, title: s.title, cwd: '', updated: s.updated, ...(wait ? { state: 'wait', activity: 'waiting', detail: '等你在 Antigravity 里批准：' + wait } : s.running ? { state: 'run' } : {}) };
   });
 }
+// 它能用的模型：GetAvailableModels。按它自己“推荐”的顺序，同一系列（groupedModels）的几档思考强度并成一个，
+// 别的（Orchestrator、GPT-OSS）单列、不分档。default 是它自己的默认（defaultAgentModelId），拆成系列 + 强度
+export function agyModels(hub) {
+  const j = agyRpc(hub, 'GetAvailableModels', {}), r = j && j.response;
+  if (!r || !r.models) return null;
+  const fams = r.groupedModels && typeof r.groupedModels === 'object' ? r.groupedModels : {};
+  const levels = f => (fams[f].supportedThinkingLevels || []).map(t => t && t.thinkingSuffix).filter(Boolean);
+  const famOf = id => Object.keys(fams).find(f => id.startsWith(f + '-') && levels(f).includes(id.slice(f.length + 1))) || '';
+  const order = (Array.isArray(r.agentModelSorts) ? r.agentModelSorts : []).flatMap(s => (s.groups || []).flatMap(g => g.modelIds || []));
+  const out = [], seen = new Set();
+  for (const id of order) {
+    const f = famOf(id), key = f || id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const m = r.models[id] || {};
+    if (f) out.push({ id: f, name: fams[f].displayName || f, efforts: levels(f), tag: m.tagTitle || '' });
+    else if (r.models[id]) out.push({ id, name: String(m.displayName || id).replace(/\s*\((Low|Medium|High|XHigh)\)$/i, ''), efforts: [], tag: m.tagTitle || '' });
+  }
+  const def = String(r.defaultAgentModelId || ''), df = famOf(def);
+  return { updated: Date.now(), default: df ? { model: df, effort: def.slice(df.length + 1) } : { model: def, effort: '' }, models: out };
+}
+// 上次读到的模型列表存一份：Antigravity 没开时界面和命令行照样有得选
+export const agyModelsFile = () => path.join(pigeonDir(), 'models', 'antigravity.json');
+export function agyModelsCached({ refresh = true } = {}) {
+  const fresh = refresh ? agyModels(agyHub()) : null;
+  if (fresh && fresh.models.length) {
+    try { fs.mkdirSync(path.dirname(agyModelsFile()), { recursive: true }); writeJsonAtomic(agyModelsFile(), fresh); } catch {}
+    return { ...fresh, live: true };
+  }
+  const old = readJson(agyModelsFile(), null);
+  return old && Array.isArray(old.models) ? { ...old, live: false } : { updated: 0, default: { model: '', effort: '' }, models: [], live: false };
+}
+// 模型系列 + 思考强度 → agentapi 认的 id（gemini-4-neon + high → gemini-4-neon-high）；已经是完整 id 或老档位的原样用
+export function agySlug(model, effort, list = []) {
+  const m = String(model || '').trim(), e = String(effort || '').trim();
+  if (!m) return '';
+  const fam = list.find(x => x.id === m);
+  if (fam && fam.efforts.length) return `${m}-${e && fam.efforts.includes(e) ? e : fam.efforts.includes('high') ? 'high' : fam.efforts.at(-1)}`;
+  return e && !fam ? `${m}-${e}` : m;
+}
+
 export const agySteps = (hub, id) => (agyRpc(hub, 'GetCascadeTrajectorySteps', { cascadeId: id }) || {}).steps || null;
 // 停下来等用户批准的那一步（比如读工作区外的文件）：回一句说明，没有就是空串
 export function agyWaiting(steps, from = 0) {

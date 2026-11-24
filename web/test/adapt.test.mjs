@@ -274,3 +274,14 @@ test('默认规则：第一次加上四条（生图照做，其余建议）；�
   s = {}; seedRules(s);
   assert.equal(s.dispatch.rules[0].on, true, '没写过开关的当成开着');
 });
+
+test('Antigravity 的模型：从应用给的列表来，系列 + 几档思考强度；不是 New 的标签写在名字后面', async () => {
+  const { agyModelsOf } = await import('../src/backend/adapt.js');
+  const { levelsOf } = await import('../src/core/names.js');
+  const am = { antigravity: { models: [{ id: 'gemini-4-neon', name: 'Gemini 4 Neon', efforts: ['low', 'high', 'xhigh', '怪的'], tag: 'New' }, { id: 'gemini-4-argon', name: 'Gemini 4 Argon', efforts: ['low'], tag: 'Leaving Soon' }, { id: 'orch', name: 'Orchestrator', efforts: [] }, { name: '没 id' }] } };
+  assert.deepEqual(agyModelsOf(am), [['gemini-4-neon', 'low high xhigh', 'Gemini 4 Neon'], ['gemini-4-argon', 'low', 'Gemini 4 Argon（Leaving Soon）'], ['orch', '', 'Orchestrator']]);
+  assert.deepEqual(agyModelsOf(null), []);
+  const st = mapLive({ ...raw(), agentModels: am }, NOW);
+  assert.deepEqual(levelsOf(st, 'antigravity', 'gemini-4-neon'), ['low', 'high', 'xhigh']);
+  assert.deepEqual(levelsOf(st, 'antigravity', 'orch'), [], '不分档的');
+});

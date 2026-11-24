@@ -258,9 +258,12 @@ final class NotchBridge {
                         // DSH 用它自己配的模型
                         return ComposeAgent(agent: .deepseek, sessions: refs("local", .deepseek))
                     case .antigravity:
+                        // 模型列表是插件上次从 Antigravity 读到的（系列 + 几档思考强度）；默认先看接入页选的，再看它自己的默认
                         let saved = defaults["antigravity@local"] ?? [:]
-                        let tiers = ["flash_lite", "flash", "pro"].map { ModelOption(id: $0) }
-                        return ComposeAgent(agent: .antigravity, models: tiers, defaultModel: Self.text(saved["model"]) ?? "flash", sessions: refs("local", .antigravity))
+                        let (options, def) = Self.antigravityModels()
+                        let model = Self.text(saved["model"]) ?? def.model ?? options.first?.id ?? ""
+                        let effort = Effort(rawValue: Self.text(saved["effort"]) ?? def.effort ?? "")
+                        return ComposeAgent(agent: .antigravity, models: options, defaultModel: model, defaultEffort: effort, sessions: refs("local", .antigravity))
                     default:
                         return ComposeAgent(agent: agent, enabled: false, disabledReason: "\(agent.displayName) 还没接上")
                     }
@@ -326,6 +329,19 @@ final class NotchBridge {
     }
 
     /// 非空的字符串，否则 nil
+    /// ~/.pigeon/models/antigravity.json → 刘海派活面板的模型选项和它自己的默认
+    static func antigravityModels() -> ([ModelOption], (model: String?, effort: String?)) {
+        guard let data = try? Data(contentsOf: Paths.antigravityModelsFile),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return ([], (nil, nil)) }
+        let list = (root["models"] as? [[String: Any]] ?? []).compactMap { m -> ModelOption? in
+            guard let id = m["id"] as? String, !id.isEmpty else { return nil }
+            let efforts = (m["efforts"] as? [String] ?? []).compactMap(Effort.init(rawValue:))
+            return ModelOption(id: id, efforts: efforts, note: m["name"] as? String ?? "")
+        }
+        let def = root["default"] as? [String: Any] ?? [:]
+        return (list, (text(def["model"]), text(def["effort"])))
+    }
+
     private static func text(_ raw: Any?) -> String? {
         guard let s = raw as? String, !s.isEmpty else { return nil }
         return s

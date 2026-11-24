@@ -63,11 +63,11 @@ node "PG" new --loft CHEN-Y9000P2023 --project Mac --title "检查构建" "…�
 
 ```bash
 node "PG" new --agent dsh --cwd /path/to/repo --sandbox read-only --title "复审改动" "复审这次改动：……只读，不要改文件。"
-node "PG" new --agent antigravity --model flash --title "听提示音" "听一下 /Users/me/Code/app/assets/ding.wav，说说有没有爆音、音色怎么样。"
+node "PG" new --agent antigravity --model gemini-4-neon --effort high --title "听提示音" "听一下 /Users/me/Code/app/assets/ding.wav，说说有没有爆音、音色怎么样。"
 ```
 
 - DSH 用它自己配的模型，`--model`、`--effort` 指定不了。`--cwd` 是它干活的目录；只看不改的复审加 `--sandbox read-only`。
-- Antigravity 用 `--model flash_lite|flash|pro`（或具体的模型 id）选档位，不分思考强度。它新开的对话不绑目录，要它看的文件**写完整路径**；读它工作区外的文件时它会停下来等用户在 Antigravity 里批准（任务上会写“在等你批准”），这时告诉用户去 Antigravity 里点，不要重发。Antigravity 要开着。
+- Antigravity 用 `--model <模型> --effort <思考强度>` 选，比如 `gemini-4-neon`、`high`；`node "PG" models` 列出它能用的。不写就用它自己的默认（一般是 Gemini 4 Neon High）。它新开的对话不绑目录，要它看的文件**写完整路径**；读它工作区外的文件时它会停下来等用户在 Antigravity 里批准（任务上会写“在等你批准”），这时告诉用户去 Antigravity 里点，不要重发。Antigravity 要开着。
 - 给它们已有的对话接着说，照样 `send --to <对话 id 或标题>`；`lofts` 里列出了它们最近的对话。
 
 - **派活时一定要写 `--reason "<一句理由>"`**：为什么交给它而不是自己做、或者交给别人。Pigeon 会把它记在消息上，用户在任务页看得到；Pigeon 也会据此对照用户定的分派规则，给消息标“照规则”“改派”还是“指挥判断”，不会替你拦下。提示里如果有“分派规则”，先照着选对象；不照做也行，但理由里要写清楚为什么。

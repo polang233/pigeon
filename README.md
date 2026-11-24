@@ -258,14 +258,14 @@ pigeon new --agent dsh --cwd ~/Code/app --sandbox read-only --title "复审改�
 ```
 
 ```bash
-pigeon new --agent antigravity --model flash --title "听提示音" "听一下 /Users/me/Code/app/assets/ding.wav，有没有爆音、音色怎么样。"
+pigeon new --agent antigravity --model gemini-4-neon --effort high --title "听提示音" "听一下 /Users/me/Code/app/assets/ding.wav，有没有爆音、音色怎么样。"
 ```
 
 给它们已有的对话接着说，照样 `pigeon send --to <对话 id 或标题>`。也可以在刘海的快速派活里选它们。
 
 - **DeepSeek Harness**：用它自带的命令行在后台跑，用它自己配的模型。`--cwd` 是它干活的目录，`--sandbox read-only` 只看不改（复审用），不写就能改工作目录。
 - 接入页上这两行都有"设置"：DSH 默认的权限、在 Pigeon 里派活时用哪个目录、超时；Antigravity 的超时。Antigravity 默认用哪一档模型，在那一行的"默认模型"里选。
-- **Antigravity**：用它给 agent 用的 `agentapi` 新开对话、发消息，再读它本机的服务等回复。要 Antigravity 开着。`--model` 选 `flash_lite`、`flash`、`pro`，或者写具体的模型 id；不分思考强度。
+- **Antigravity**：用它给 agent 用的 `agentapi` 新开对话、发消息，再读它本机的服务等回复。要 Antigravity 开着。模型和 Codex 一样选"模型 + 思考强度"：`--model gemini-4-neon --effort high`。`pigeon models` 列出它现在能用的（Gemini 4 Neon、Carbon、Hydrogen、Argon、Orchestrator、Claude 5.5 等），列表是从 Antigravity 读的；什么都不写就用它自己的默认。
   - 它新开的对话不绑项目目录，要它看的文件**写完整路径**。
   - 它读工作区外的文件时会停下来，等你在 Antigravity 里批准。Pigeon 不替你点：任务上会写"在等你批准"，指挥台上它显示成"等你"。
   - 读回复用的是 Antigravity 自己界面用的内部接口，不是公开的，Antigravity 升级以后可能要跟着改。

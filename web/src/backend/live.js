@@ -62,12 +62,12 @@ export async function connectLive(lofts0, { notify = () => {} } = {}) {
   async function loadAll() {
     const want = {
       lofts: get('/api/lofts'), detect: get('/api/detect'), settings: get('/api/settings'), notes: get('/api/notes'), queue: get('/api/queue'),
-      usage: get('/api/usage'), codexModels: get('/api/codex/models'), mpModels: get('/api/magpie/models'),
+      usage: get('/api/usage'), codexModels: get('/api/codex/models'), mpModels: get('/api/magpie/models'), agentModels: get('/api/agents/models'),
     };
     const keys = Object.keys(want), got = await Promise.allSettled(Object.values(want)), bad = [];
     got.forEach((g, i) => {
       const k = keys[i];
-      if (g.status !== 'fulfilled') { if (!['mpModels', 'usage', 'codexModels'].includes(k)) bad.push(k); return; }
+      if (g.status !== 'fulfilled') { if (!['mpModels', 'usage', 'codexModels', 'agentModels'].includes(k)) bad.push(k); return; }
       const v = g.value;
       if (k === 'lofts' && v && Array.isArray(v.lofts)) raw.lofts = v;
       else if (k === 'detect' && v && typeof v === 'object') raw.detect = v;
@@ -76,6 +76,7 @@ export async function connectLive(lofts0, { notify = () => {} } = {}) {
       else if (k === 'queue') raw.queue = Array.isArray(v?.items) ? v.items : [];
       else if (k === 'usage') raw.usage = v && v.agents ? v : null;
       else if (k === 'codexModels') raw.codexModels = Array.isArray(v) ? v : [];
+      else if (k === 'agentModels') raw.agentModels = v && typeof v === 'object' ? v : {};
       else if (k === 'mpModels') raw.mpModels = Array.isArray(v?.data) ? v.data : [];
     });
     if (bad.length) notify(`有几样没读到（${bad.join('、')}），先按上次的显示`);

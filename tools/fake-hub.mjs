@@ -277,6 +277,12 @@ const server = http.createServer(async (req, res) => {
   if (path === '/api/detect') { if (M === 'POST') send({ type: 'detect', ts: Date.now(), agents: detect }); return json(res, 200, detect); }
   if (path === '/api/usage' && M === 'GET') return json(res, 200, usage);
   if (path === '/api/codex/models' && M === 'GET') return json(res, 200, codexModels);
+  if (path === '/api/agents/models' && M === 'GET') return json(res, 200, { antigravity: { updated: T0, live: true, default: { model: 'gemini-4-neon', effort: 'high' }, models: [
+    { id: 'gemini-4-neon', name: 'Gemini 4 Neon', efforts: ['low', 'medium', 'high', 'xhigh'], tag: 'New' },
+    { id: 'gemini-4-hydrogen', name: 'Gemini 4 Hydrogen', efforts: ['low', 'medium', 'high', 'xhigh'], tag: 'New' },
+    { id: 'gemini-4-argon', name: 'Gemini 4 Argon', efforts: ['low', 'medium', 'high'], tag: 'Leaving Soon' },
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', efforts: ['low', 'medium', 'high'], tag: 'New' },
+    { id: 'gemini-pro-orchestrator-neon', name: 'Orchestrator (Neon)', efforts: [], tag: 'New' }] } });
   // 中继站：模型、上下文大小是写死的示例；换、归档、删除改 settings.post 和这张表
   if (path === '/api/relay') {
     const P = settings.post = { relayByHost: {}, relayUsed: [], ...settings.post };

@@ -12,7 +12,7 @@ import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } f
 import { sendInstruction, newInstruction, fetchInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
 import { getThread, latestRelayCandidate, listThreads, listProjects } from './codex-state.mjs';
 import { relayFor, relayIds, isRelay, useRelay, forgetRelay, relayRows, RELAY_WARN_TOKENS } from './relays.mjs';
-import { DSH, AGY, AGENT_NAME, AGY_MODELS, HINT_AGY, agentOfArg, dshBin, dshArgs, dshEvent, dshSessionInfo, findDshSession, agentapiBin, agyHub, agyNew, agySend, agyList, agySteps, agyAnswer, agyWaiting } from './agents.mjs';
+import { DSH, AGY, AGENT_NAME, AGY_TIERS, HINT_AGY, agyModelsCached, agySlug, agentOfArg, dshBin, dshArgs, dshEvent, dshSessionInfo, findDshSession, agentapiBin, agyHub, agyNew, agySend, agyList, agySteps, agyAnswer, agyWaiting } from './agents.mjs';
 import { readLofts, saveLofts, resolveTarget, findLoft, resolveProject } from './lofts.mjs';
 import { confirmRemote, deniedError, timeoutError } from './confirm.mjs';
 import { detectSecrets, maskSecrets } from './secrets.mjs';
@@ -348,7 +348,6 @@ export async function newCmd(args) {
   const agent = agentOfArg(args.agent || 'codex');
   if (!agent) return o.usage(64, `--agent 只能是 codex、dsh、antigravity，收到「${args.agent}」。`);
   if (agent === DSH && (model || effort)) return o.usage(64, 'DeepSeek Harness 用它自己配的模型，--model 和 --effort 指定不了。');
-  if (agent === AGY && effort) return o.usage(64, `Antigravity 不分思考强度，用 --model 选档位（${AGY_MODELS.map(m => m[0]).join(' / ')}）或写具体的模型 id。`);
   const { post, secrets, raw } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
@@ -375,7 +374,7 @@ export async function newCmd(args) {
     const fromApp = !!process.env.PIGEON_SEND_ID, setDir = String(agentCfg(raw, agent).cwd || '').trim().replace(/^~(?=\/|$)/, HOME);
     const cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || (fromApp ? (setDir || HOME) : process.cwd())));
     if (!fs.existsSync(cwd)) return o.usage(64, `项目目录不存在：${cwd}`);
-    return launchOther(o, note, { agent, session: '', cwd, model, title, mode: sandboxArg(args) }, post, args, text);
+    return launchOther(o, note, { agent, session: '', cwd, model, effort, title, mode: sandboxArg(args) }, post, args, text);
   }
   const bin = codexBin();
   if (!bin) return o.notReady(3, 'Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
@@ -596,9 +595,15 @@ async function launchOther(o, note, d, post, args, text) {
   // 设置里的默认：DSH 的权限、Antigravity 新开对话用哪一档（接入页“默认模型”）、各自的超时
   const { raw } = await loadSettings(), cfg = agentCfg(raw, d.agent);
   if (d.agent === DSH && !d.mode && DSH_MODES.includes(cfg.sandbox)) d.mode = cfg.sandbox;
-  if (d.agent === AGY && !d.session && !d.model) {
-    const m = ((raw.devices && raw.devices.models) || {})[`${AGY}@${LOCAL}`];
-    if (m && typeof m.model === 'string' && m.model) { d.model = m.model; note.model = m.model; }
+  if (d.agent === AGY && !d.session) {
+    // 模型：命令里写的 > 接入页选的“默认模型” > Antigravity 自己的默认；系列 + 思考强度拼成它认的 id
+    const list = agyModelsCached();
+    const saved = ((raw.devices && raw.devices.models) || {})[`${AGY}@${LOCAL}`] || {};
+    const pick = d.model ? { model: d.model, effort: d.effort || '' } : saved.model ? { model: saved.model, effort: saved.effort || '' } : list.default;
+    const known = list.models.find(x => x.id === pick.model);
+    if (pick.effort && known && known.efforts.length && !known.efforts.includes(pick.effort)) return o.usage(64, `${known.name} 的思考强度只能是 ${known.efforts.join(' / ')}，收到「${pick.effort}」。`);
+    d.model = agySlug(pick.model, pick.effort, list.models);
+    if (d.model) { note.model = pick.model; note.effort = known && known.efforts.length ? d.model.slice(pick.model.length + 1) : ''; }
   }
   note.why = await whyOf(args.reason, text, toKeyOf(note.to));
   const tmin = Number(cfg.timeoutMin) > 0 ? Number(cfg.timeoutMin) : 0;
@@ -700,6 +705,20 @@ async function watchAgy(note, d) {
     if (++quiet > 30) break;
   }
   await move(band, { state: 'lost', error: Date.now() >= t.deadline ? timedOutMsg(note) + '可以去 Antigravity 里看看。' : 'Antigravity 停下了，但没读到回复。去 Antigravity 里看看。' });
+  return 0;
+}
+
+/* ---------- 模型列表 ---------- */
+// pigeon models [antigravity] [--json]：Antigravity 能用的模型（读它本机服务，没开时用上次存的）
+export async function modelsCmd(args) {
+  const which = agentOfArg(args._[0] || 'antigravity');
+  if (which !== AGY) { console.error('现在只列 Antigravity 的模型：pigeon models antigravity。Codex 的模型列表应用自己读。'); return 64; }
+  const l = agyModelsCached();
+  if (args.json) { console.log(JSON.stringify({ antigravity: l })); return 0; }
+  if (!l.models.length) { say('还没读到 Antigravity 的模型列表：打开 Antigravity 再试一次。'); return 1; }
+  say(`Antigravity 的模型（${l.live ? '刚读的' : '上次读的，Antigravity 现在没开'}；默认 ${agySlug(l.default.model, l.default.effort, l.models)}）：`,
+    ...l.models.map(m => `  ${m.id}　${m.name}${m.efforts.length ? `　思考：${m.efforts.join(' / ')}` : ''}${m.tag ? `　［${m.tag}］` : ''}`),
+    '新开对话：pigeon new --agent antigravity --model <上面的 id> --effort <思考强度>');
   return 0;
 }
 

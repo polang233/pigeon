@@ -87,6 +87,10 @@ export const rulesFromWire = (list, hits = {}) => (Array.isArray(list) ? list : 
   id: String(r.id), when: String(r.when || ''), kw: String(r.kw || ''), to: keyFromWire(r.to), fb: keyFromWire(r.fb || ''), ask: !!r.ask, on: r.on !== false, must: r.mode === 'must',
   n: hits[r.id]?.n || 0, over: hits[r.id]?.over || 0,
 }));
+// Antigravity 的模型：GET /api/agents/models 的 antigravity.models（应用跑 pigeon models 读它本机服务）→ [系列 id, 几档思考强度, 显示名]
+// 思考强度只留界面认得的几档；Leaving Soon 这类标签写在名字后面
+export const agyModelsOf = am => (Array.isArray(obj(obj(am).antigravity).models) ? am.antigravity.models : [])
+  .filter(m => m && m.id).map(m => [String(m.id), (Array.isArray(m.efforts) ? m.efforts : []).filter(e => TH[e]).join(' '), String(m.name || m.id) + (m.tag && m.tag !== 'New' ? `（${m.tag}）` : '')]);
 // 第一次用这一版时加上的几条规则（线上的样子）。原来“生图先交给 Codex”是 Codex 设置里的开关，现在是第一条规则，开关关着的这条也关着。
 // 交给的那家没装时这条不往提示里写（见 promptText），装上了自己就生效
 export function defaultRules(settings) {
@@ -279,7 +283,7 @@ export function mapLive(raw, now = Date.now()) {
     paused: { all: !!P.all, dev: { ...obj(P.lofts) } },
     settings: { notch: obj(S0.perch).notch === false ? 'off' : 'on', quota: q0.show === 'always' ? 'always' : 'hover', secrets: ['warn', 'mask', 'off'].includes(obj(S0.secrets).mode) ? S0.secrets.mode : 'warn', crossTimeoutSec: Number(obj(S0.post).crossTimeoutSec) || 90 },
     CUSTOMM: Object.fromEntries(Object.entries(obj(dv.customModels)).filter(([k]) => k.lastIndexOf('@') > 0).map(([k, v]) => { const i = k.lastIndexOf('@'); return [`${fromWire(k.slice(0, i))}@${k.slice(i + 1)}`, (Array.isArray(v) ? v : []).map(x => String(x).trim()).filter(Boolean)]; }).filter(([, v]) => v.length)),
-    MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [], antigravity: [['flash_lite', '', 'Flash Lite'], ['flash', '', 'Flash'], ['pro', '', 'Pro']] },
+    MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [], antigravity: agyModelsOf(raw.agentModels) },
     DEF_MODEL: { claude: ['', ''], codex: ['', ''], cursor: ['', ''], dsh: ['', ''], antigravity: ['', ''] },
     CODEXM: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => ({ slug: String(m.slug), name: String(m.name || m.slug), efforts: (Array.isArray(m.efforts) ? m.efforts : []).map(String) })),
     MAGPIE: { on: groups.length > 0, groups: groups.map(m => [String(m.id), m.context_window ? `magpie 的路由组 · 上下文 ${Math.round(m.context_window / 1000)}k` : 'magpie 的路由组']) },

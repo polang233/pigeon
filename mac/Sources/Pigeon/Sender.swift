@@ -268,6 +268,21 @@ extension Hub {
         return (false, line.isEmpty ? "没能打开" : "没能打开：\(line)")
     }
 
+    // MARK: 别家的模型列表
+
+    /// GET /api/agents/models：`pigeon models --json`（现在只有 Antigravity：读它本机服务，没开时是上次存的）
+    func performAgentModels(completion: @escaping @Sendable (Int, Data) -> Void) {
+        guard let node = Detector.which("node") else { return completion(500, fail(500, "没找到 node").1) }
+        guard let scripts = scriptsDir() else { return completion(500, fail(500, "没找到 pigeon.mjs").1) }
+        let env = childEnvironment(nodePath: node), queue = self.queue
+        let full = [scripts.appendingPathComponent("pigeon.mjs").path, "models", "--json"]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = Runner.run(executable: node, arguments: full, stdin: nil, environment: env, cwd: Paths.home, timeout: 30)
+            let (status, out) = Self.interpretRelay(r)
+            queue.async { completion(status, out) }
+        }
+    }
+
     // MARK: 中继站
 
     static let relayTimeout: TimeInterval = 60
