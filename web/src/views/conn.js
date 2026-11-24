@@ -7,7 +7,7 @@ import { html, raw, bool } from '../html.js';
 import { svg, IC, icon, brand } from '../icons.js';
 import { $, part, patch } from '../dom.js';
 import { AGENTS, AG, TH, CAP } from '../core/labels.js';
-import { named, shortDev, isPaused, levelsOf, online, leadKey, leadOptions, nameOf, removalImpact, agOf, dvOf } from '../core/names.js';
+import { named, shortDev, isPaused, levelsOf, online, leadKey, leadOptions, nameOf, removalImpact, agOf, dvOf, customModelsOf } from '../core/names.js';
 import { devIc, quotaDisc, modelTag, thinkPick, howChip, LINK, icOf } from './parts.js';
 import { registerAll } from '../actions.js';
 import { startRename } from './rename.js';
@@ -22,9 +22,12 @@ const cap = (dir, k) => html`<i class="cap ${k}" role="img" aria-label="${CAP[di
 const mpKey = () => { const k = ui.conn.mp, i = k.lastIndexOf(':'); return { d: k.slice(0, i), a: k.slice(i + 1) }; };
 
 function mpanelHTML(c) {
-  const grp = c.model.startsWith('group/'), list = st.MODELS[c.a] || [];
+  const grp = c.model.startsWith('group/'), list = st.MODELS[c.a] || [], { d } = mpKey(), mine = customModelsOf(st, c.a, d), remote = d !== st.home;
   const chip = (m, label, cls = '', tip = '') => html`<button class="mchip ${cls}" type="button" data-action="conn-model" data-m="${m}" aria-pressed="${bool(m === c.model)}" ${tip ? html`data-tip="${tip}"` : ''}>${label}</button>`;
-  return html`<div class="mpanel"><span class="lb">模型</span><span class="mpick">${live() ? chip('', `${AG[c.a].name} 默认`, '', '不指定，用它自己配的') : ''}${list.map(([m, , label]) => chip(m, label || m))}${live() && !list.length ? html`<span class="none">没读到它能用的模型</span>` : ''}</span>
+  // 自己填的模型名：带一个去掉的小叉
+  const own = m => html`<span class="mown">${chip(m, m, 'own', '自己填的模型名：思考强度几档都列出来，由对方建对话时校验')}<button class="mx" type="button" data-action="conn-model-rm" data-m="${m}" aria-label="去掉 ${m}">${icon('x')}</button></span>`;
+  return html`<div class="mpanel"><span class="lb">模型</span><span class="mpick">${live() ? chip('', `${AG[c.a].name} 默认`, '', '不指定，用它自己配的') : ''}${list.map(([m, , label]) => chip(m, label || m))}${mine.map(own)}${live() && !list.length && !mine.length ? html`<span class="none">没读到它能用的模型</span>` : ''}</span>
+    <span class="lb" data-tip="${remote ? '列表是从这台 Mac 的 Codex 读的，那台电脑上自定义的模型读不到，可以把名字填在这里' : '列表里没有的模型，可以把名字填在这里'}">自己填</span><span><input class="txtin" data-action="conn-model-add" placeholder="${remote ? '那台上的模型名，回车加上' : '模型名，回车加上'}" maxlength="80" autocomplete="off" spellcheck="false" aria-label="自己填一个模型名"></span>
     ${st.MAGPIE.on ? html`<span class="lb" data-tip="本机 magpie 里配的路由组：一个名字后面挂几个模型或账号，按它的规则自动选">magpie</span><span class="mpick">${st.MAGPIE.groups.map(([m, tip]) => chip(m, m, 'mg', tip))}</span>` : ''}
     <span class="lb">思考</span><span>${grp ? html`<span class="none">由 magpie 的路由组决定</span>` : !c.model && live() ? html`<span class="none">由 ${AG[c.a].name} 决定</span>` : thinkPick(levelsOf(st, c.a, c.model), c.think, 'conn-think')}</span>
     <span></span><small class="mut">Pigeon 派活、新开对话时默认用这个，不改它自己的配置；刘海上派活时还能临时换。</small></div>`;
@@ -42,14 +45,13 @@ function cxHTML() {
   const num = (k, label, min, max, unit, tip) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span><input class="numin" type="number" min="${min}" max="${max}" step="1" data-action="srv-num" data-path="codex.${k}" data-min="${min}" data-max="${max}" value="${cx(k)}" aria-label="${label}"> ${unit}</span>`;
   const text = (k, label, tip) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span><input class="txtin" data-action="srv-text" data-path="codex.${k}" data-def="${CODEX0[k]}" value="${cx(k)}" placeholder="${CODEX0[k]}" autocomplete="off" spellcheck="false" aria-label="${label}"></span>`;
   const H = st.HOOKS || {}, api = cx('imageMode') === 'api';
-  const relay = srv(st, ['post', 'relayThread'], ''), mine = st.S.filter(s => s.agent === 'codex' && s.dev === st.home && !s.stub);
-  const relayOpts = [['', '没设置'], ...mine.map(s => [s.id, `${s.relay ? '★ ' : ''}${s.title}`]), ...(relay && !mine.some(s => s.id === relay) ? [[relay, `当前：${relay.slice(0, 8)}…`]] : [])];
+  const relay = srv(st, ['post', 'relayThread'], '');
   const m0 = cx('model'), M = (st.CODEXM || []).find(x => x.slug === m0), efforts = M && M.efforts.length ? M.efforts : ['low', 'medium', 'high', 'xhigh', 'max'];
   return html`<div class="cpanel">
     <h4>Codex 和 Pigeon</h4>
     <span class="lb" data-tip="在本机 Codex 的配置里加两条回调，它每一轮开始、结束、调工具时告诉 Pigeon。会改本机 Codex 的配置，马上生效">接收 Codex 自己的事件</span>
     <span class="hookrow"><button class="sw" type="button" role="switch" aria-checked="${bool(!!H.installed)}" data-action="cx-hooks" aria-label="接收 Codex 自己的事件" ${H.busy || H.installed == null ? raw('disabled') : ''}></button><small class="${H.err ? 'bad' : 'mut'}" role="status">${H.err || (H.busy ? '读取中…' : H.detail || (H.installed == null ? '' : H.working ? '已收到 Codex 的事件' : '还没收到 Codex 的事件'))}</small></span>
-    ${pick('post.relayThread', '中继对话', relayOpts, relay, '本机 Codex 里专门用来转发的那个对话。往别的电脑发消息都要经过它，每次转发跑一轮模型。不设就只能给本机的对话发')}
+    <span class="lb">中继对话</span><span class="mut">${relay ? html`在远程设备卡片上的${icon('gear')}里看和换` : html`还没设：添加设备时选一条`}</span>
     <h4>Claude Code 经 pigeon run 交给 Codex 的活</h4>
     ${sw('routeAll', '都走 Pigeon', 'Claude Code 直接跑 codex exec 或用 Codex 的 MCP 派活时，改走 pigeon run，这样都能看到进度、按这里的设置跑')}
     ${pick('codex.model', '模型', [['', 'Codex 默认'], ...(st.CODEXM || []).map(m => [m.slug, m.name])], m0)}
@@ -68,6 +70,52 @@ function cxHTML() {
     ${seg('imageAspect', '画幅', [['square', '方形'], ['landscape', '横版'], ['portrait', '竖版']])}
     ${sw('imageTransparent', '透明背景')}
     ${text('imageDir', '存到项目里的', '相对项目根目录')}
+  </div>`;
+}
+
+/* ---------- 远程设备的设置：经哪条中继对话转发、它多大、用过的几条 ---------- */
+// 中继对话的候选：用过的（没归档、本机还在）加上本机 Codex 最近的对话
+function relayChoices() {
+  const R = st.RELAY || {}, out = new Map();
+  for (const r of R.relays || []) if (!r.archived && !r.missing) out.set(r.id, r.title || r.id.slice(0, 8));
+  for (const s of st.S) if (s.agent === 'codex' && s.dev === st.home && !s.stub && !out.has(s.id)) out.set(s.id, s.title);
+  return [...out];
+}
+const relayTitle = id => ((st.RELAY?.relays || []).find(r => r.id === id) || {}).title || (st.S.find(s => s.id === id) || {}).title || (id ? id.slice(0, 8) + '…' : '');
+const kTok = n => (n == null ? '读不到' : fmtTokens(n));
+const effortZh = e => (e ? `思考${(TH[e] || [e])[0]}` : '');
+// 正在用的那条：模型、思考强度、上一轮读了多少；太大了提醒换
+function relayNow(r, warnAt) {
+  const big = r.context != null && r.context > warnAt;
+  return html`<span class="lb">现在用的</span><span class="rnow"><b>${r.title || r.id.slice(0, 8)}</b><span class="mono mut">${[r.model || '模型没记下', effortZh(r.effort)].filter(Boolean).join(' · ')}</span><span class="${big ? 'bad' : 'mut'}" data-tip="每转发一次，模型都要把这条对话的上下文整个读一遍">${r.context == null ? '还没读到它的大小（可能还没转发过）' : `上一轮读了 ${kTok(r.context)} token${r.window ? `（窗口 ${kTok(r.window)}）` : ''}`}</span><button class="ghost sm" type="button" data-action="relay-open" data-id="${r.id}">${icon('jump')}在 Codex 里打开</button></span>
+    <span></span>${big ? html`<p class="rwarn">这条对话太长了，每转发一次都很费 token。建议换一条：在 Codex 里新建一条对话，选个便宜的模型、把思考强度调低，随便发一句“中转用”，再回这里选它。</p>`
+      : html`<small class="mut">模型和思考强度只能在 Codex 里改：打开这条对话，在输入框下面换。Pigeon 自己新建的对话拿不到往别的电脑发消息的工具，所以中继对话要在 Codex 里建。</small>`}`;
+}
+function relayOld(r) {
+  const used = r.shared || (r.hosts || []).length, del = ui.conn.rdel === r.id;
+  const acts = used ? html`<span class="mut">在用</span>` : r.missing ? html`<span class="mut">本机没找到</span>`
+    : html`${r.archived ? '' : html`<button class="ghost sm" type="button" data-action="relay-use" data-id="${r.id}" data-host="${ui.conn.dp}">用在这台</button>`}
+      <button class="ghost sm" type="button" data-action="relay-arch" data-id="${r.id}" data-v="${r.archived ? 'unarchive' : 'archive'}" data-tip="${r.archived ? '在 Codex 里恢复这条对话' : '在 Codex 里归档，能恢复'}">${r.archived ? '恢复' : '归档'}</button>
+      ${del ? html`<button class="btn danger sm" type="button" data-action="relay-del-ok" data-id="${r.id}">确认删除</button><button class="ghost sm" type="button" data-action="relay-del" data-id="">取消</button>`
+        : html`<button class="ghost sm" type="button" data-action="relay-del" data-id="${r.id}" data-tip="从 Codex 里永久删除这条对话，找不回来">删除</button>`}`;
+  return html`<div class="rrow ${r.archived ? 'arch' : ''}"><b>${r.title || r.id.slice(0, 8)}</b><small class="mono mut">${[r.model, effortZh(r.effort), r.context != null ? `上一轮 ${kTok(r.context)}` : ''].filter(Boolean).join(' · ')}</small>${r.archived ? html`<small class="mut">已归档</small>` : ''}<span class="sp"></span><span class="racts">${acts}</span></div>
+    ${del ? html`<p class="rwarn">删除后这条对话和它的记录都没了，找不回来。只想腾地方的话，归档就行。</p>` : ''}`;
+}
+function devPanelHTML(d) {
+  const R = st.RELAY;
+  if (!R || (R.busy && !R.relays)) return html`<div class="cpanel devpanel"><small class="mut" role="status">读取中…</small></div>`;
+  if (R.err && !R.relays) return html`<div class="cpanel devpanel"><small class="bad" role="status">${R.err}</small></div>`;
+  const by = R.byHost || {}, own = by[d] || '', cur = own || R.shared || '', row = (R.relays || []).find(r => r.id === cur), warnAt = R.warnAt || 150000;
+  const ch = relayChoices(), opt = (v, l, sel) => html`<option value="${v}" ${v === sel ? raw('selected') : ''}>${l}</option>`;
+  const withCur = (id) => (id && !ch.some(([v]) => v === id) ? [[id, relayTitle(id)]] : []);
+  const old = (R.relays || []).filter(r => r.id !== cur);
+  return html`<div class="cpanel devpanel" aria-busy="${bool(!!R.busy)}">
+    <h4 data-tip="往别的电脑发消息，都由这台 Mac 上 Codex 里的一条对话转过去，每转发一次跑一轮模型">中继对话</h4>
+    <span class="lb" data-tip="这台单独用一条，它的上下文就不会和别的电脑挤在一起">往这台发经过</span><span><select class="pick" data-action="relay-pick" data-host="${d}" aria-label="往 ${st.DEV[d].name} 发经过哪条中继对话">${opt('', `跟共用的${R.shared ? `（${relayTitle(R.shared)}）` : '（还没设）'}`, own)}${[...ch, ...withCur(own)].map(([v, l]) => opt(v, l, own))}</select></span>
+    <span class="lb" data-tip="所有远程设备默认都经过这条；单独指定了的除外">共用的</span><span><select class="pick" data-action="relay-pick" data-host="" aria-label="共用的中继对话">${opt('', '没设置', R.shared || '')}${[...ch, ...withCur(R.shared)].map(([v, l]) => opt(v, l, R.shared || ''))}</select></span>
+    ${row ? relayNow(row, warnAt) : html`<span></span><small class="mut">${cur ? '这条对话在本机没找到，换一条吧' : '还没设中继对话：在 Codex 里新建一条对话，随便发一句“中转用”，再在上面选它'}</small>`}
+    ${old.length ? html`<h4>用过的 · ${old.length}</h4><div class="rlist">${old.map(relayOld)}</div>` : ''}
+    ${R.err ? html`<small class="bad" role="status">${R.err}</small>` : ''}
   </div>`;
 }
 
@@ -92,9 +140,10 @@ function cardHTML(d) {
   return html`<section class="dcard ${ui.conn.fresh === d ? 'fresh' : ''}">
     <header><span class="g dev lg">${devIc(st, d)}</span><h2 class="dname" data-action="rename" data-dev="${d}" data-tip="${named(st, d) ? `电脑名 ${D.host} · ` : ''}点一下改名"><span>${D.name}</span>${icon('pen')}</h2>
       <span class="chip2 link" data-tip="${L.label}：${L.tip}">${icOf(L)}<span>${L.label}</span></span>${isPaused(st, d) ? html`<span class="chip2 pz">${icon('pause')}<span>已暂停</span></span>` : ''}${online(st, d) ? '' : html`<span class="chip2 off" role="status">${icon('x')}<span>连不上</span></span>${retry}`}<span class="sp"></span>
+      ${home ? '' : html`<button class="ghost icon ${ui.conn.dp === d ? 'on' : ''}" type="button" data-action="dev-panel" data-dev="${d}" aria-expanded="${bool(ui.conn.dp === d)}" data-tip="这台的设置：经哪条中继对话转发、它有多大">${icon('gear')}</button>`}
       <button class="ghost icon ${st.paused.dev[d] ? 'on' : ''}" type="button" data-action="pause-dev" data-dev="${d}" data-tip="${st.paused.dev[d] ? '继续往这台送消息' : '暂停这台：不再往这台送消息，在路上的停在原地'}">${icon(st.paused.dev[d] ? 'play' : 'pause')}</button>
       ${home ? (live() ? '' : html`<button class="ghost icon" type="button" data-action="plan" data-tip="一键接入本机全部：先列出会改哪几个文件">${icon('wand')}</button>`) : html`<button class="ghost icon" type="button" data-action="rm-dev" data-dev="${d}" data-tip="${live() ? '从界面上移除这台设备' : '移除这台设备'}">${icon('more')}</button>`}</header>
-    ${home && ui.conn.plan && !live() ? plan : ''}
+    ${home && ui.conn.plan && !live() ? plan : ''}${!home && ui.conn.dp === d ? devPanelHTML(d) : ''}
     <div class="arows">${st.CONN[d].length ? st.CONN[d].map(c => rowHTML(d, c)) : html`<p class="note pad">${live() ? '这台没检测到能接的应用' : '还没接 agent'}</p>`}</div></section>`;
 }
 // 只有本机的时候多一张虚线卡片，告诉你下一步；应用模式下移除过的设备列在下面，能恢复
@@ -165,7 +214,9 @@ function liveStep2() {
   return html`<h3>经 Codex 应用内</h3>
     <p class="mpnote">那台电脑登录同一个 Codex 账号就行，不用装别的。Pigeon 经本机 Codex 的中继对话重新读一次：这个账号下连着的电脑会出现在接入页和指挥台上。</p>
     <p class="snote">${icon('key')}<span>这会让中继对话跑一轮模型，要花一些 token。</span></p>
-    ${relay ? '' : html`<p class="snote">${icon('x')}<span>还没设中继对话：先在本机 Codex 那一行的“设置”里选一个。</span></p>`}
+    <h3>中继对话</h3>
+    <select class="pick" data-action="relay-pick" data-host="" aria-label="中继对话"><option value="" ${relay ? '' : raw('selected')}>没设置</option>${relayChoices().concat(relay && !relayChoices().some(([v]) => v === relay) ? [[relay, relayTitle(relay)]] : []).map(([v, l]) => html`<option value="${v}" ${v === relay ? raw('selected') : ''}>${l}</option>`)}</select>
+    ${relay ? '' : html`<p class="snote">${icon('x')}<span>还没设中继对话：在 Codex 里新建一条对话，随便发一句“中转用”，再在上面选它。</span></p>`}
     <h3>现在知道的远程电脑</h3>
     <div class="found">${known.map(d => html`<span class="fd on" data-tip="${st.DEV[d].host}">${devIc(st, d)}<span>${st.DEV[d].name}</span></span>`)}${(st.HIDDEN || []).map(h => html`<button type="button" class="fd" data-action="restore-dev" data-dev="${h.id}" data-tip="从界面上移除了，点一下恢复">${icon('undo')}<span>${h.name}</span></button>`)}${known.length || (st.HIDDEN || []).length ? '' : html`<span class="mut">还没有</span>`}</div>`;
 }
@@ -217,13 +268,14 @@ export function mountConn(main) {
     </div><div data-part="sheet"></div><div data-part="rm"></div>`);
   part(main, 'head', headHTML()); cards(); part(main, 'rules2', rules2HTML()); part(main, 'sheet', sheetHTML()); part(main, 'rm', rmHTML());
   if (live()) { part(main, 'usage', usageHTML()); if (ui.conn.cx) store.loadCodexHooks(); }
+  if (ui.conn.dp) store.loadRelay();
   const offs = [
     store.on(['SUB', 'DEV', 'lead'], () => part(main, 'head', headHTML())),
     // 确认框打开时把焦点放到主按钮上
     store.on(['ui.conn.rm', 'DEV', 'S', 'T', 'Q', 'lead'], ch => { part(main, 'rm', rmHTML()); if (store.touched(ch, 'ui.conn.rm')) $('[data-focus="rm-ok"]', main)?.focus(); }),
-    store.on(['DEV', 'paused', 'SUB', 'ui.conn.plan', 'ui.conn.mp', 'SRV', 'HOOKS'], cards),
+    store.on(['DEV', 'paused', 'SUB', 'ui.conn.plan', 'ui.conn.mp', 'SRV', 'HOOKS', 'RELAY'], cards),
     store.on(['RULES2'], () => part(main, 'rules2', rules2HTML())),
-    store.on(['ui.conn.sheet', 'SUB', 'DEV', 'SRV'], () => part(main, 'sheet', sheetHTML())),
+    store.on(['ui.conn.sheet', 'SUB', 'DEV', 'SRV', 'RELAY'], () => part(main, 'sheet', sheetHTML())),
     store.on(['USAGE'], () => { if (live()) part(main, 'usage', usageHTML()); }),
     // 输入框打字：只改“添加”按钮能不能点
     store.on(['sheetText'], () => { const b = $('[data-action="sheetdone"]', main); if (b && ui.conn.sheet) b.disabled = !sheetReady(ui.conn.sheet); }),
@@ -267,6 +319,15 @@ export function initConn(s) {
     'conn-think': ({ d }) => { const { d: dv, a } = mpKey(); after(store.setConnThink(dv, a, d.t), c => { if (c) toast(said(c)); }); },
     'conn-on': ({ d }) => after(store.toggleConn(d.dev, d.a)),
     'cx-panel': () => { store.toggleCodexPanel(); if (ui.conn.cx) store.loadCodexHooks(); },
+    'dev-panel': ({ d }) => { store.toggleDevPanel(d.dev); if (ui.conn.dp) store.loadRelay(); },
+    'relay-pick': [({ d, value }) => say(store.relayDo('use', value, d.host)), 'change'],
+    'relay-use': ({ d }) => say(store.relayDo('use', d.id, d.host)),
+    'relay-arch': ({ d }) => say(store.relayDo(d.v, d.id)),
+    'relay-del': ({ d }) => store.askRelayDelete(d.id),
+    'relay-del-ok': ({ d }) => { store.askRelayDelete(''); say(store.relayDo('delete', d.id)); },
+    'relay-open': ({ d }) => say(store.openRelay(d.id)),
+    'conn-model-add': [({ el }) => { const v = el.value.trim(); if (!v) return; const { d: dv, a } = mpKey(); el.value = ''; say(store.addCustomModel(dv, a, v)); }, 'change'],
+    'conn-model-rm': ({ d }) => { const { d: dv, a } = mpKey(); say(store.removeCustomModel(dv, a, d.m)); },
     'cx-hooks': ({ el }) => after(store.setCodexHooks(el.getAttribute('aria-checked') !== 'true'), h => toast(h.installed ? '装好了：Codex 每一轮会告诉 Pigeon' : '关掉了：不再接收 Codex 自己的事件')),
     'srv-set': ({ d }) => after(store.setServer(d.path.split('.'), d.v)),
     reconnect: ({ d }) => say(store.reconnect(d.dev)),

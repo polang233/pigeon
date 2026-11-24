@@ -259,6 +259,61 @@ extension Hub {
         return (false, line.isEmpty ? "没能打开" : "没能打开：\(line)")
     }
 
+    // MARK: 中继站
+
+    static let relayTimeout: TimeInterval = 60
+    static let relayActions: Set<String> = ["use", "archive", "unarchive", "delete"]
+
+    /// POST /api/relay 的请求体 → `pigeon relay …` 的参数。use 不带 id 而带 host：那台不再单独用，跟着共用的
+    static func relayArguments(_ req: [String: Any]) -> (args: [String]?, error: String) {
+        let action = req["action"] as? String ?? ""
+        guard relayActions.contains(action) else { return (nil, "action 只能是 use、archive、unarchive、delete") }
+        let id = (req["id"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = (req["host"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "use" {
+            if id.isEmpty && host.isEmpty { return (nil, "要给对话 id") }
+            return (["relay", "use", id.isEmpty ? "default" : id] + (host.isEmpty ? [] : ["--host", host]) + ["--json"], "")
+        }
+        guard !id.isEmpty else { return (nil, "要给对话 id") }
+        return (["relay", action, id, "--json"], "")
+    }
+
+    /// 命令行最后一行是 JSON：退出码 0 原样回 200；用法错误 400；别的失败 409，正文里有 error
+    static func interpretRelay(_ r: Runner.Result) -> (Int, Data) {
+        if r.timedOut { return (504, jsonData(["ok": false, "error": "等太久，已经放弃"])) }
+        let last = r.stdoutText.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+        if let d = last.data(using: .utf8), (try? JSONSerialization.jsonObject(with: d)) is [String: Any] {
+            return (r.status == 0 ? 200 : r.status == 64 ? 400 : 409, d)
+        }
+        let said = r.stderrText.split(whereSeparator: \.isNewline).last.map { String($0.prefix(200)) } ?? ""
+        return (500, jsonData(["ok": false, "error": said.isEmpty ? "中继站命令失败（退出码 \(r.status)）" : said]))
+    }
+
+    /// GET（body 为 nil）：`pigeon relay list --json`；POST：换中继站、归档、恢复、删除用过的
+    func performRelay(_ body: Data?, completion: @escaping @Sendable (Int, Data) -> Void) {
+        var args = ["relay", "list", "--json"]
+        if let body {
+            guard let req = bodyObject(body) else { return completion(400, fail(400, "请求体必须是 JSON 对象").1) }
+            let (a, error) = Self.relayArguments(req)
+            guard let a else { return completion(400, fail(400, error).1) }
+            args = a
+        }
+        guard let node = Detector.which("node") else { return completion(500, fail(500, "没找到 node").1) }
+        guard let scripts = scriptsDir() else { return completion(500, fail(500, "没找到 pigeon.mjs").1) }
+        let env = childEnvironment(nodePath: node), queue = self.queue, changes = body != nil
+        let full = [scripts.appendingPathComponent("pigeon.mjs").path] + args
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let r = Runner.run(executable: node, arguments: full, stdin: nil, environment: env,
+                               cwd: Paths.home, timeout: Self.relayTimeout)
+            let (status, out) = Self.interpretRelay(r)
+            queue.async {
+                completion(status, out)
+                // 换了中继站，对话列表里哪条标成中继站跟着变
+                if changes && status == 200 { self?.scheduleLoftsPush() }
+            }
+        }
+    }
+
     // MARK: 重读远程
 
     /// `pigeon lofts --refresh`。同时来了几次就合并成一次。

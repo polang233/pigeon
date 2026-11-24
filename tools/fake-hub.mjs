@@ -123,6 +123,12 @@ function send(msg) { const line = `data: ${JSON.stringify(msg)}\n\n`; for (const
 const pushNote = n => send({ type: 'hook', ts: Date.now(), payload: { hook_event_name: 'PigeonNote', ts: Date.now(), ...n } });
 const pushQueue = () => send({ type: 'queue', items: queue });
 const pushSettings = () => send({ type: 'settings', settings });
+// 中继站对话的示例信息：现在用的那条上下文已经很大；还有一条用过、归档了的
+const relayInfo = {
+  'th-relay-0001': { title: '中继', model: 'gpt-6.1-terra', effort: 'xhigh', context: 259878, window: 486400, tokensUsed: 39872176 },
+  'th-relay-old0': { title: '中转（旧）', model: 'gpt-6.1-terra', effort: 'high', context: 412000, window: 486400, tokensUsed: 61000000, archived: true, updated: ago(86400) },
+};
+settings.post.relayUsed = ['th-relay-0001', 'th-relay-old0'];
 const mergeInto = (base, patch) => { for (const [k, v] of Object.entries(patch)) { if (v === null) delete base[k]; else if (v && typeof v === 'object' && !Array.isArray(v)) mergeInto((base[k] = base[k] && typeof base[k] === 'object' && !Array.isArray(base[k]) ? base[k] : {}), v); else base[k] = v; } };
 const pushLofts = () => { lofts.updated = Date.now(); send({ type: 'lofts', lofts }); };
 setInterval(() => { for (const c of clients) c.write(': ping\n\n'); }, 15000);
@@ -267,6 +273,30 @@ const server = http.createServer(async (req, res) => {
   if (path === '/api/detect') { if (M === 'POST') send({ type: 'detect', ts: Date.now(), agents: detect }); return json(res, 200, detect); }
   if (path === '/api/usage' && M === 'GET') return json(res, 200, usage);
   if (path === '/api/codex/models' && M === 'GET') return json(res, 200, codexModels);
+  // 中继站：模型、上下文大小是写死的示例；换、归档、删除改 settings.post 和这张表
+  if (path === '/api/relay') {
+    const P = settings.post = { relayByHost: {}, relayUsed: [], ...settings.post };
+    const titleOf = id => (lofts.lofts[0].sessions.find(x => x.id === id) || {}).title || '';
+    if (M === 'POST') {
+      const { action, id = '', host = '' } = body, inUse = id && (P.relayThread === id || Object.values(P.relayByHost).includes(id));
+      if (action === 'use') {
+        const old = host ? P.relayByHost[host] || P.relayThread : P.relayThread;
+        if (host) { if (id) P.relayByHost[host] = id; else delete P.relayByHost[host]; } else P.relayThread = id;
+        P.relayUsed = [...new Set([id, old, ...P.relayUsed].filter(Boolean))];
+        pushSettings();
+        return json(res, 200, id ? { ok: true, id, title: titleOf(id) } : { ok: true });
+      }
+      if (!relayInfo[id]) return json(res, 400, { ok: false, error: '只能处理用过的中继站对话' });
+      if (inUse && action !== 'unarchive') return json(res, 409, { ok: false, error: '这条还在当中继站用，先换一条再' + (action === 'delete' ? '删除' : '归档') + '。' });
+      if (action === 'delete') { delete relayInfo[id]; P.relayUsed = P.relayUsed.filter(x => x !== id); pushSettings(); }
+      else relayInfo[id].archived = action === 'archive';
+      return json(res, 200, { ok: true });
+    }
+    const ids = [...new Set([P.relayThread, ...Object.values(P.relayByHost), ...P.relayUsed].filter(Boolean))];
+    return json(res, 200, { shared: P.relayThread, byHost: P.relayByHost, warnAt: 150000, relays: ids.map(id => ({
+      id, title: titleOf(id) || (relayInfo[id] || {}).title || '', missing: !relayInfo[id] && !titleOf(id), archived: false, updated: ago(900),
+      model: '', effort: '', tokensUsed: 0, context: null, window: 0, ...(relayInfo[id] || {}), shared: id === P.relayThread, hosts: Object.keys(P.relayByHost).filter(h => P.relayByHost[h] === id) })) });
+  }
   if (path === '/api/codex/hooks') {
     if (M === 'POST') { hooks = { ...hooks, installed: !!body.enable, working: !!body.enable && hooks.working, detail: body.enable ? '已安装，还没收到 Codex 的事件' : '没装' }; }
     return json(res, 200, hooks);

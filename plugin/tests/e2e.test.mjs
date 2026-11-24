@@ -433,6 +433,60 @@ test('relay：use latest 写设置文件且保留其他字段；use 拒绝 never
   } finally { await done(); }
 });
 
+test('某台远程设备单独用一条中继站：发往那台排进它那条，别的照样用共用的', async () => {
+  const other = 'remote-control:env_e_0000test0000bbbb';
+  const lofts = { version: 1, updated: 1, lofts: [{ id: 'local', name: '这台 Mac', online: true, sessions: [], projects: [] },
+    { id: T.host, name: 'DESKTOP-TEST01', online: true, sessions: [{ id: T.remote, agent: 'codex', title: '构建', updated: 1 }], projects: [] },
+    { id: other, name: 'LAPTOP-2', online: true, sessions: [{ id: '0199dddd-4444-7000-8000-000000000004', agent: 'codex', title: '文档', updated: 1 }], projects: [] }] };
+  const { e, done } = await setup({ mode: 'silent', settings: { post: { relayThread: T.relay, relayByHost: { [T.host]: T.local }, confirmRemote: false } } });
+  try {
+    fs.mkdirSync(e.pigeonHome, { recursive: true });
+    fs.writeFileSync(path.join(e.pigeonHome, 'lofts.json'), JSON.stringify(lofts));
+    let r = await pigeon(['send', '--to', '构建@DESKTOP-TEST01', 'hi'], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    r = await pigeon(['send', '--to', '文档@LAPTOP-2', 'hi'], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    const qs = e.calls().filter(c => c.argv[0] === 'queue').map(c => c.argv[2]);
+    assert.deepEqual(qs, [T.local, T.relay]);
+    // 单独用的那条也是中继站，不能直接给它发
+    r = await pigeon(['send', '--to', T.local, 'hi'], e.env);
+    assert.equal(r.code, 64);
+    assert.match(r.stderr, /中继站对话/);
+  } finally { await done(); }
+});
+
+test('relay use --host / list / archive / delete：换下来的记进用过的；在用的不让动；删了从列表去掉', async () => {
+  const { e, done } = await setup({ settings: { post: { relayThread: T.relay } } });
+  try {
+    let r = await pigeon(['relay', 'use', T.local, '--host', T.host], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    let s = JSON.parse(fs.readFileSync(e.settingsFile, 'utf8'));
+    assert.deepEqual(s.post.relayByHost, { [T.host]: T.local });
+    assert.equal(s.post.relayThread, T.relay, '共用的没动');
+    r = await pigeon(['relay', 'list', '--json'], e.env);
+    const j = JSON.parse(r.stdout);
+    assert.deepEqual(j.relays.map(x => [x.id, x.shared, x.hosts]), [[T.relay, true, []], [T.local, false, [T.host]]]);
+    assert.equal(j.relays[0].title, '中转用');
+    r = await pigeon(['relay', 'archive', T.local, '--json'], e.env);
+    assert.equal(r.code, 1);
+    assert.match(JSON.parse(r.stdout).error, /还在当中继站用/);
+    r = await pigeon(['relay', 'use', 'default', '--host', T.host], e.env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    s = JSON.parse(fs.readFileSync(e.settingsFile, 'utf8'));
+    assert.deepEqual(s.post.relayByHost, {});
+    assert.ok(s.post.relayUsed.includes(T.local));
+    r = await pigeon(['relay', 'archive', T.local, '--json'], e.env);
+    assert.equal(r.code, 0, r.stdout);
+    r = await pigeon(['relay', 'delete', T.never, '--json'], e.env);
+    assert.equal(r.code, 64, '没当过中继站的对话不归这里管');
+    r = await pigeon(['relay', 'delete', T.local, '--json'], e.env);
+    assert.equal(r.code, 0, r.stdout);
+    assert.deepEqual(e.calls().map(c => c.argv.slice(0, 2)), [['archive', T.local], ['delete', T.local]]);
+    s = JSON.parse(fs.readFileSync(e.settingsFile, 'utf8'));
+    assert.ok(!s.post.relayUsed.includes(T.local));
+  } finally { await done(); }
+});
+
 test('relay use：应用开着时走 PUT /api/settings', async () => {
   const { e, app, done } = await setup({ appSettings: { version: 1, codex: { model: 'm' }, unknown: 1 } });
   try {

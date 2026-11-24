@@ -251,6 +251,7 @@ export function mapLive(raw, now = Date.now()) {
     RULES: rulesFromWire(obj(S0.dispatch).rules, ruleHits(notes, now)), LOW: Number(q0.low) || 20, RULES2: rules2Of(S0),
     paused: { all: !!P.all, dev: { ...obj(P.lofts) } },
     settings: { notch: obj(S0.perch).notch === false ? 'off' : 'on', quota: q0.show === 'always' ? 'always' : 'hover', secrets: ['warn', 'mask', 'off'].includes(obj(S0.secrets).mode) ? S0.secrets.mode : 'warn', crossTimeoutSec: Number(obj(S0.post).crossTimeoutSec) || 90 },
+    CUSTOMM: Object.fromEntries(Object.entries(obj(dv.customModels)).filter(([k]) => k.lastIndexOf('@') > 0).map(([k, v]) => { const i = k.lastIndexOf('@'); return [`${fromWire(k.slice(0, i))}@${k.slice(i + 1)}`, (Array.isArray(v) ? v : []).map(x => String(x).trim()).filter(Boolean)]; }).filter(([, v]) => v.length)),
     MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [] },
     DEF_MODEL: { claude: ['', ''], codex: ['', ''], cursor: ['', ''], dsh: ['', ''] },
     CODEXM: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => ({ slug: String(m.slug), name: String(m.name || m.slug), efforts: (Array.isArray(m.efforts) ? m.efforts : []).map(String) })),

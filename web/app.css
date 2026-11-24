@@ -1242,3 +1242,22 @@ main:has(> .chan) { container-type: inline-size; overflow: hidden; }
   .chlist-h b, .chi .chn, .chi .num, .chi.all .num { display: none; }
   .chi { justify-content: center; position: relative; } .chi .flag, .chi .chun { position: absolute; top: 0; right: 2px; } .chi .chrun { position: absolute; bottom: 4px; right: 6px; }
 }
+
+/* 接入页：远程设备的设置（中继对话），模型面板里自己填的模型名 */
+.devpanel { margin-left: 14px; }
+.devpanel[aria-busy="true"] { opacity: .7; }
+.devpanel .rnow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.devpanel .rnow .bad, .devpanel small.bad { color: var(--wait); }
+.devpanel .rwarn { grid-column: 2; margin: 0; font-size: 12px; line-height: 1.5; color: var(--wait); }
+.devpanel .rlist { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; }
+.devpanel .rrow { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; padding: 5px 8px; border-radius: 7px; background: var(--win); }
+.devpanel .rrow.arch b { color: var(--mut); }
+.devpanel .rrow .sp { flex: 1; }
+.devpanel .rlist .rwarn { grid-column: auto; padding: 0 8px 4px; }
+.mpanel .mown { display: inline-flex; align-items: center; }
+.mpanel .mchip.own { border-style: dotted; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.mpanel .mx { border: 1px solid var(--line2); border-left: 0; background: var(--win); color: var(--faint); height: 100%; min-height: 24px; padding: 0 5px; border-radius: 0 7px 7px 0; cursor: pointer; display: inline-flex; align-items: center; }
+.mpanel .mx:hover { color: var(--text); }
+.mpanel .mx svg { width: 11px; height: 11px; }
+@media (max-width: 640px) { .devpanel .rwarn { grid-column: 1; } }
+.devpanel .racts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }

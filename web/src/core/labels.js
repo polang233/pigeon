@@ -16,7 +16,7 @@ export const APP = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'D
 export const SHORT = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'DSH', you: '你' };
 
 // 思考强度：名字和几格
-export const TH = { low: ['低', 1], medium: ['中', 2], high: ['高', 3], xhigh: ['极高', 4] };
+export const TH = { low: ['低', 1], medium: ['中', 2], high: ['高', 3], xhigh: ['极高', 4], max: ['最高', 5], ultra: ['超高', 6] };
 // 对话的状态（契约里的 state）：名字和颜色变量
 export const ST = { run: ['在干活', 'var(--run)'], wait: ['等你', 'var(--wait)'], error: ['出错', 'var(--wait)'], idle: ['空闲', 'var(--idle)'], done: ['刚完成', 'var(--ok)'] };
 // 对话在做什么（契约里的 activity），形象按它挑动作

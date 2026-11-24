@@ -1,13 +1,14 @@
 // 给 README 截演示页的图：用无界面的 Microsoft Edge 打开演示（python3 tools/serve.py），按步骤点几下，存成 PNG。
 // 用法（在仓库根目录）：node tools/shots.mjs [演示地址，默认 http://localhost:5189/] [输出目录，默认 docs/images/demo] [只截哪几张，逗号分隔]
 import { spawn, execFileSync } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const url = process.argv[2] || 'http://localhost:5189/', out = process.argv[3] || 'docs/images/demo';
 mkdirSync(out, { recursive: true });
 const PORT = 9333, W = 1280, H = 820;
 const prof = join(process.env.TMPDIR || '/tmp', 'pigeon-shots-profile');
+rmSync(prof, { recursive: true, force: true }); // 每次用干净的浏览器资料，免得缓存里是旧的网页文件
 const edge = spawn('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', [
   '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${prof}`, '--no-first-run',
   '--hide-scrollbars', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
@@ -41,6 +42,7 @@ const steps = [
   ['channels', async () => { await click('[data-action=nav][data-v=tasks]'); await sleep(1500); }],
   ['route', async () => { await click('[data-action=nav][data-v=route]'); await sleep(1500); }],
   ['conn', async () => { await click('[data-action=nav][data-v=conn]'); await sleep(1500); }],
+  ['conn-device', async () => { await click('[data-action=nav][data-v=conn]'); await sleep(800); await click('[data-action=dev-panel][data-dev=win]'); await sleep(500); await click('[data-action=model-panel][data-dev=win][data-a=codex]'); await sleep(500); await js("document.querySelector('.devpanel').closest('.dcard').scrollIntoView({ block: 'start' })"); await sleep(600); }],
   ['notch-confirm', async () => { await click('#ear-r .need'); await sleep(1200); }, { x: 340, y: 0, width: 600, height: 470 }],
   ['notch-compose', async () => { await click('#settings'); await sleep(400); await click('[data-action=hud-demo][data-state=compose]'); await sleep(300); await click('#settings'); await sleep(1200); }, { x: 340, y: 0, width: 600, height: 470 }],
 ];

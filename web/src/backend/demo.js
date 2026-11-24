@@ -2,7 +2,7 @@
 // 应用模式换成 backend/live.js，方法名和返回的样子一样（那边返回 Promise）。
 // ctx 是 store 给的：state、ui、emit、clock、newId、defaultSel，m 是 store 的界面方法（hud、target、pickOf……）。
 import { AGENTS, AG } from '../core/labels.js';
-import { by, keyOf, agOf, dvOf, levelsOf, midLevel, qInfo, qDevs, nameOf, tById, leadSession, askOn, isPaused, online, endOf, removalImpact, validLead, cleanName } from '../core/names.js';
+import { by, keyOf, agOf, dvOf, levelsOf, midLevel, qInfo, qDevs, nameOf, tById, leadSession, askOn, isPaused, online, endOf, removalImpact, validLead, cleanName, customModelsOf } from '../core/names.js';
 import { targets, routeOf } from '../core/route.js';
 import { kindsIn } from '../core/secrets.js';
 import { APP } from '../core/labels.js';
@@ -158,6 +158,34 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
       const c = (st.CONN[d] || []).find(x => x.a === a); if (!c) return null;
       c.think = t; delete ui.hud.pick[`${a}@${d}`]; emit('DEV');
       return c;
+    },
+    // 自己填的模型名（演示里只记在页面上）
+    addCustomModel(d, a, name) {
+      const m = String(name || '').trim().slice(0, 80); if (!m) return null;
+      const k = `${a}@${d}`, cur = customModelsOf(st, a, d);
+      if ((st.MODELS[a] || []).some(x => x[0] === m) || cur.includes(m)) return `已经有 ${m} 了`;
+      st.CUSTOMM = { ...(st.CUSTOMM || {}), [k]: [...cur, m] }; emit('DEV');
+      return `加上了 ${m}（示例）`;
+    },
+    removeCustomModel(d, a, m) {
+      const k = `${a}@${d}`; st.CUSTOMM = { ...(st.CUSTOMM || {}), [k]: customModelsOf(st, a, d).filter(x => x !== m) };
+      const c = (st.CONN[d] || []).find(x => x.a === a); if (c && c.model === m) c.model = '';
+      emit('DEV'); return `去掉了 ${m}（示例）`;
+    },
+    openRelay() { return '演示里打不开 Codex'; },
+    // 中继站（演示）：示例数据在 mock 里，换、归档、删除只改页面上的
+    loadRelay() { emit('RELAY'); },
+    relayDo(action, id, host = '') {
+      const R = st.RELAY, row = R.relays.find(r => r.id === id);
+      if (action === 'use') {
+        if (host) { if (id) R.byHost = { ...R.byHost, [host]: id }; else { const b = { ...R.byHost }; delete b[host]; R.byHost = b; } } else R.shared = id;
+        R.relays.forEach(r => { r.shared = r.id === R.shared; r.hosts = Object.keys(R.byHost).filter(h => R.byHost[h] === r.id); });
+      } else if (row) {
+        if (row.shared || row.hosts.length) return Promise.reject(new Error('这条还在当中继站用，先换一条'));
+        if (action === 'delete') R.relays = R.relays.filter(r => r !== row); else row.archived = action === 'archive';
+      }
+      emit('RELAY');
+      return (action === 'use' ? (id ? `中继站换成「${(row || {}).title || id}」` : '这台跟着共用的中继站') : { archive: '归档了', unarchive: '恢复了', delete: '删掉了' }[action]) + '（示例）';
     },
     // 一键接入本机全部。返回改之前的样子，撤回时交回来
     applyPlan() {

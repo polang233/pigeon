@@ -64,7 +64,15 @@ export const isPaused = (st, d) => st.paused.all || !!st.paused.dev[d];
 export const askOn = (st, id) => st.RULES2.find(r => r.id === id)?.on !== false;
 
 // 一个模型分哪几档思考强度（空的不分）；换模型时原来那档没有，就落到中间那档
-export const levelsOf = (st, a, m) => (((st.MODELS[a] || []).find(x => x[0] === m) || [, ''])[1] || '').split(' ').filter(Boolean);
+// 一个模型分哪几档思考强度。列表里没有的（自己填的模型名，多半是别的电脑上自定义的）不知道分几档，几档都列出来，由对方建对话时校验
+export const ALL_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+export const levelsOf = (st, a, m) => {
+  const hit = (st.MODELS[a] || []).find(x => x[0] === m);
+  if (hit) return (hit[1] || '').split(' ').filter(Boolean);
+  return m && !m.startsWith('group/') ? ALL_LEVELS : [];
+};
+// 某台设备上某个 agent 自己填的模型名（设置里 devices.customModels）
+export const customModelsOf = (st, a, d) => ((st.CUSTOMM || {})[`${a}@${d}`] || []);
 export const midLevel = lv => lv[Math.floor((lv.length - 1) / 2)] || '';
 
 // 某台设备上开着的 agent

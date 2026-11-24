@@ -6,7 +6,7 @@
 // 用到的接口见 docs/CONTRACT.md；具体哪几个字段，写在每个函数旁边。
 import { mapLive, mergeNote, mergeRun, rulesToWire, RULE2_PATH, at, setAt, keyToWire, toWire, dispatchBody } from './adapt.js';
 import { settingsWriter } from './settings.js';
-import { by, tById, isPaused, validLead, cleanName, levelsOf, midLevel, removalImpact, jumpLabel } from '../core/names.js';
+import { by, tById, isPaused, validLead, cleanName, levelsOf, midLevel, removalImpact, jumpLabel, customModelsOf } from '../core/names.js';
 import { promptText, targets } from '../core/route.js';
 import { createDemo } from './demo.js';
 
@@ -38,6 +38,10 @@ export async function probeLive() {
 
 const MAX_NOTES = 100, MAX_RUNS = 30;
 const get = path => api(path);
+// 中继站操作完成后的一句话
+export const relayMsg = (action, r, host) => action === 'use'
+  ? (r && r.title ? `${host ? '这台' : '共用的'}中继站换成「${r.title}」` : '这台跟着共用的中继站')
+  : { archive: '归档了，在 Codex 里能恢复', unarchive: '恢复了', delete: '删掉了' }[action] || '好了';
 
 // 读一遍全部，建好后端。notify(文字) 用来说后台出的错（底部提示）
 export async function connectLive(lofts0, { notify = () => {} } = {}) {
@@ -90,7 +94,7 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
 
   /* ---------- 整份换一遍：只发真的变了的话题；正在打字的地方先不重画 ---------- */
   const sigs = {};
-  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'] };
+  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL', 'CUSTOMM'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'] };
   const noDur = (k, v) => (k === 'dur' || k === 'time' ? undefined : v);
   let held = new Set();
   const holdNow = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && (a.classList.contains('rename') || !!a.closest('.cpanel, .setpop, [data-part="rules"]')); };
@@ -229,6 +233,8 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
       const s = by(st, id); if (!s) return no('这个对话已经不在了');
       return api('/api/open', { method: 'POST', body: wireEnd(s) }).then(() => `已${jumpLabel(st, s)}「${s.title}」`);
     },
+    // 中继站对话不一定在对话列表里，按 id 直接在 Codex 里打开
+    openRelay(id) { return api('/api/open', { method: 'POST', body: { loft: 'local', agent: 'codex', session: id } }).then(() => '在 Codex 里打开了'); },
     // 设置里刘海的演示：POST /api/notch { state, demo: true }，刘海用内置的示例内容演示，不动真数据
     notchDemo(state) {
       return api('/api/notch', { method: 'POST', body: { state: NOTCH[state] || state, target: '', session: '', band: '', demo: true } }).then(() => '刘海上在演示了');
@@ -270,6 +276,32 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
       const c = (st.CONN[d] || []).find(x => x.a === a); if (!c) return null;
       delete ui.hud.pick[`${a}@${d}`];
       return patch(s => { at(s, ['devices', 'models'])[keyToWire(`${a}@${d}`)] = { model: c.model, effort: t }; }).then(() => (st.CONN[d] || []).find(x => x.a === a));
+    },
+    // 自己填的模型名（别的电脑上自定义的模型，本机读不到）：设置里 devices.customModels["agent@设备"]
+    addCustomModel(d, a, name) {
+      const m = String(name || '').trim().slice(0, 80);
+      if (!m) return null;
+      if ((st.MODELS[a] || []).some(x => x[0] === m) || customModelsOf(st, a, d).includes(m)) return no(`已经有 ${m} 了`);
+      const k = keyToWire(`${a}@${d}`);
+      return patch(s => { const cm = at(s, ['devices', 'customModels']); cm[k] = [...(Array.isArray(cm[k]) ? cm[k] : []), m]; }).then(() => `加上了 ${m}`);
+    },
+    // 去掉的正好是默认模型时，默认也清掉
+    removeCustomModel(d, a, m) {
+      const k = keyToWire(`${a}@${d}`);
+      return patch(s => {
+        const cm = at(s, ['devices', 'customModels']); cm[k] = (Array.isArray(cm[k]) ? cm[k] : []).filter(x => x !== m); if (!cm[k].length) delete cm[k];
+        const ms = at(s, ['devices', 'models']); if (ms[k] && ms[k].model === m) delete ms[k];
+      }).then(() => `去掉了 ${m}`);
+    },
+    // 中继站：GET /api/relay 读在用的和用过的；POST /api/relay 换、归档、恢复、删除。改完再读一次
+    loadRelay() {
+      st.RELAY = { ...(st.RELAY || {}), busy: true, err: '' }; emit('RELAY');
+      return get('/api/relay').then(r => { st.RELAY = { ...r, busy: false, err: '' }; emit('RELAY'); }, e => { st.RELAY = { ...(st.RELAY || {}), busy: false, err: `读不到中继站：${e.message}` }; emit('RELAY'); });
+    },
+    relayDo(action, id, host = '') {
+      st.RELAY = { ...(st.RELAY || {}), busy: true }; emit('RELAY');
+      return api('/api/relay', { method: 'POST', body: { action, id, host } })
+        .then(r => be.loadRelay().then(() => relayMsg(action, r, host)), e => { st.RELAY = { ...(st.RELAY || {}), busy: false }; emit('RELAY'); throw e; });
     },
     applyPlan() { return no('第一版还不能一键接入'); },
     undoPlan() {},

@@ -21,7 +21,8 @@ const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也�
   pigeon read <编号>                      读回信
   pigeon fetch <编号> [--wait-min 分钟]   远程消息送到了但没回音（没等到回信）时，请中继站再等一次、补取回信（只读）
   pigeon log [-n 20] [--json]             最近的任务记录
-  pigeon relay [use <对话id|latest> | check]   查看、设置或检查中继站
+  pigeon relay [use <对话id|latest> [--host <主机>] | list | check]   查看、设置或检查中继站；--host 只给那台远程设备换
+  pigeon relay archive|unarchive|delete <对话id>   归档、恢复、删除用过的中继站对话
 
 把活交给 Codex：
   pigeon run --kind image|code|review|general --title "标题" [--cwd 目录] --brief-file 任务说明.md [--temp|--keep] [--reason "<为什么交给它>"]

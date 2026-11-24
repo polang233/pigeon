@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { normRelay } from './relays.mjs';
 
 export const HOME = os.homedir();
 export const port = () => Number(process.env.PIGEON_PORT || 47321);
@@ -103,7 +104,7 @@ export const CODEX_DEFAULTS = {
   summaryChars: 300,
 };
 // crossTimeoutSec：跨设备发送等用户确认多少秒；pauseMaxMin：暂停时一条消息最多排多久（插件自己的约定，见 post.mjs）
-export const POST_DEFAULTS = { relayThread: '', maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, crossTimeoutSec: 90, pauseMaxMin: 120 };
+export const POST_DEFAULTS = { relayThread: '', relayByHost: {}, relayUsed: [], maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, crossTimeoutSec: 90, pauseMaxMin: 120 };
 export const SECRETS_MODES = ['warn', 'mask', 'off'];
 
 export function readSettingsFile() {
@@ -133,6 +134,7 @@ export async function loadSettings() {
   post.confirmRemote = post.confirmRemote !== false; // 只有明确写 false 才关
   post.crossTimeoutSec = Math.max(1, Number(post.crossTimeoutSec) || POST_DEFAULTS.crossTimeoutSec);
   post.pauseMaxMin = Math.max(0.02, Number(post.pauseMaxMin) || POST_DEFAULTS.pauseMaxMin);
+  normRelay(post);
   const mode = raw && raw.secrets && raw.secrets.mode;
   const secrets = { mode: SECRETS_MODES.includes(mode) ? mode : 'warn' };
   return { codex: { ...CODEX_DEFAULTS, ...((raw && raw.codex) || {}) }, post, secrets, raw: raw || {}, source, appOnline: !!r };

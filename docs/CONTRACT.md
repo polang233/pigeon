@@ -319,7 +319,9 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 }
 ```
 
-- `post.relayThread`：中继站对话的 id；空串表示没设置。
+- `post.relayThread`：中继站对话的 id；空串表示没设置。所有远程设备默认共用这条。
+- `post.relayByHost`：某台远程设备单独用的中继站，`{ "主机 id": "对话 id" }`。往那台发、在那台新开对话、补取那台的回信都经它；没写的跟着 `post.relayThread`。重读远程设备（`lofts --refresh`）总是用共用的那条。
+- `post.relayUsed`：用过的中继站对话 id，最新的在前，最多 20 条。换中继站时换下来的和换上去的都记进来，接入页列出来，能归档、删除。
 - `post.maxHops`：一条消息链最多传递几次，默认 10。
 - `post.waitTimeoutMin`：等待一张消息的超时，单位分钟，默认 10。
 - `post.confirmRemote`：往别的电脑发送或新建前是否让人确认，默认开；只有明确写 `false` 才关。没同意（拦下、`post.crossTimeoutSec` 秒没人点、问不出）时不发，消息状态 `refused`。确认现在先在 Pigeon 自己的面板里问（见"等你处理的一队"），问不出来才退回系统对话框。
@@ -471,6 +473,7 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 
 - `paused`：全部暂停和每台暂停。暂停时插件不送出：消息记成 `queued` 加 `paused: true`，后台后台进程每 2 秒读一次设置，继续后自己送出。最多排 `post.pauseMaxMin` 分钟（默认 120），到点记成 `refused`、`timeout`；后台进程没了也一样（原文只在它的内存里）。
 - `devices.names`：设备的显示名，只改显示。`devices.hidden`：从界面上移除的设备。`devices.off`：每台上关掉的 agent。`devices.models`：Pigeon 派活时默认用的模型和思考强度。
+- `devices.customModels`：自己填的模型名，`{ "codex@<主机 id>": ["local/qwen3-coder"] }`。模型列表是从本机 Codex 读的，别的电脑上自定义的模型读不到，可以填在这里；这些模型几档思考强度（`low` 到 `ultra`）都列出来，由对方建对话时校验。
 - `dispatch.rules`：分派规则，从上到下第一条命中的算数。`kw` 按空格、顿号、逗号分开，任意一个出现在任务文字里就命中，不分大小写；没写关键词的永远不命中。阈值是 `quota.low`。
 - 配色、明暗、场景、连线样式、实验样式这些纯外观的设置只记在浏览器里，不进设置文件。
 
@@ -490,6 +493,9 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - 本机的 Claude Code 对话也在里面：`agent: "claude"`，`id` 是它的 `session_id`，`title` 是最近一句用户输入的第一行（没有就用目录名）。只收最近 24 小时内有过 hook 的。它的子代理是 `parent` 指向它的子对话，`id` 是 `<session_id>:<tool_use_id>`。
 - 一变就经 SSE 推 `{ "type": "lofts", "lofts": { ...和 GET 一样... } }`，最多每 500 毫秒一次。`queue`、`lofts` 这两种推送和别的一样带 `ts`。刚连上 SSE 时不会先推一份，页面加载时各 `GET` 一次。
 - `POST /api/lofts/refresh`：跑一次 `pigeon lofts --refresh`（经中继站重读远程，有 token 成本），回 `{ "ok": true }` 或 `{ "ok": false, "error": "…" }`。
+- `GET /api/relay`：跑 `pigeon relay list --json`，回 `{ "shared": "对话 id", "byHost": { "主机 id": "对话 id" }, "warnAt": 150000, "relays": [ … ] }`。`relays` 先列在用的，再列用过的，每条是 `{ id, title, missing, archived, updated, model, effort, tokensUsed, context, window, approval, source, shared, hosts }`：`model`、`effort`、`tokensUsed` 来自 Codex 的对话数据库；`context` 是上一轮读进去的 token 数、`window` 是模型的上下文窗口，从对话记录最后一次 `token_count` 读（Codex 把闲着的记录压成 `.jsonl.zst` 后也读得到），读不到是 `null`；`shared` 是不是共用的那条，`hosts` 是单独用它的主机。`context` 超过 `warnAt` 时界面提醒换一条。
+- `POST /api/relay`：请求体 `{ "action": "use" | "archive" | "unarchive" | "delete", "id": "对话 id", "host": "主机 id" }`，跑对应的 `pigeon relay …`。`use` 不带 `host` 换共用的，带 `host` 只给那台换；`id` 为空、带 `host` 表示那台不再单独用。`archive`、`unarchive`、`delete` 只处理 `post.relayUsed` 里的、现在没在用的对话，调 `codex archive|unarchive|delete <id>`；`delete` 是永久删除，界面上要点两次。成功回 `200` 和命令行的 JSON；用法错误 `400`；还在用、Codex 命令失败 `409`，正文 `{ "ok": false, "error": "…" }`。
+- 中继站的模型和思考强度改不了：`codex queue` 只能往已有对话里排消息，Pigeon 自己用 `codex app-server` 新建的对话又拿不到 `codex_app` 的工具（2026-11-24 用 codex-cli 0.171 试过），所以中继站对话要在 Codex 应用里建、在 Codex 应用里换模型。
 
 ### 等你的一队：补充
 

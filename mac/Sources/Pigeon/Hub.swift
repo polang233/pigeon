@@ -243,6 +243,12 @@ final class Hub: @unchecked Sendable {
             respondJSON(conn, composeLofts(), keepAlive: keepAlive)
         case (_, "/api/lofts"):
             methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/relay"):
+            performRelay(nil) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case ("POST", "/api/relay"):
+            performRelay(req.body) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case (_, "/api/relay"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
         case ("POST", "/api/lofts/refresh"):
             performRefresh { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
         case (_, "/api/lofts/refresh"):

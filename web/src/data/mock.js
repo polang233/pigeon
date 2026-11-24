@@ -148,5 +148,15 @@ export function createMock(now = Date.now()) {
     split: { from: { dev: 'mac', agent: 'claude', session: 's1' }, parts: [{ to: { dev: 'mac', agent: 'codex', session: '' }, preview: '画三张空状态插图' }, { to: { dev: 'mac', agent: 'cursor', session: '' }, preview: '把空状态接进任务页' }, { to: { dev: 'mac', agent: 'dsh', session: '' }, preview: '空状态的文案过一遍' }] },
   };
 
-  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, NOTES, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO };
+  // 中继站（接入页远程设备的设置里看）：共用的那条上下文已经很大，另有一条归档了的旧的
+  const hrsAgo = h => Date.now() - h * 3600000;
+  const RELAY = { shared: 'rl-1', byHost: {}, warnAt: 150000, relays: [
+    { id: 'rl-1', title: '中转用', model: 'GPT-5.5', effort: 'xhigh', context: 262000, window: 400000, tokensUsed: 39800000, updated: hrsAgo(2), shared: true, hosts: [], archived: false, missing: false },
+    { id: 'rl-2', title: '中转（轻量）', model: 'GPT-5.5 mini', effort: 'low', context: 18000, window: 400000, tokensUsed: 260000, updated: hrsAgo(30), shared: false, hosts: [], archived: false, missing: false },
+    { id: 'rl-0', title: '中转（旧）', model: 'GPT-5.5', effort: 'high', context: 410000, window: 400000, tokensUsed: 61000000, updated: hrsAgo(240), shared: false, hosts: [], archived: true, missing: false },
+  ] };
+  // 自己填的模型名：那台电脑上自定义的模型
+  const CUSTOMM = { 'codex@win': ['local/qwen3-coder'] };
+
+  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, NOTES, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO, RELAY, CUSTOMM };
 }

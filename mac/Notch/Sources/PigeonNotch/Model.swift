@@ -18,7 +18,7 @@ public enum RunState: String, Sendable, Hashable, CaseIterable, Codable {
 
 /// 思考强度。每个模型分的档不一样，没有档的模型 `efforts` 是空数组。
 public enum Effort: String, Sendable, Hashable, CaseIterable, Codable {
-    case low, medium, high, xhigh
+    case low, medium, high, xhigh, max, ultra
 }
 
 /// “agent@设备”，比如 `codex@local`。规则、默认模型、派活对象都用这种键。

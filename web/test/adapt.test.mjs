@@ -234,3 +234,23 @@ test('存设置：应用回错时这次的 Promise 被拒绝，下一次照常�
   await w.update(s => { s.b = 3; });
   assert.deepEqual(f.saved, { a: 1, b: 3 });
 });
+
+test('自己填的模型名：按“agent@设备”记，deepseek 换成 dsh；列表里没有的模型几档思考强度都列出来', async () => {
+  const { levelsOf, customModelsOf, ALL_LEVELS } = await import('../src/core/names.js');
+  const st = mapLive({ ...raw(), settings: { devices: { customModels: { 'codex@remote-control:env_x': ['local/qwen3', ' ', 'my-model'], 'deepseek@local': ['ds-x'], bad: ['y'], 'codex@local': 'nope' } } } }, NOW);
+  assert.deepEqual(st.CUSTOMM, { 'codex@remote-control:env_x': ['local/qwen3', 'my-model'], 'dsh@local': ['ds-x'] });
+  assert.deepEqual(customModelsOf(st, 'codex', 'remote-control:env_x'), ['local/qwen3', 'my-model']);
+  assert.deepEqual(customModelsOf(st, 'codex', 'local'), []);
+  assert.deepEqual(levelsOf(st, 'codex', 'local/qwen3'), ALL_LEVELS);
+  assert.ok(ALL_LEVELS.includes('max') && ALL_LEVELS.includes('ultra'));
+  assert.deepEqual(levelsOf(st, 'codex', ''), [], '没指定模型就不分档');
+  assert.deepEqual(levelsOf(st, 'codex', 'group/smart'), [], 'magpie 的路由组由它决定');
+});
+
+test('中继站操作完成后的提示', async () => {
+  const { relayMsg } = await import('../src/backend/live.js');
+  assert.equal(relayMsg('use', { title: '中转用' }, ''), '共用的中继站换成「中转用」');
+  assert.equal(relayMsg('use', { title: '给 Windows' }, 'h'), '这台中继站换成「给 Windows」');
+  assert.equal(relayMsg('use', { ok: true }, 'h'), '这台跟着共用的中继站');
+  assert.equal(relayMsg('delete', {}), '删掉了');
+});

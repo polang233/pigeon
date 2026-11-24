@@ -11,6 +11,7 @@ import { addNote, getNote, patchNote, recent, TERMINAL, STATE_ZH } from './journ
 import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } from './rollout.mjs';
 import { sendInstruction, newInstruction, fetchInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
 import { getThread, latestRelayCandidate, listThreads, listProjects } from './codex-state.mjs';
+import { relayFor, relayIds, isRelay, useRelay, forgetRelay, relayRows, RELAY_WARN_TOKENS } from './relays.mjs';
 import { readLofts, saveLofts, resolveTarget, findLoft, resolveProject } from './lofts.mjs';
 import { confirmRemote, deniedError, timeoutError } from './confirm.mjs';
 import { detectSecrets, maskSecrets } from './secrets.mjs';
@@ -152,8 +153,9 @@ async function bodyOf(args) {
 }
 
 /* ---------- 中继站 ---------- */
-export function relayStatus(post) {
-  const id = post.relayThread || '';
+// host：往哪台远程主机发。那台单独指定了中继站就用它的，没有用共用的
+export function relayStatus(post, host = '') {
+  const id = relayFor(post, host);
   if (!id) return { ok: false, error: HINT_RELAY_UNSET };
   const t = getThread(id);
   if (!t) return { ok: false, error: `中继站对话 ${id} 在本机没找到（可能删了）。` + HINT_RELAY_UNSET.slice(HINT_RELAY_UNSET.indexOf('请')) };
@@ -210,7 +212,7 @@ async function deliver(note, d, post) {
     await move(band, { state: 'flying', track: { queue_id: q.queueId } });
     return { ok: true };
   }
-  const rs = relayStatus(post);
+  const rs = relayStatus(post, note.to.loft);
   if (!rs.ok) return fail('offline', rs.error);
   if (!codexAppRunning()) return fail('offline', HINT_APP);
   const relayRollout = rs.thread.rollout || findRollout(rs.thread.id);
@@ -280,10 +282,10 @@ export async function sendCmd(args) {
 
   let d, sc = { text, kinds: [], masked: [] };
   if (via === 'queue') {
-    if (post.relayThread && to.session === post.relayThread) return o.usage(64, '这条是中继站对话，不能直接给它发消息。');
+    if (isRelay(post, to.session)) return o.usage(64, '这条是中继站对话，不能直接给它发消息。');
     if (to.archived) { const e = `对话「${to.title}」已归档，对方收不到。`; await refuseNew(note, e, 'no_target', clip(text, 80)); return o.refused(note, e, 'no_target'); }
   } else {
-    const rs = relayStatus(post);
+    const rs = relayStatus(post, to.loft);
     if (!rs.ok) return o.notReady(3, rs.error);
     if (!codexAppRunning()) return o.notReady(3, HINT_APP);
     sc = screenText(text, secrets.mode);
@@ -361,7 +363,7 @@ export async function newCmd(args) {
     cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || process.cwd()));
     if (!fs.existsSync(cwd)) return o.usage(64, `项目目录不存在：${cwd}`);
   } else {
-    const rs = relayStatus(post);
+    const rs = relayStatus(post, loft.id);
     if (!rs.ok) return o.notReady(3, rs.error);
     if (!codexAppRunning()) return o.notReady(3, HINT_APP);
     sc = screenText(text, secrets.mode);
@@ -634,7 +636,8 @@ export async function fetchCmd(args) {
   if (!note.to.session) { console.error('任务记录里没有对方的对话 id（可能根本没送到），没法补取。去 Codex 里看看，或者重新发。'); return 1; }
   const { post } = await loadSettings();
   const waitMin = Number(args['wait-min']) > 0 ? Number(args['wait-min']) : post.waitTimeoutMin;
-  const rs = relayStatus(post);
+  const host = note.track?.host || note.to.loft;
+  const rs = relayStatus(post, host);
   if (!rs.ok) { say(rs.error); return 3; }
   if (!codexAppRunning()) { say(HINT_APP); return 3; }
   const bin = codexBin();
@@ -642,7 +645,6 @@ export async function fetchCmd(args) {
   const fetchBand = newBand();
   const file = rs.thread.rollout || findRollout(rs.thread.id);
   const offset = fileSize(file);
-  const host = note.track?.host || note.to.loft;
   const instr = fetchInstruction({ band: fetchBand, origBand: band, threadId: note.to.session, hostId: host, title: note.to.title, loftName: note.to.loft_name, waitMin });
   const q = codexQueue(bin, rs.thread.id, instr);
   if (!q.ok) { say(`没排上：${q.error}`); return 1; }
@@ -682,7 +684,7 @@ export async function loftsCmd(args) {
     const r = await refreshRemote(post);
     if (!r.ok) { say(r.error); return r.code || 1; }
   }
-  const { lofts, error } = saveLofts({ relayThread: post.relayThread });
+  const { lofts, error } = saveLofts({ relays: relayIds(post) });
   if (args.json) { console.log(JSON.stringify(lofts, null, 2)); return 0; }
   const out = [];
   for (const l of lofts.lofts) {
@@ -720,7 +722,7 @@ async function refreshRemote(post) {
     if (p.state === 'home') {
       const previous = readLofts().lofts.filter(l => l.id !== LOCAL);
       const remote = remoteLofts(p, previous);
-      saveLofts({ relayThread: post.relayThread, remote });
+      saveLofts({ relays: relayIds(post), remote });
       if (p.errors.length) process.stderr.write('部分工具调用失败：' + p.errors.join('；') + '\n');
       return { ok: true };
     }
@@ -729,26 +731,72 @@ async function refreshRemote(post) {
 }
 
 /* ---------- relay ---------- */
+// 中继站：
+//   pigeon relay                      看现在用的
+//   pigeon relay use <对话id|latest> [--host <主机>]   换共用的；带 --host 是只给那台远程设备换
+//   pigeon relay use default --host <主机>             那台不再单独用，跟着共用的
+//   pigeon relay list [--json]         现在在用的和用过的：模型、思考强度、上一轮读了多少上下文
+//   pigeon relay archive|unarchive|delete <对话id> [--json]   归档、恢复、删除用过的（在用的不让动）
+//   pigeon relay check                 只读检查
 export async function relayCmd(args) {
   const sub = args._[0] || '';
   const { post } = await loadSettings();
+  const o = makeOut(args);
+  const host = typeof args.host === 'string' ? args.host.trim() : '';
+  // 不是用法错误的失败原因照旧打在标准输出（--json 时是那一行 JSON）
+  const fail = (code, msg) => (o.json ? o.usage(code, msg) : (say(msg), code));
   if (sub === 'use') {
-    let id = args._[1] || '';
-    if (!id) { console.error('用法：pigeon relay use <对话id|latest>'); return 64; }
-    let t = id === 'latest' ? latestRelayCandidate() : getThread(id);
-    if (!t) { say(id === 'latest' ? '没找到合适的对话：' + HINT_RELAY_UNSET : `本机没找到对话 ${id}。`); return 1; }
-    if (t.approval === 'never') { say(HINT_RELAY_NEVER); return 1; }
-    const w = await patchSettings(s => { s.post = { ...POST_DEFAULTS, ...(s.post || {}), relayThread: t.id }; });
-    if (!w.ok) { say('没保存成功：' + w.error); return 1; }
-    saveLofts({ relayThread: t.id });
-    say(`中继站设为「${t.title}」（${t.id}），已保存到${w.where}。`,
+    const id = args._[1] || '';
+    if (!id) return o.usage(64, '用法：pigeon relay use <对话id|latest> [--host <主机>]');
+    if (id === 'default') {
+      if (!host) return o.usage(64, 'use default 只用于某台远程设备：pigeon relay use default --host <主机>');
+      const w = await patchSettings(s => { s.post = useRelay({ ...POST_DEFAULTS, ...(s.post || {}) }, '', host); });
+      if (!w.ok) return fail(1, '没保存成功：' + w.error);
+      saveLofts({ relays: relayIds(useRelay({ ...post }, '', host)) });
+      o.say(`${host} 不再单独用中继站，跟着共用的那条。`);
+      return o.done(0, { ok: true });
+    }
+    const t = id === 'latest' ? latestRelayCandidate() : getThread(id);
+    if (!t) return fail(1, id === 'latest' ? '没找到合适的对话：' + HINT_RELAY_UNSET : `本机没找到对话 ${id}。`);
+    if (t.approval === 'never') return fail(1, HINT_RELAY_NEVER);
+    if (t.archived) return fail(1, `对话「${t.title}」已经归档，先恢复它：pigeon relay unarchive ${t.id}`);
+    const w = await patchSettings(s => { s.post = useRelay({ ...POST_DEFAULTS, ...(s.post || {}) }, t.id, host); });
+    if (!w.ok) return fail(1, '没保存成功：' + w.error);
+    saveLofts({ relays: relayIds(useRelay({ ...post }, t.id, host)) });
+    o.say(`${host ? `${host} 单独用的` : ''}中继站设为「${t.title}」（${t.id}），已保存到${w.where}。`,
       t.source === 'exec' ? '注意：这条对话是 codex exec 建的，拿不到 codex_app 工具，转发会失败。' : '远程发送时 Codex 可能会弹审批，需要你在 Codex 应用里点同意。');
+    return o.done(0, { ok: true, id: t.id, title: t.title });
+  }
+  if (sub === 'list') {
+    const rows = relayRows(post, { thread: getThread, findRollout });
+    if (o.json) { console.log(JSON.stringify({ shared: post.relayThread, byHost: post.relayByHost, warnAt: RELAY_WARN_TOKENS, relays: rows })); return 0; }
+    if (!rows.length) { say(HINT_RELAY_UNSET); return 0; }
+    const k = n => n == null ? '读不到' : `${Math.round(n / 1000)}K`;
+    say(...rows.map(r => `${r.id}  ${r.missing ? '（本机没找到）' : `「${r.title}」`}${r.shared ? '　［共用］' : ''}${r.hosts.length ? `　［单独给 ${r.hosts.join('、')}］` : ''}${r.archived ? '　已归档' : ''}`
+      + `\n    ${r.model || '模型没记下'}${r.effort ? ' · ' + r.effort : ''} · 上一轮读了 ${k(r.context)}${r.window ? ` / 窗口 ${k(r.window)}` : ''}${r.context > RELAY_WARN_TOKENS ? '　太大了，建议换一条' : ''}`));
     return 0;
+  }
+  if (sub === 'archive' || sub === 'unarchive' || sub === 'delete') {
+    const id = args._[1] || '';
+    if (!id) return o.usage(64, `用法：pigeon relay ${sub} <对话id>`);
+    if (sub !== 'unarchive' && isRelay(post, id)) return fail(1, '这条还在当中继站用，先换一条再' + (sub === 'delete' ? '删除' : '归档') + '。');
+    if (!(post.relayUsed || []).includes(id) && !isRelay(post, id)) return o.usage(64, '只能处理用过的中继站对话（pigeon relay list 里列的）。别的对话请在 Codex 里管。');
+    const bin = codexBin();
+    if (!bin) return fail(3, 'Codex 不可用：没找到 codex 命令。');
+    const r = spawnSync(bin, [sub, id], { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0) {
+      const why = (r.error && r.error.message) || `${r.stderr || ''}\n${r.stdout || ''}`.split('\n').map(x => x.trim()).filter(x => x && !/unrecognized configuration|rmcp/i.test(x)).slice(-1)[0] || `退出码 ${r.status}`;
+      return fail(1, `codex ${sub} 没成功：${oneLine(why, 200)}`);
+    }
+    if (sub === 'delete') { const w = await patchSettings(s => { s.post = forgetRelay({ ...POST_DEFAULTS, ...(s.post || {}) }, id); }); if (!w.ok) o.err('删掉了，但没能从用过的列表里去掉：' + w.error); }
+    o.say({ archive: '归档了，在 Codex 里能恢复。', unarchive: '恢复了。', delete: '删掉了，找不回来。' }[sub]);
+    return o.done(0, { ok: true });
   }
   if (sub === 'check') return relayCheck(post);
   const rs = relayStatus(post);
   if (!post.relayThread) { say(HINT_RELAY_UNSET); return 0; }
-  say(`中继站：${rs.thread ? `「${rs.thread.title}」` : ''}${post.relayThread}`, rs.ok ? '状态：可用（详细检查：pigeon relay check）' : '问题：' + rs.error);
+  say(`中继站：${rs.thread ? `「${rs.thread.title}」` : ''}${post.relayThread}`, rs.ok ? '状态：可用（详细检查：pigeon relay check）' : '问题：' + rs.error,
+    ...Object.entries(post.relayByHost || {}).map(([h, id]) => `${h} 单独用：${(getThread(id) || {}).title || ''} ${id}`));
   return 0;
 }
 

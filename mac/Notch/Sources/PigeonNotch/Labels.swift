@@ -44,6 +44,8 @@ extension Effort {
         case .medium: "中"
         case .high: "高"
         case .xhigh: "极高"
+        case .max: "最高"
+        case .ultra: "超高"
         }
     }
 
@@ -54,6 +56,8 @@ extension Effort {
         case .medium: 2
         case .high: 3
         case .xhigh: 4
+        case .max: 5
+        case .ultra: 6
         }
     }
 }

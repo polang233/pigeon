@@ -8,12 +8,14 @@ export function readLofts(file = loftsFile()) {
   return j;
 }
 
-export function localLoft(relayThread = '') {
+// relays：现在在用的中继站对话 id（一个或几个），在对话列表里标出来
+export function localLoft(relays = []) {
+  const isRelay = new Set([].concat(relays || []).filter(Boolean));
   const t = listThreads({ limit: 40 });
   return {
     loft: {
       id: LOCAL, name: LOCAL_NAME, online: true,
-      sessions: t.rows.map(r => ({ id: r.id, agent: 'codex', title: r.title, cwd: r.cwd, updated: r.updated, relay: r.id === relayThread })),
+      sessions: t.rows.map(r => ({ id: r.id, agent: 'codex', title: r.title, cwd: r.cwd, updated: r.updated, relay: isRelay.has(r.id) })),
       projects: listProjects(),
     },
     error: t.ok ? '' : t.error,
@@ -21,9 +23,9 @@ export function localLoft(relayThread = '') {
 }
 
 // 写缓存：本机部分每次重建，远程部分用传进来的（没传就沿用旧缓存）
-export function saveLofts({ relayThread = '', remote = null } = {}, file = loftsFile()) {
+export function saveLofts({ relays = [], remote = null } = {}, file = loftsFile()) {
   const old = readLofts(file);
-  const { loft, error } = localLoft(relayThread);
+  const { loft, error } = localLoft(relays);
   const remotes = remote || old.lofts.filter(l => l.id !== LOCAL);
   const out = { version: 1, updated: Date.now(), lofts: [loft, ...remotes] };
   if (remote) out.remoteUpdated = Date.now();

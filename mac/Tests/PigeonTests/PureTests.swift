@@ -198,6 +198,22 @@ import Testing
         #expect(json(d)["error"] as? String == "boom")
     }
 
+    @Test func relayArgs() {
+        #expect(Hub.relayArguments(["action": "use", "id": "t1"]).args == ["relay", "use", "t1", "--json"])
+        #expect(Hub.relayArguments(["action": "use", "id": "t1", "host": "h"]).args == ["relay", "use", "t1", "--host", "h", "--json"])
+        // 不给 id 只给 host：那台跟着共用的
+        #expect(Hub.relayArguments(["action": "use", "host": "h"]).args == ["relay", "use", "default", "--host", "h", "--json"])
+        #expect(Hub.relayArguments(["action": "delete", "id": "t1"]).args == ["relay", "delete", "t1", "--json"])
+        #expect(Hub.relayArguments(["action": "delete"]).args == nil)
+        #expect(Hub.relayArguments(["action": "rm", "id": "t1"]).args == nil)
+        #expect(Hub.relayArguments(["action": "use"]).args == nil)
+        let r = { (out: String, status: Int32) in Runner.Result(status: status, stdout: Data(out.utf8), stderr: Data("坏了\n".utf8), timedOut: false) }
+        #expect(Hub.interpretRelay(r("{\"relays\":[]}\n", 0)).0 == 200)
+        #expect(Hub.interpretRelay(r("{\"ok\":false,\"error\":\"还在用\"}", 1)).0 == 409)
+        #expect(Hub.interpretRelay(r("{\"ok\":false,\"error\":\"用法\"}", 64)).0 == 400)
+        #expect(Hub.interpretRelay(r("", 2)).0 == 500)
+    }
+
     @Test func openArgs() {
         #expect(Hub.openArguments(agent: "codex", session: "abc-123").args == ["codex://threads/abc-123"])
         #expect(Hub.openArguments(agent: "codex", session: "a b/../x").args == nil)
