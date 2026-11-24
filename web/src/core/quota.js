@@ -11,7 +11,7 @@ export const qTip = (q, now) => q.none ? q.why
   : `${q.plan} · ${q.win}剩 ${q.left}% · ${rst(q, now)}${q.more ? ' · ' + q.more : ''}`;
 
 // 按 agent 用的那家订阅对上 magpie 的额度卡：[magpie 里的 provider, 显示的名字]
-export const PROV = { claude: ['claude', 'Claude'], codex: ['codex', 'ChatGPT'], cursor: ['cursor', 'Cursor'], dsh: ['deepseek', 'DeepSeek'] };
+export const PROV = { claude: ['claude', 'Claude'], codex: ['codex', 'ChatGPT'], cursor: ['cursor', 'Cursor'], dsh: ['deepseek', 'DeepSeek'], antigravity: ['gemini', 'Gemini'] };
 const PLAN = { prolite: 'Pro Lite', pro: 'Pro', plus: 'Plus', max: 'Max', team: 'Team', premium: 'Premium', business: 'Business' };
 const WIN = { '5 hours': '5 小时额度', '7 days': '7 天额度', weekly: '本周额度', month: '本月额度', monthly: '本月额度', daily: '今天的额度', day: '今天的额度' };
 const winZh = n => WIN[String(n).toLowerCase()];

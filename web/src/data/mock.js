@@ -20,6 +20,7 @@ export function createMock(now = Date.now()) {
       { a: 'codex', how: ['mcp', 'hook'], out: 'yes', inn: 'yes', on: true, model: 'GPT-5.5', think: 'medium' },
       { a: 'cursor', how: ['mcp', 'hook'], out: 'part', inn: 'part', on: true, model: 'Composer 2', think: '' },
       { a: 'dsh', how: ['plugin', 'ui'], out: 'part', inn: 'part', on: true, model: 'DeepSeek V4 Pro', think: 'high' },
+      { a: 'antigravity', how: ['agentapi'], out: 'nope', inn: 'yes', on: true, model: 'flash', think: '' },
     ],
     win: [
       { a: 'codex', role: 'gate', how: ['inapp'], out: 'nope', inn: 'yes', on: true, model: 'GPT-5.5', think: 'high' },
@@ -39,13 +40,14 @@ export function createMock(now = Date.now()) {
     'codex@win': { plan: 'ChatGPT Plus', left: 16, win: '5 小时额度', reset: '0:50 后重置', more: '本周剩 40%' },
   };
   // 新加的 agent 默认用什么模型、思考强度
-  const DEF_MODEL = { claude: ['Sonnet 5.5', 'medium'], codex: ['GPT-5.5', 'medium'], cursor: ['Composer 2', ''], dsh: ['DeepSeek V4 Flash', 'low'] };
+  const DEF_MODEL = { claude: ['Sonnet 5.5', 'medium'], codex: ['GPT-5.5', 'medium'], cursor: ['Composer 2', ''], dsh: ['DeepSeek V4 Flash', 'low'], antigravity: ['flash', ''] };
   // 发起对话时能选的模型，和每个模型分哪几档思考强度（空的不分）
   const MODELS = {
     claude: [['Opus 5.5', 'low medium high xhigh'], ['Sonnet 5.5', 'low medium high xhigh'], ['Haiku 5.5', 'low medium high']],
     codex: [['GPT-5.5', 'low medium high xhigh'], ['GPT-5.5 mini', 'low medium high']],
     cursor: [['Composer 2', ''], ['Sonnet 5.5', 'low medium high'], ['GPT-5.5', 'low medium high']],
     dsh: [['DeepSeek V4 Pro', 'low high'], ['DeepSeek V4 Flash', 'low high']],
+    antigravity: [['flash_lite', '', 'Flash Lite'], ['flash', '', 'Flash'], ['pro', '', 'Pro']],
   };
 
   // 对话。state 取 run、wait、idle、done、error（error 带一句 error）；activity 是在做什么，形象按它挑动作；

@@ -17,6 +17,10 @@ const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也�
        [--model <模型>] [--effort <思考强度>]   指定新对话的模型和思考强度（比如 --model gpt-6-luna --effort high），
                                               不写就用对方的默认设置；已有对话换不了，只能新开
        以及 send 的 --reason --retry-of --ctx-* --stdin --json
+  pigeon new --agent dsh|antigravity [--cwd <目录>] --title "<标题>" "<话>"   在这台 Mac 上新开 DeepSeek Harness 或 Antigravity 的对话
+       DSH：用它自己配的模型；--sandbox read-only 只读（复审用），不写能改工作目录
+       Antigravity：--model flash_lite|flash|pro|<模型 id>；它的对话不绑目录，要看文件就在话里写完整路径；Antigravity 要开着
+       给它们已有的对话接着说，照样用 pigeon send --to <对话id或标题>
   pigeon wait <编号> [--timeout 分钟]     等到回信到了或没回音，打印回信
   pigeon read <编号>                      读回信
   pigeon fetch <编号> [--wait-min 分钟]   远程消息送到了但没回音（没等到回信）时，请中继站再等一次、补取回信（只读）

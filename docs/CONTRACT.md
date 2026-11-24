@@ -48,7 +48,9 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 {
   "claude": { "installed": true,  "running": true,  "detail": "收到过 hook" },
   "codex":  { "installed": true,  "running": true,  "detail": "ChatGPT 应用内置 Codex" },
-  "cursor": { "installed": true,  "running": false, "detail": "已安装，没打开" }
+  "cursor": { "installed": true,  "running": false, "detail": "已安装，没打开" },
+  "deepseek":    { "installed": true, "running": false, "detail": "已安装，没打开" },
+  "antigravity": { "installed": true, "running": true,  "detail": "Antigravity 正在运行" }
 }
 ```
 
@@ -57,6 +59,8 @@ hook JSON 里会用到的字段：`hook_event_name`（`PreToolUse` / `PostToolUs
 - **codex**：`installed` = PATH 里有 `codex`，或 `/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework` 存在，或 `/Applications/Codex.app` 存在；`running` = bundle id 为 `com.openai.codex` 的应用在运行（本机的 ChatGPT.app 就是这个 id），或有 `codex` CLI 进程在跑。
 - **cursor**：`installed` = `/Applications/Cursor.app` 存在或 PATH 里有 `cursor`；`running` = 有 bundle id `com.todesktop.230313mzl4w4u92` 的应用在运行（用 `NSWorkspace.runningApplications`）。
 - **claude**：`installed` = PATH 里有 `claude`，或 `/Applications/Claude.app` 存在；`running` = 最近 10 分钟内收到过 hook，或 bundle id 为 `com.anthropic.claudefordesktop` 的应用在运行。
+- **deepseek**：`installed` = `/Applications/DeepSeek Harness.app` 存在；`running` = bundle id `com.deepseek.dsh` 的应用在运行。
+- **antigravity**：`installed` = `/Applications/Antigravity.app` 存在；`running` = bundle id `com.google.antigravity` 的应用在运行。给它派活要它开着。
 - `detail` 是给人看的一句中文。
 
 ## 页面没有应用时
@@ -475,6 +479,9 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - `devices.names`：设备的显示名，只改显示。`devices.hidden`：从界面上移除的设备。`devices.off`：每台上关掉的 agent。`devices.models`：Pigeon 派活时默认用的模型和思考强度。
 - `devices.customModels`：自己填的模型名，`{ "codex@<主机 id>": ["local/qwen3-coder"] }`。模型列表是从本机 Codex 读的，别的电脑上自定义的模型读不到，可以填在这里；这些模型几档思考强度（`low` 到 `ultra`）都列出来，由对方建对话时校验。
 - `dispatch.rules`：分派规则，从上到下第一条命中的算数。`kw` 按空格、顿号、逗号分开，任意一个出现在任务文字里就命中，不分大小写；没写关键词的永远不命中。阈值是 `quota.low`。
+- `dispatch.rules[].mode`：`suggest`（默认，只是建议，由指挥判断）或 `must`（照做：用户的话里出现这类活就交给它，除非用户在那句话里明说不要）。两种都只是写进提示的口气不同，Pigeon 不硬拦。
+- `dispatch.seeded`：加过默认规则就是 `1`。网页第一次在应用里打开时加四条：生图、改图交给 `codex@local`（`must`；原来的 `codex.preferForImages` 关着时这条也关着）；音频交给 `antigravity@local`；复审、复核交给 `deepseek@local`；简单、要快的小活交给 `deepseek@local`（后三条 `suggest`）。已经有同一类规则的不重复加。加过以后，生图交给谁只看规则，`codex.preferForImages` 不再用。
+- 关键词命中时的提醒：插件的 `UserPromptSubmit` hook 读设置里的 `dispatch.rules`，用户这句话命中某条规则的关键词时（最多两条；规则开着、交给的那家在 `dispatch.json` 的 `alive` 里），在这一轮的提示里点名“像是哪类活、交给谁、怎么交”；`must` 写“请交给”，`suggest` 写“建议交给，由你判断”。只在指挥是 Claude Code、`dispatch.seeded` 了的时候。整段“派活建议”照旧来自 `dispatch.json` 的 `text`。
 - 配色、明暗、场景、连线样式、实验样式这些纯外观的设置只记在浏览器里，不进设置文件。
 
 ### 对话：`GET /api/lofts` 现在带状态
@@ -551,6 +558,16 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 | `pigeon send/new --ctx-files a,b --ctx-tokens 1200` | 交出去的上下文，写进 `ctx`；不给 `--ctx-tokens` 时按原文长度估 |
 | `pigeon send/new --stdin` | 正文从标准输入读，不出现在命令行里。应用派活时用 |
 | `pigeon send/new --json` | 只往标准输出写一行 JSON：`{ "ok": true, "band": "b-…", "state": "flying" }` 或 `{ "ok": false, "band": "b-…", "state": "refused", "reason": "blocked", "error": "…" }`。暂停中排着的是 `ok: true`、`state: "queued"`、`paused: true` |
+
+### DeepSeek Harness 和 Antigravity
+
+2026-11-24 加上。都只在这台 Mac 上，不经中继站、不问放行，由后台看护进程跑。回信拿到后存一份在 `~/.pigeon/answers/<编号>.md`（只有自己能读；它们的对话记录不像 Codex 那样好按编号找），任务记录里照旧不存正文。线上的 agent 名字是 `deepseek` 和 `antigravity`。
+
+- **DeepSeek Harness（DSH）**：用它自带的命令行 `/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`（测试时 `PIGEON_DSH_BIN`）。新开对话跑 `dsh headless --json -`（正文从标准输入给），接着已有对话加 `--session-id <id>`；`--sandbox read-only|workspace-write` 传成 `--permission-mode`，不写用它自己的默认（能改工作目录）。模型用它自己配的。事件 `session` 给出对话 id，`final` 是回复。对话存在 `$DSH_HOME/sessions/<目录>/<id>/session.v4.jsonl.zstd`（默认 `~/.dsh`，几段 zstd 接在一起），插件从这里列出最近的对话和标题。
+- **Antigravity**：新开对话 `agentapi new-conversation --model=<flash_lite|flash|pro|模型 id> --title=<标题> <正文>`，接着说 `agentapi send-message <对话 id> <正文>`（`~/.gemini/antigravity/bin/agentapi`，测试时 `PIGEON_AGY_AGENTAPI`）。`agentapi` 要环境变量 `ANTIGRAVITY_LS_ADDRESS`、`ANTIGRAVITY_CSRF_TOKEN`，插件从 `~/.gemini/antigravity/daemon/hub_*.json`（测试时 `PIGEON_AGY_HOME`）读它本机服务的端口和令牌，进程不在了就算没开。状态和回复读它本机服务的 `GetAllCascadeTrajectories`、`GetCascadeTrajectorySteps`（令牌经 curl 的标准输入给）：不在跑了、发出之后有了 `PLANNER_RESPONSE`，就是回信。**这是它自己界面用的内部接口，不是公开的，Antigravity 升级可能会变。** 新开的对话不绑目录，要看的文件得写完整路径。它读工作区外的文件时会停下来等用户批准（那一步 `status` 是 `WAITING`、带 `requestedInteraction`）：插件把“在等你批准：…”写进任务的 `error`，对话在 `lofts` 里标 `state: "wait"`，Pigeon 不替你点。
+- **命令行**：`pigeon new --agent dsh|antigravity [--cwd <目录>] [--model …] [--sandbox …] --title … "<话>"`；`pigeon send --to <对话 id 或标题>` 认得出是它们的对话。`--agent` 认 `codex`、`dsh`、`deepseek`、`antigravity`、`agy`。
+- **对话列表**：`lofts.json` 本机那台的 `sessions` 里加上它们最近的对话（`agent` 是 `deepseek` 或 `antigravity`）；有消息正在等它回的标 `state: "run"`。
+- **应用派活**：`POST /api/send` 的 `to.agent` 现在可以是 `deepseek` 或 `antigravity`（只能 `loft: "local"`），应用跑 `pigeon new --agent …` 或 `pigeon send`。`POST /api/open` 对它们是打开那个应用。
 
 ### 分派规则的建议
 

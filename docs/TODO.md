@@ -35,7 +35,9 @@
   - 派活工具的 `reason` 参数，让 Codex 等当指挥时也能写理由；
   - 别的指挥也能收到分派规则。现在规则只写进 Claude Code 的提示（`prompt-hint.mjs`）。
 - **Claude Code 能接收。** 现在 Claude Code 只能发出。要在它空闲时把消息送进去：可以经插件的 hook，或者开新对话。
-- **接入 Cursor 和 DeepSeek Harness。** 现在检测到了只显示"还没接上"。Cursor 只能在一轮结束时收；DeepSeek Harness 还没查清它能怎么接。
+- **接入 Cursor。** 现在检测到了只显示"还没接上"。Cursor 只能在一轮结束时收。
+- **Antigravity 读回复靠内部接口。** 现在读它本机服务的 `GetAllCascadeTrajectories`、`GetCascadeTrajectorySteps`，不是公开接口，Antigravity 升级可能要跟着改。它新开的对话不绑目录，读工作区外的文件要你在 Antigravity 里批准；能不能让 `agentapi` 新开对话时带上工作目录，还没找到办法。
+- **DeepSeek Harness、Antigravity 的对话状态。** 它们没有 hook，现在只有 Pigeon 派的活在跑时标"在干活"（Antigravity 在跑、在等批准读得到）；你直接在它们应用里用时，指挥台看不到。对话列表只在命令行跑的时候刷新。
 - **一键接入本机。** 接入页上的"一键接入"在第一版里藏起来了。要做成：列出会改哪几个文件、改哪几行，改完能单独撤回。
 - **经远程 Codex 带起别的 agent。** 远程电脑只连了 Codex 时，经它启动那台的 Claude Code、Cursor。现在只是设想。
 

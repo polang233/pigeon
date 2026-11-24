@@ -1,6 +1,6 @@
 ---
 name: pigeon-post
-description: 给别的 agent 发消息：往 Codex 里已有的对话发一条消息、在本机或另一台电脑（Codex 里已连接的远程设备）上新开一个 Codex 对话，然后等回信、读回信。用户说“告诉 Codex……”“问问那边的对话”“发给 Windows 那台电脑上的 Codex”“让另一台机器跑一下……”“送条消息”，或者你需要另一个 agent 的结果才能继续时，用这个 skill。一次性的派活（生图、审查、写代码）用 codex-delegation skill。
+description: 给别的 agent 发消息：往 Codex 里已有的对话发一条消息、在本机或另一台电脑（Codex 里已连接的远程设备）上新开一个 Codex 对话，或者交给本机的 DeepSeek Harness（DSH）、Antigravity，然后等回信、读回信。用户说“让 DSH 复审一下”“交给 Antigravity 听听这段音频”，或者分派规则让你交给它们时，也用这个 skill。用户说“告诉 Codex……”“问问那边的对话”“发给 Windows 那台电脑上的 Codex”“让另一台机器跑一下……”“送条消息”，或者你需要另一个 agent 的结果才能继续时，用这个 skill。一次性的派活（生图、审查、写代码）用 codex-delegation skill。
 ---
 
 # 发消息（Pigeon）
@@ -59,6 +59,17 @@ node "PG" new --loft CHEN-Y9000P2023 --project Mac --title "检查构建" "…�
 
 消息长的话写进临时文件，用 `--file <文件>` 代替正文。
 
+交给本机的 DeepSeek Harness（DSH）或 Antigravity（都只在这台 Mac 上，不经中继站、不问放行）：
+
+```bash
+node "PG" new --agent dsh --cwd /path/to/repo --sandbox read-only --title "复审改动" "复审这次改动：……只读，不要改文件。"
+node "PG" new --agent antigravity --model flash --title "听提示音" "听一下 /Users/me/Code/app/assets/ding.wav，说说有没有爆音、音色怎么样。"
+```
+
+- DSH 用它自己配的模型，`--model`、`--effort` 指定不了。`--cwd` 是它干活的目录；只看不改的复审加 `--sandbox read-only`。
+- Antigravity 用 `--model flash_lite|flash|pro`（或具体的模型 id）选档位，不分思考强度。它新开的对话不绑目录，要它看的文件**写完整路径**；读它工作区外的文件时它会停下来等用户在 Antigravity 里批准（任务上会写“在等你批准”），这时告诉用户去 Antigravity 里点，不要重发。Antigravity 要开着。
+- 给它们已有的对话接着说，照样 `send --to <对话 id 或标题>`；`lofts` 里列出了它们最近的对话。
+
 - **派活时一定要写 `--reason "<一句理由>"`**：为什么交给它而不是自己做、或者交给别人。Pigeon 会把它记在消息上，用户在任务页看得到；Pigeon 也会据此对照用户定的分派规则，给消息标“照规则”“改派”还是“指挥判断”，不会替你拦下。提示里如果有“分派规则”，先照着选对象；不照做也行，但理由里要写清楚为什么。
 - `--ctx-files a,b`、`--ctx-tokens N` 说明你把多少上下文交给了对方（不写 token 数就按正文长度估）。这次是重发、替代某张没回音的消息时，加 `--retry-of <原编号>`。
 - 新开对话可以用 `--model`、`--effort` 指定模型和思考强度，本机和远程都生效；不写就用对方的默认设置。`--effort` 只能是 none、minimal、low、medium、high、xhigh、max、ultra 之一，具体模型支持哪几档由对方决定。已有对话换不了模型，`send` 不接受这两个参数。
@@ -87,3 +98,5 @@ node "PG" log                      # 最近的任务记录
 - “Codex 桌面应用没开”：请用户打开 ChatGPT 应用（里面的 Codex）。（这和 Pigeon 应用没开是两回事：Pigeon 应用没开时，确认会退回系统对话框，仍然可以发。）
 - “还没有设置中继站”或“审批策略是 never”：请用户在 Codex 应用里手动新建一条对话（发一句“中转用”），然后运行 `node "PG" relay use latest`。
 - 不要直接跑 `codex queue`，也不要尝试其他办法连 Codex 应用。
+- “Antigravity 没开”：请用户打开 Antigravity。“没找到 DeepSeek Harness 的命令行”：DSH 没装或装在别处。
+- 不要自己去调 `dsh`、`agentapi` 或 Antigravity 的本机服务，统一走 `pigeon new` / `send`，用户才在 Pigeon 里看得到。

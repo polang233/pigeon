@@ -40,7 +40,7 @@ test('别的电脑上的卡不算本机的；读不到就写为什么', () => {
 
 test('键按本机 id 算，不写死 mac', () => {
   const out = fromCards(CARDS, 'm1');
-  assert.deepEqual(Object.keys(out).sort(), ['claude@m1', 'codex@m1', 'cursor@m1', 'dsh@m1']);
+  assert.deepEqual(Object.keys(out).sort(), ['antigravity@m1', 'claude@m1', 'codex@m1', 'cursor@m1', 'dsh@m1']);
 });
 
 test('悬停的说法、颜色、多久后重置', () => {

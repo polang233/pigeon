@@ -58,6 +58,9 @@ export function makeEnv({ mode = 'reply', settings = {}, threads, confirm = 'ok'
     CODEX_HOME: codexHome,
     PIGEON_CODEX_BIN: path.join(FIX, 'fake-codex.mjs'),
     PIGEON_NO_WAKE: '1',
+    // 不碰真的 DeepSeek Harness 和 Antigravity
+    DSH_HOME: path.join(root, 'dsh-home'),
+    PIGEON_AGY_HOME: path.join(root, 'agy-home'),
     PIGEON_CONFIRM_BIN: path.join(FIX, 'fake-confirm.mjs'),
     FAKE_CONFIRM: confirm,
     FAKE_CONFIRM_LOG: confirmLog,

@@ -12,6 +12,7 @@ struct Agents: Codable, Equatable, Sendable {
     var codex: AgentStatus
     var cursor: AgentStatus
     var deepseek: AgentStatus
+    var antigravity: AgentStatus
 }
 
 enum Detector {
@@ -19,6 +20,7 @@ enum Detector {
     static let cursorBundleID = "com.todesktop.230313mzl4w4u92"
     static let claudeBundleID = "com.anthropic.claudefordesktop"
     static let deepseekBundleID = "com.deepseek.dsh"
+    static let antigravityBundleID = "com.google.antigravity"
     static let hookWindow: TimeInterval = 10 * 60
 
     @MainActor
@@ -31,7 +33,8 @@ enum Detector {
             claude: detectClaude(runningIDs: runningIDs, lastHookAt: lastHookAt, now: now),
             codex: detectCodex(runningIDs: runningIDs),
             cursor: detectCursor(runningIDs: runningIDs),
-            deepseek: detectDeepSeek(runningIDs: runningIDs)
+            deepseek: detectDeepSeek(runningIDs: runningIDs),
+            antigravity: detectAntigravity(runningIDs: runningIDs)
         )
     }
 
@@ -91,6 +94,13 @@ enum Detector {
         let installed = exists("/Applications/DeepSeek Harness.app")
         let running = runningIDs.contains(deepseekBundleID)
         let detail = running ? "DeepSeek Harness 正在运行" : (installed ? "已安装，没打开" : "没找到 DeepSeek Harness")
+        return AgentStatus(installed: installed || running, running: running, detail: detail)
+    }
+
+    private static func detectAntigravity(runningIDs: Set<String>) -> AgentStatus {
+        let installed = exists("/Applications/Antigravity.app")
+        let running = runningIDs.contains(antigravityBundleID)
+        let detail = running ? "Antigravity 正在运行" : (installed ? "已安装，没打开：给它派活前要先打开" : "没找到 Antigravity")
         return AgentStatus(installed: installed || running, running: running, detail: detail)
     }
 

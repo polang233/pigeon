@@ -2,13 +2,13 @@ import Foundation
 
 // 刘海面板吃的数据。全是值类型，由应用按本机服务的数据拼好后整份喂进来（NotchController.model）。
 // 字段名尽量照 docs/CONTRACT.md 的“新界面要的数据”和“第一版重构补充的接口”：设备 id 就是 lofts.json 里的 id（本机是 local），
-// agent 的 id 是 claude、codex、cursor、deepseek，另有 you（你自己）。
+// agent 的 id 是 claude、codex、cursor、deepseek、antigravity，另有 you（你自己）。
 
 // MARK: - 基本单位
 
 /// 哪一家 agent。you 是你自己：指挥可以是你，你在 Pigeon 里派的活发件人也是你。
 public enum AgentKind: String, Sendable, Hashable, CaseIterable, Codable {
-    case claude, codex, cursor, deepseek, you
+    case claude, codex, cursor, deepseek, antigravity, you
 }
 
 /// 对话或 agent 此刻的状态。off 是这台上关掉了或还没接上的 agent（光带上那一段压暗）。

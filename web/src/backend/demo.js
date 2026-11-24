@@ -243,11 +243,11 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
     // when、kw 是打字，只发 ruleText；交给谁、改派、问不问发 RULES
     setRule(id, f, v) {
       const r = ruleAt(id); if (!r) return;
-      r[f] = f === 'ask' ? v === '1' || v === true : v;
+      r[f] = f === 'ask' || f === 'must' ? v === '1' || v === true : v;
       emit(f === 'when' || f === 'kw' ? 'ruleText' : 'RULES');
     },
     addRule(to) {
-      const r = { id: 'r' + clock().toString(36) + (++seq), when: '', kw: '', to: to || targets(st)[0] || `claude@${st.home}`, fb: '', ask: false, on: true, n: 0, over: 0 };
+      const r = { id: 'r' + clock().toString(36) + (++seq), when: '', kw: '', to: to || targets(st)[0] || `claude@${st.home}`, fb: '', ask: false, on: true, must: false, n: 0, over: 0 };
       st.RULES.push(r); emit('RULES');
       return r;
     },

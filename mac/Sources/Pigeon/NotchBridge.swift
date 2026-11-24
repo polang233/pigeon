@@ -185,12 +185,13 @@ final class NotchBridge {
 
         // 本机接着哪几家：两耳和光带用
         let installed: [(AgentKind, Bool)] = agents.map {
-            [(.claude, $0.claude.installed), (.codex, $0.codex.installed), (.cursor, $0.cursor.installed), (.deepseek, $0.deepseek.installed)]
+            [(.claude, $0.claude.installed), (.codex, $0.codex.installed), (.cursor, $0.cursor.installed), (.deepseek, $0.deepseek.installed),
+             (.antigravity, $0.antigravity.installed)]
         } ?? [(.claude, true), (.codex, true)]
         let localOff = Set(off["local"] ?? [])
         let present = installed.filter { $0.1 && !localOff.contains($0.0.rawValue) }.map(\.0)
         let local = present.map { agent -> LocalAgent in
-            guard agent == .claude || agent == .codex else { return LocalAgent(agent: agent, state: .off) } // 还没接上
+            guard agent != .cursor else { return LocalAgent(agent: agent, state: .off) } // 还没接上
             let states = sessions.filter { $0.isLocal && $0.agent == agent }.map(\.state)
             let worst: RunState = [.wait, .error, .run, .done].first(where: states.contains) ?? .idle
             return LocalAgent(agent: agent, state: worst)
@@ -237,8 +238,8 @@ final class NotchBridge {
         // 派活面板
         let codexDefault = (settings["codex"] as? [String: Any]) ?? [:]
         let modelOptions = codexModels.map { ModelOption(id: $0.slug, efforts: $0.efforts.compactMap(Effort.init(rawValue:))) }
-        func refs(_ loft: String) -> [SessionRef] {
-            sessions.filter { $0.device == loft && $0.agent == .codex && $0.parent.isEmpty }.prefix(20).map { SessionRef(id: $0.id, title: $0.title) }
+        func refs(_ loft: String, _ agent: AgentKind = .codex) -> [SessionRef] {
+            sessions.filter { $0.device == loft && $0.agent == agent && $0.parent.isEmpty }.prefix(20).map { SessionRef(id: $0.id, title: $0.title) }
         }
         var compose: [ComposeDevice] = []
         for loft in shown {
@@ -253,6 +254,13 @@ final class NotchBridge {
                         return ComposeAgent(agent: .codex, models: modelOptions, defaultModel: model, defaultEffort: effort, sessions: refs("local"))
                     case .claude:
                         return ComposeAgent(agent: .claude, enabled: false, disabledReason: "Claude Code 现在只能发出，还不能接收消息")
+                    case .deepseek:
+                        // DSH 用它自己配的模型
+                        return ComposeAgent(agent: .deepseek, sessions: refs("local", .deepseek))
+                    case .antigravity:
+                        let saved = defaults["antigravity@local"] ?? [:]
+                        let tiers = ["flash_lite", "flash", "pro"].map { ModelOption(id: $0) }
+                        return ComposeAgent(agent: .antigravity, models: tiers, defaultModel: Self.text(saved["model"]) ?? "flash", sessions: refs("local", .antigravity))
                     default:
                         return ComposeAgent(agent: agent, enabled: false, disabledReason: "\(agent.displayName) 还没接上")
                     }

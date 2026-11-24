@@ -10,6 +10,7 @@ extension AgentKind {
         case .codex: "Codex"
         case .cursor: "Cursor"
         case .deepseek: "DeepSeek Harness"
+        case .antigravity: "Antigravity"
         case .you: "你"
         }
     }
@@ -21,6 +22,7 @@ extension AgentKind {
         case .codex: "Codex"
         case .cursor: "Cursor"
         case .deepseek: "DSH"
+        case .antigravity: "AGY"
         case .you: "你"
         }
     }
@@ -32,6 +34,7 @@ extension AgentKind {
         case .codex: 0x3ec79a
         case .cursor: 0xd9d5cc
         case .deepseek: 0x6f8bff
+        case .antigravity: 0x8ab4f8
         case .you: 0xececee
         }
     }

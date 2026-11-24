@@ -599,3 +599,29 @@ test('prompt-hint：1200 字的保护只管关键词提示，分派规则照写'
     assert.equal(h.run('画一张图 ' + '长'.repeat(1300)), '分派规则：生图交给 codex@local。\n');
   } finally { fs.rmSync(h.root, { recursive: true, force: true }); }
 });
+
+test('prompt-hint：加过默认规则后，这句话命中规则的关键词就点名交给谁；照做和建议口气不同；交给的那家不在就不提', () => {
+  const rules = [
+    { id: 'seed-image', when: '生图、改图', kw: '插图 图标 logo', to: 'codex@local', on: true, mode: 'must' },
+    { id: 'seed-audio', when: '音频', kw: '音频 音效 wav', to: 'antigravity@local', on: true, mode: 'suggest' },
+    { id: 'seed-review', when: '复审', kw: '复审 review', to: 'deepseek@local', on: true, mode: 'suggest' },
+    { id: 'off', when: '关着的', kw: '插图', to: 'deepseek@local', on: false },
+  ];
+  const h = hintEnv({ dispatch: { text: '', alive: ['codex@local', 'antigravity@local'] }, settings: { dispatch: { seeded: 1, rules } } });
+  try {
+    let out = h.run('帮我画一张登录页插图');
+    assert.match(out, /像是「生图、改图」（分派规则第 1 条）。请交给本机的 Codex，除非用户在这句话里明确说了不要/);
+    assert.match(out, /pigeon:codex-delegation/);
+    assert.match(out, /不要自己写脚本逐像素画/);
+    assert.doesNotMatch(out, /关着的/);
+    assert.doesNotMatch(out, /生图优先交给 Codex/, '加过默认规则后不再走旧的生图开关');
+    out = h.run('听一下这段音频有没有爆音');
+    assert.match(out, /建议交给本机的 Antigravity，由你判断要不要交/);
+    assert.match(out, /pigeon new --agent antigravity/);
+    // 复审交给 DSH，但 DSH 不在 alive 里：不提
+    assert.equal(h.run('帮我复审一下这个改动'), '');
+  } finally { fs.rmSync(h.root, { recursive: true, force: true }); }
+  // 指挥不是 Claude Code：不点名
+  const h2 = hintEnv({ dispatch: { text: '' }, settings: { lead: { kind: 'you' }, dispatch: { seeded: 1, rules } } });
+  try { assert.doesNotMatch(h2.run('听一下这段音频'), /分派规则/); } finally { fs.rmSync(h2.root, { recursive: true, force: true }); }
+});

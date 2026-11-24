@@ -125,7 +125,11 @@ test('设置：指挥、暂停、阈值、额度显示、查密钥、刘海、�
 test('规则：deepseek ↔ dsh 换过来再换回去不变；命中次数只算近 7 天，没照做的另算', () => {
   const st = mapLive(raw(), NOW);
   assert.deepEqual(st.RULES.map(r => [r.id, r.to, r.fb, r.ask, r.on, r.n, r.over]), [['r1', 'codex@local', '', false, true, 2, 1], ['r2', 'dsh@local', `codex@${R}`, true, true, 0, 0]]);
-  assert.deepEqual(rulesToWire(st.RULES), raw().settings.dispatch.rules.map(r => ({ ...r, on: r.on !== false })));
+  assert.deepEqual(rulesToWire(st.RULES), raw().settings.dispatch.rules.map(r => ({ ...r, on: r.on !== false, mode: 'suggest' })));
+  // 照做：mode 是 must 的读成 must，写回去还是 must
+  const m = rulesFromWire([{ id: 'm', to: 'codex@local', mode: 'must' }, { id: 's', to: 'codex@local', mode: '乱写' }]);
+  assert.deepEqual(m.map(r => r.must), [true, false]);
+  assert.deepEqual(rulesToWire(m).map(r => r.mode), ['must', 'suggest']);
   assert.deepEqual(ruleHits(raw().notes, NOW), { r1: { n: 2, over: 1 } });
   assert.equal(keyFromWire('deepseek@remote-control:env_a:b'), 'dsh@remote-control:env_a:b');
   assert.equal(keyToWire('dsh@local'), 'deepseek@local');
@@ -253,4 +257,20 @@ test('中继站操作完成后的提示', async () => {
   assert.equal(relayMsg('use', { title: '给 Windows' }, 'h'), '这台中继站换成「给 Windows」');
   assert.equal(relayMsg('use', { ok: true }, 'h'), '这台跟着共用的中继站');
   assert.equal(relayMsg('delete', {}), '删掉了');
+});
+
+test('默认规则：第一次加上四条（生图照做，其余建议）；旧的生图开关关着时那条也关着；已有同类的不重复加；加过一次不再加', async () => {
+  const { seedRules } = await import('../src/backend/adapt.js');
+  let s = { codex: { preferForImages: false }, dispatch: { rules: [{ id: 'mine', when: '', kw: '', to: 'codex@local' }] } };
+  assert.equal(seedRules(s), true);
+  assert.deepEqual(s.dispatch.rules.map(r => [r.id, r.to, r.mode, r.on]), [['mine', 'codex@local', undefined, undefined],
+    ['seed-image', 'codex@local', 'must', false], ['seed-audio', 'antigravity@local', 'suggest', true],
+    ['seed-review', 'deepseek@local', 'suggest', true], ['seed-quick', 'deepseek@local', 'suggest', true]]);
+  assert.equal(s.dispatch.seeded, 1);
+  assert.equal(seedRules(s), false, '加过一次不再加');
+  s = { dispatch: { rules: [{ id: 'r1', when: '生图、改图', kw: '图 画', to: 'codex@local' }, { id: 'r2', when: '代码审查', kw: 'review', to: 'codex@local' }] } };
+  seedRules(s);
+  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['r1', 'r2', 'seed-audio', 'seed-quick']);
+  s = {}; seedRules(s);
+  assert.equal(s.dispatch.rules[0].on, true, '没写过开关的当成开着');
 });

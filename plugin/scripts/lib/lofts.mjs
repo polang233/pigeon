@@ -1,6 +1,18 @@
 // 设备（电脑）和上面的对话。本机现读 sqlite，远程的来自上一次经中继站刷新的缓存 ~/.pigeon/lofts.json。
 import { loftsFile, readJson, writeJsonAtomic, LOCAL, LOCAL_NAME } from './common.mjs';
 import { listThreads, listProjects, searchThreads, getThread } from './codex-state.mjs';
+import { DSH, AGY, dshSessions, agySessions, agyHub } from './agents.mjs';
+import { recent } from './journal.mjs';
+
+// 本机 DSH、Antigravity 的对话。正有消息在等它回的标成在干活（它们没有 hook 告诉 Pigeon）
+export function otherSessions({ limit = 15 } = {}) {
+  const busy = new Set(recent(50).filter(n => ['flying', 'delivered'].includes(n.state) && n.to && n.to.session).map(n => n.to.session));
+  const mark = s => (busy.has(s.id) ? { ...s, state: 'run' } : s);
+  let out = [];
+  try { out = out.concat(dshSessions({ limit })); } catch {}
+  try { out = out.concat(agySessions(agyHub(), { limit })); } catch {}
+  return out.map(mark);
+}
 
 export function readLofts(file = loftsFile()) {
   const j = readJson(file, null);
@@ -15,7 +27,7 @@ export function localLoft(relays = []) {
   return {
     loft: {
       id: LOCAL, name: LOCAL_NAME, online: true,
-      sessions: t.rows.map(r => ({ id: r.id, agent: 'codex', title: r.title, cwd: r.cwd, updated: r.updated, relay: isRelay.has(r.id) })),
+      sessions: [...t.rows.map(r => ({ id: r.id, agent: 'codex', title: r.title, cwd: r.cwd, updated: r.updated, relay: isRelay.has(r.id) })), ...otherSessions()],
       projects: listProjects(),
     },
     error: t.ok ? '' : t.error,
@@ -75,11 +87,12 @@ export function resolveTarget(spec, lofts = readLofts().lofts) {
     }
   }
 
-  // 本机
-  const c = pick(searchThreads(who), who);
+  // 本机：Codex 的对话，加上 DSH、Antigravity 的
+  const c = pick([...searchThreads(who), ...otherSessions({ limit: 40 })], who);
   if (c.length > 1) return { ok: false, error: `「${who}」对上了 ${c.length} 条本机对话，请用对话 id`, candidates: c };
   if (c.length === 1) {
     const t = c[0];
+    if (t.agent === DSH || t.agent === AGY) return { ok: true, target: { loft: LOCAL, loft_name: LOCAL_NAME, session: t.id, title: t.title, cwd: t.cwd || '', agent: t.agent } };
     return { ok: true, target: { loft: LOCAL, loft_name: LOCAL_NAME, session: t.id, title: t.title, cwd: t.cwd, approval: t.approval, rollout: t.rollout, archived: t.archived } };
   }
   if (!where) {

@@ -4,7 +4,7 @@
 // 不假装成功：接口回错就把它的错误交给页面去提示（返回被拒绝的 Promise，或者调 notify）。
 //
 // 用到的接口见 docs/CONTRACT.md；具体哪几个字段，写在每个函数旁边。
-import { mapLive, mergeNote, mergeRun, rulesToWire, RULE2_PATH, at, setAt, keyToWire, toWire, dispatchBody } from './adapt.js';
+import { mapLive, mergeNote, mergeRun, rulesToWire, RULE2_PATH, at, setAt, keyToWire, toWire, dispatchBody, seedRules } from './adapt.js';
 import { settingsWriter } from './settings.js';
 import { by, tById, isPaused, validLead, cleanName, levelsOf, midLevel, removalImpact, jumpLabel, customModelsOf } from '../core/names.js';
 import { promptText, targets } from '../core/route.js';
@@ -38,6 +38,7 @@ export async function probeLive() {
 
 const MAX_NOTES = 100, MAX_RUNS = 30;
 const get = path => api(path);
+const obj0 = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 // 中继站操作完成后的一句话
 export const relayMsg = (action, r, host) => action === 'use'
   ? (r && r.title ? `${host ? '这台' : '共用的'}中继站换成「${r.title}」` : '这台跟着共用的中继站')
@@ -184,6 +185,8 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
     }
   }
   connect();
+  // 第一次用这一版：加上默认的几条分派规则（生图给 Codex、音频给 Antigravity、复审和简单的活给 DeepSeek Harness）
+  if (!obj0(raw.settings.dispatch).seeded) bg(patch(s => { seedRules(s); }));
   // 对话列表一分钟再读一次（远程电脑上的变化不一定有推送）
   setInterval(() => { if (!down) get('/api/lofts').then(v => { if (v && Array.isArray(v.lofts)) { raw.lofts = v; rebuildSoon(); } }, () => {}); }, 60000);
   // 时间说法（几分钟前、用了多久）跟着走

@@ -40,7 +40,7 @@ export async function whyOf(reason, text, toKey) {
   return why;
 }
 // 给 /api/dispatch/suggest 的 to：<agent>@<设备 id>
-export const toKeyOf = to => `codex@${to.loft}`;
+export const toKeyOf = to => `${to.agent || 'codex'}@${to.loft}`;
 
 /* ---------- 问应用：等用户在 Pigeon 自己的面板里决定 ---------- */
 export const ASK_ACTIONS = ['release', 'release_masked', 'block', 'timeout'];

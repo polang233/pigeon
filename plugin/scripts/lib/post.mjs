@@ -5,13 +5,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   LOCAL, LOCAL_NAME, sleep, clip, oneLine, fmtDur, fingerprint, newBand, isBand, emit, loadSettings, patchSettings,
-  codexBin, codexAppRunning, pidAlive, sender, isPaused, POST_DEFAULTS,
+  codexBin, codexAppRunning, pidAlive, sender, isPaused, POST_DEFAULTS, pigeonDir, HOME,
 } from './common.mjs';
 import { addNote, getNote, patchNote, recent, TERMINAL, STATE_ZH } from './journal.mjs';
 import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } from './rollout.mjs';
 import { sendInstruction, newInstruction, fetchInstruction, loftsInstruction, relayProgress, loftsProgress, remoteLofts, toolFacts, parseRelayReply } from './relay.mjs';
 import { getThread, latestRelayCandidate, listThreads, listProjects } from './codex-state.mjs';
 import { relayFor, relayIds, isRelay, useRelay, forgetRelay, relayRows, RELAY_WARN_TOKENS } from './relays.mjs';
+import { DSH, AGY, AGENT_NAME, AGY_MODELS, HINT_AGY, agentOfArg, dshBin, dshArgs, dshEvent, dshSessionInfo, findDshSession, agentapiBin, agyHub, agyNew, agySend, agyList, agySteps, agyAnswer, agyWaiting } from './agents.mjs';
 import { readLofts, saveLofts, resolveTarget, findLoft, resolveProject } from './lofts.mjs';
 import { confirmRemote, deniedError, timeoutError } from './confirm.mjs';
 import { detectSecrets, maskSecrets } from './secrets.mjs';
@@ -70,6 +71,15 @@ export function eventOf(note, extra = {}) {
 }
 const report = (note, extra) => emit('PigeonNote', eventOf(note, extra));
 
+// DSH、Antigravity 的回信：它们的对话记录不像 Codex 那样好按编号找，看护进程拿到回复时存一份，只在本机、只有自己能读
+export const answersDir = () => path.join(pigeonDir(), 'answers');
+export function saveAnswer(band, text) {
+  try { fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(answersDir(), band + '.md'), String(text), { mode: 0o600 }); } catch {}
+}
+export const readAnswer = band => { try { return fs.readFileSync(path.join(answersDir(), band + '.md'), 'utf8'); } catch { return ''; } };
+// 看护进程自己跑的几种：codex exec 新开、DSH、Antigravity
+const OWN_WATCH = ['exec', 'dsh', 'agy'];
+
 // 链：--reply-to 沿用同一条链，count + 1
 export function chainFor(replyTo, lookup = getNote) {
   if (!replyTo) return { chain: '', count: 1, parent: null, warn: '' };
@@ -85,7 +95,7 @@ export const deadlineOf = (note, post, from = note.created) => from + (post.wait
 export function makeNote({ band, kind, replyTo, chain, count, from, to, via, text, now = Date.now(), track = {}, model = '', effort = '', extra = {} }) {
   return {
     band, chain: chain || band, count, kind, reply_to: replyTo || '', model, effort,
-    from, to: { loft: to.loft, loft_name: to.loft_name || (to.loft === LOCAL ? LOCAL_NAME : ''), agent: 'codex', session: to.session || '', title: to.title || '' },
+    from, to: { loft: to.loft, loft_name: to.loft_name || (to.loft === LOCAL ? LOCAL_NAME : ''), agent: to.agent || 'codex', session: to.session || '', title: to.title || '' },
     via, state: 'queued', created: now, updated: now, fingerprint: fingerprint(text), error: '', ...extra, track,
   };
 }
@@ -233,7 +243,7 @@ async function launch(note, d, post) {
     await patchNote(band, { track: { watcher: pid } });
     return { ok: true, paused: true };
   }
-  if (d.type === 'exec') {
+  if (OWN_WATCH.includes(d.type)) {
     const pid = await spawnWatcher(band, JSON.stringify(d));
     await patchNote(band, { track: { watcher: pid } });
     return { ok: true };
@@ -277,6 +287,7 @@ export async function sendCmd(args) {
     const err = `这条链已经传了 ${count - 1} 次，超过往返上限 ${post.maxHops}，为防止 agent 互相无限传话，不再发送。`;
     await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
   }
+  if (to.agent === DSH || to.agent === AGY) return launchOther(o, note, { agent: to.agent, session: to.session, cwd: to.cwd || '', mode: sandboxArg(args) }, post, args, text);
   const bin = codexBin();
   if (!bin) return o.notReady(3, 'Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
 
@@ -334,6 +345,10 @@ export async function newCmd(args) {
   const effort = typeof args.effort === 'string' ? args.effort.trim().toLowerCase() : '';
   if (args.model === true || args.effort === true) return o.usage(64, '--model 和 --effort 后面要跟值，比如 --model gpt-6-luna --effort high');
   if (effort && !EFFORTS.includes(effort)) return o.usage(64, `思考强度只能是 ${EFFORTS.join(' / ')}，收到「${args.effort}」。`);
+  const agent = agentOfArg(args.agent || 'codex');
+  if (!agent) return o.usage(64, `--agent 只能是 codex、dsh、antigravity，收到「${args.agent}」。`);
+  if (agent === DSH && (model || effort)) return o.usage(64, 'DeepSeek Harness 用它自己配的模型，--model 和 --effort 指定不了。');
+  if (agent === AGY && effort) return o.usage(64, `Antigravity 不分思考强度，用 --model 选档位（${AGY_MODELS.map(m => m[0]).join(' / ')}）或写具体的模型 id。`);
   const { post, secrets } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
@@ -345,7 +360,8 @@ export async function newCmd(args) {
   if (!loft) return o.usage(64, `没找到设备「${args.loft}」。先跑 pigeon lofts；远程设备要先 pigeon lofts --refresh`);
   const pr = resolveProject(loft, args.project);
   if (!pr.ok) return o.usage(64, pr.error);
-  const to = { loft: loft.id, loft_name: loft.name, session: '', title };
+  if (agent !== 'codex' && loft.id !== LOCAL) return o.usage(64, `${AGENT_NAME[agent]} 只能在这台 Mac 上新开对话。`);
+  const to = { loft: loft.id, loft_name: loft.name, session: '', title, agent };
   const via = loft.id === LOCAL ? 'queue' : 'relay';
   const extra = extrasOf(args, text);
   // 模型和思考强度：本机新开对话由 codex exec 的 -m 和 -c 指定；经中继站的写进 create_thread 的 model 和 thinking
@@ -353,6 +369,11 @@ export async function newCmd(args) {
   if (overHops(count, post.maxHops)) {
     const err = `这条链已经传了 ${count - 1} 次，超过往返上限 ${post.maxHops}，不再发送。`;
     await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
+  }
+  if (agent !== 'codex') {
+    const cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || process.cwd()));
+    if (!fs.existsSync(cwd)) return o.usage(64, `项目目录不存在：${cwd}`);
+    return launchOther(o, note, { agent, session: '', cwd, model, title, mode: sandboxArg(args) }, post, args, text);
   }
   const bin = codexBin();
   if (!bin) return o.notReady(3, 'Codex 不可用：没找到 codex 命令（ChatGPT 应用里自带的也没有）。');
@@ -406,6 +427,8 @@ export async function newCmd(args) {
 // 读记录，算出这条消息现在的进展（不写日志）
 export function progressOf(note) {
   const t = note.track || {};
+  // DSH、Antigravity 由看护进程直接写状态，这里没有记录可读
+  if (t.method === 'dsh' || t.method === 'agy') return { state: '' };
   if (note.via === 'relay') {
     const file = t.relay_rollout || (getThread(t.relay_thread) || {}).rollout || findRollout(t.relay_thread);
     const r = file ? readFrom(file, t.relay_offset || 0) : null;
@@ -477,7 +500,8 @@ export async function watch(band) {
   let note = getNote(band);
   if (!note) return 1;
   try {
-    const needBody = note.paused || (note.track && note.track.method === 'exec');
+    const method = (note.track && note.track.method) || '';
+    const needBody = note.paused || OWN_WATCH.includes(method);
     let d = null;
     if (needBody) { try { d = JSON.parse(await readStdin()); } catch {} }
     if (note.paused) {
@@ -486,12 +510,14 @@ export async function watch(band) {
       const { post } = await loadSettings();
       // 继续了：清掉暂停标记，等回信的时限从现在算起
       note = await move(band, { paused: false, track: { deadline: deadlineOf(note, post, Date.now()) } });
-      if (d.type !== 'exec') {
+      if (!OWN_WATCH.includes(d.type)) {
         const r = await deliver(note, d, post);
         if (!r.ok) return 0;
       }
     }
-    if (note.track && note.track.method === 'exec') return await watchExec(getNote(band) || note, d);
+    if (method === 'exec') return await watchExec(getNote(band) || note, d);
+    if (method === 'dsh') return await watchDsh(getNote(band) || note, d);
+    if (method === 'agy') return await watchAgy(getNote(band) || note, d);
     const deadline = (getNote(band).track && getNote(band).track.deadline) || note.created + POST_DEFAULTS.waitTimeoutMin * 60000;
     for (;;) {
       note = await step(band);
@@ -550,8 +576,125 @@ async function watchExec(note, d) {
   return 0;
 }
 
+/* ---------- DSH、Antigravity ---------- */
+// 都在本机，不经中继站、不问放行。由看护进程跑：DSH 跑 dsh headless，Antigravity 经 agentapi 发、再读它本机服务等回复
+// --sandbox：DSH 的权限档（read-only 只读、workspace-write 能改工作目录），不写用它自己的默认（能改工作目录）
+const DSH_MODES = ['read-only', 'workspace-write'];
+const sandboxArg = args => (typeof args.sandbox === 'string' ? args.sandbox.trim() : '');
+async function launchOther(o, note, d, post, args, text) {
+  const band = note.band, name = AGENT_NAME[d.agent];
+  if (d.mode && d.agent !== DSH) return o.usage(64, '--sandbox 只对 DeepSeek Harness 有用。');
+  if (d.mode && !DSH_MODES.includes(d.mode)) return o.usage(64, `--sandbox 只能是 ${DSH_MODES.join(' / ')}，收到「${d.mode}」。`);
+  if (d.agent === DSH && !dshBin()) return o.notReady(3, '没找到 DeepSeek Harness 的命令行：/Applications/DeepSeek Harness.app 装了吗？');
+  if (d.agent === AGY && !agentapiBin()) return o.notReady(3, '没找到 Antigravity 的 agentapi（~/.gemini/antigravity/bin/agentapi）。Antigravity 装了吗？');
+  if (d.agent === AGY && !agyHub()) return o.notReady(3, HINT_AGY);
+  if (d.agent === DSH && d.session && !d.cwd) d.cwd = dshSessionInfo(findDshSession(d.session), 4000).cwd || '';
+  note.why = await whyOf(args.reason, text, toKeyOf(note.to));
+  note.track.deadline = deadlineOf(note, post);
+  Object.assign(note.track, { method: d.agent === DSH ? 'dsh' : 'agy', cwd: d.cwd || '' });
+  note.state = 'queued';
+  await addNote(note);
+  await report(note, { preview: clip(text, 80) });
+  const message = text.trimEnd() + footer(band, note.from);
+  const r = await launch(note, { ...d, type: note.track.method, message }, post);
+  if (!r.ok) return o.refused(note, r.error, r.reason);
+  if (r.paused) { o.say(...pausedText(band, post)); return o.done(0, { ok: true, band, state: 'queued', paused: true }); }
+  o.say(...[`消息已发出，编号 ${band}（${d.session ? `给 ${name} 的「${note.to.title || d.session}」` : `新开 ${name} 对话「${note.to.title}」`}）`,
+    d.agent === AGY && !d.session ? 'Antigravity 新开的对话不绑项目目录：要它看文件，消息里写清文件的完整路径。' : '',
+    `等回信：node "${PIGEON_SCRIPT}" wait ${band}　读回信：node "${PIGEON_SCRIPT}" read ${band}`].filter(Boolean));
+  if (args.wait && !o.json) return waitCmd({ _: [band], timeout: args.timeout });
+  return o.done(0, { ok: true, band, state: 'flying' });
+}
+
+// 拿到回信：存一份，记成已回信，顺手刷新本机对话列表（新开的对话要出现在指挥台上）
+async function finishOther(band, answer) {
+  saveAnswer(band, answer);
+  await move(band, { state: 'home' }, { answer_preview: clip(answer, 160) });
+  try { const { post } = await loadSettings(); saveLofts({ relays: relayIds(post) }); } catch {}
+}
+const timedOutMsg = note => `等了 ${fmtDur(Date.now() - note.created)} 还没完成，已经停下，没有自动重发。`;
+
+async function watchDsh(note, d) {
+  const band = note.band, t = note.track;
+  const message = d && d.message || '';
+  if (!message.trim()) { await move(band, { state: 'lost', error: '看护进程没收到消息内容，没有发送。' }); return 1; }
+  const bin = dshBin();
+  if (!bin) { await move(band, { state: 'refused', reason: 'offline', error: '没找到 DeepSeek Harness 的命令行。' }); return 0; }
+  const cwd = t.cwd && fs.existsSync(t.cwd) ? t.cwd : HOME;
+  const child = spawn(bin, dshArgs({ session: d.session || '', mode: d.mode || '' }), { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PIGEON_BAND: band } });
+  child.stdin.end(message);
+  await move(band, { state: 'flying' });
+  let buf = '', last = '', final = null, failed = '', timedOut = false, pending = Promise.resolve();
+  const killer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 5000); }, Math.max(1000, t.deadline - Date.now()));
+  child.stdout.on('data', chunk => {
+    buf += chunk.toString('utf8');
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const e = dshEvent(buf.slice(0, nl)); buf = buf.slice(nl + 1);
+      if (!e) continue;
+      if (e.session && !note.to.session) { const id = e.session; note.to.session = id; pending = pending.then(() => move(band, { state: 'delivered', to: { session: id } })); }
+      if (e.text) last = e.text;
+      if (e.final != null) final = e.final;
+      if (e.error) failed = e.error;
+    }
+  });
+  let err = '';
+  child.stderr.on('data', c => { err = (err + c.toString('utf8')).slice(-2000); });
+  const code = await new Promise(r => child.on('close', r));
+  clearTimeout(killer);
+  await pending;
+  const answer = final != null && final !== '' ? final : last;
+  if (code === 0 && !timedOut && !failed && answer) { await finishOther(band, answer); return 0; }
+  const why = failed || err.trim().split('\n').at(-1) || `dsh 退出码 ${code}`;
+  await move(band, { state: 'lost', error: timedOut ? timedOutMsg(note) : `DeepSeek Harness 没有正常结束：${oneLine(why, 160)}` });
+  return 0;
+}
+
+async function watchAgy(note, d) {
+  const band = note.band, t = note.track;
+  const message = d && d.message || '';
+  if (!message.trim()) { await move(band, { state: 'lost', error: '看护进程没收到消息内容，没有发送。' }); return 1; }
+  const hub = agyHub();
+  if (!hub) { await move(band, { state: 'refused', reason: 'offline', error: HINT_AGY }); return 0; }
+  let id = d.session || '', base = 0;
+  if (id) {
+    base = ((agyList(hub) || []).find(x => x.id === id) || {}).steps || 0;
+    const r = agySend(hub, id, message);
+    if (!r.ok) { await move(band, { state: 'refused', reason: 'no_target', error: r.error }); return 0; }
+    await move(band, { state: 'delivered' });
+  } else {
+    const r = agyNew(hub, { prompt: message, model: d.model || '', title: d.title || '' });
+    if (!r.ok) { await move(band, { state: 'refused', reason: 'offline', error: r.error }); return 0; }
+    id = r.id;
+    await move(band, { state: 'delivered', to: { session: id } });
+  }
+  // 等它这一轮停下来：不在跑了，而且 base 之后有了回复
+  let quiet = 0, said = '';
+  while (Date.now() < t.deadline) {
+    await sleep(pollMs());
+    const h = agyHub() || hub;
+    const s = (agyList(h) || []).find(x => x.id === id);
+    if (s && s.running) {
+      // 停着等你批准（比如读工作区外的文件）：Pigeon 不替你点，写进任务里，等你在 Antigravity 里处理
+      const w = agyWaiting(agySteps(h, id), base), msg = w ? `Antigravity 在等你批准：${w}。去 Antigravity 里点同意或拒绝。` : '';
+      if (msg !== said) { said = msg; await patchNote(band, { error: msg }); await report(getNote(band)); }
+      quiet = 0; continue;
+    }
+    if (!s) { quiet = 0; continue; }
+    if (said) { said = ''; await patchNote(band, { error: '' }); }
+    const answer = agyAnswer(agySteps(h, id), base);
+    if (answer) { await finishOther(band, answer); return 0; }
+    // 停着却没有回复：可能还没开始，多等几次；一直这样就算没回音
+    if (++quiet > 30) break;
+  }
+  await move(band, { state: 'lost', error: Date.now() >= t.deadline ? timedOutMsg(note) + '可以去 Antigravity 里看看。' : 'Antigravity 停下了，但没读到回复。去 Antigravity 里看看。' });
+  return 0;
+}
+
 /* ---------- 回信 ---------- */
 export function answerOf(note) {
+  const m = (note.track || {}).method;
+  if (m === 'dsh' || m === 'agy') return { answer: readAnswer(note.band), progress: { state: note.state } };
   const p = progressOf(note);
   if (p.state === 'home') return { answer: p.answer, progress: p };
   // 没回音了但中继站有 JSON 里的回信，也拿出来给人看
@@ -571,10 +714,10 @@ export function answerOf(note) {
 }
 
 const who = p => (p.agent === 'claude' ? 'Claude' : p.agent === 'you' ? '你' : p.agent || '?');
-const where = to => `${to.title || to.session || '（新对话）'}${to.loft === LOCAL ? '' : '@' + (to.loft_name || to.loft)}`;
+const where = to => `${to.title || to.session || '（新对话）'}${to.agent && to.agent !== 'codex' ? `（${AGENT_NAME[to.agent] || to.agent}）` : ''}${to.loft === LOCAL ? '' : '@' + (to.loft_name || to.loft)}`;
 const elapsed = n => ago((TERMINAL.has(n.state) ? n.updated : Date.now()) - n.created);
 const modelLabel = n => [n.model, n.effort].filter(Boolean).join(' · ');
-const codexLink = n => (n.to.session && n.to.loft === LOCAL ? `codex://threads/${n.to.session}` : '');
+const codexLink = n => (n.to.session && n.to.loft === LOCAL && (n.to.agent || 'codex') === 'codex' ? `codex://threads/${n.to.session}` : '');
 
 export async function readCmd(args) {
   const band = args._[0];

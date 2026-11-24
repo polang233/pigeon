@@ -42,11 +42,12 @@ function ruleRow(r, i) {
     <span class="arrowto">→</span>
     <span class="who2">${g(agOf(r.to), 'sm')}<select class="pick" data-action="rule-field" data-id="${r.id}" data-f="to" aria-label="交给">${opts(r.to)}</select>${lowQ(st, r.to) ? html`<i class="qlow" data-tip="它的额度只剩 ${qLeft(st, r.to)}%">${qLeft(st, r.to)}%</i>` : ''}</span>
     <span class="who2 fbc ${live ? 'live' : ''}" ${live ? html`data-tip="交给的那家额度低于 ${st.LOW}%，现在按这一栏派"` : ''}>${r.fb ? g(agOf(r.fb), 'sm') : ''}<select class="pick" data-action="rule-field" data-id="${r.id}" data-f="fb" aria-label="额度不够时改派给">${opts(r.fb, true)}</select></span>
+    <select class="pick" data-action="rule-field" data-id="${r.id}" data-f="must" aria-label="指挥怎么用这条" data-tip="建议：写进提示，由指挥自己判断交不交。照做：这句话里出现关键词时，提示里写成必须交给它，除非你在那句话里明说不要"><option value="0" ${r.must ? '' : raw('selected')}>建议</option><option value="1" ${r.must ? raw('selected') : ''}>照做</option></select>
     <select class="pick" data-action="rule-field" data-id="${r.id}" data-f="ask" aria-label="发之前要不要问我"><option value="0" ${r.ask ? '' : raw('selected')}>直接发</option><option value="1" ${r.ask ? raw('selected') : ''}>每次问我</option></select>
     <span class="num stat" data-tip="本周命中 ${r.n} 次${r.over ? `，其中指挥没照做 ${r.over} 次` : ''}">${r.n} 次${r.over ? html`<small>没照做 ${r.over}</small>` : ''}</span>
     <button class="rdel" type="button" data-action="del-rule" data-id="${r.id}" aria-label="删掉这条" data-tip="删掉这条">${icon('x')}</button></div>`;
 }
-const rulesHTML = () => html`<div class="panel t-rules" data-part="rules"><div class="trow head-row"><span></span><span></span><span>当任务是</span><span></span><span>交给</span><span data-tip="交给的那家订阅额度低于 ${st.LOW}% 时，改派给这一家">额度不够时</span><span>发之前</span><span>本周</span><span></span></div>
+const rulesHTML = () => html`<div class="panel t-rules" data-part="rules"><div class="trow head-row"><span></span><span></span><span>当任务是</span><span></span><span>交给</span><span data-tip="交给的那家订阅额度低于 ${st.LOW}% 时，改派给这一家">额度不够时</span><span data-tip="建议：由指挥判断。照做：命中关键词就交给它">指挥</span><span>发之前</span><span>本周</span><span></span></div>
     ${st.RULES.length ? st.RULES.map(ruleRow) : html`<div class="empty pad"><p>还没有规则，所有活都由指挥自己判断交给谁。</p><button class="ghost" type="button" data-action="addrule">${icon('plus')}加一条</button></div>`}
     <div class="trow other"><span></span><span></span><span class="mut">其他的</span><span class="arrowto">→</span><span class="mut">指挥自己判断，派活时附一句理由</span></div></div>`;
 const colsHTML = () => html`<div class="cols" data-part="cols">

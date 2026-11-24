@@ -63,7 +63,7 @@ function cxHTML() {
     ${num('maxConcurrent', '同时最多', 1, 8, '件')}
     ${num('summaryChars', '结果摘要最长', 60, 2000, '字')}
     <h4>生图</h4>
-    ${sw('preferForImages', '生图先交给 Codex', 'Claude Code 遇到要生成位图的活时，交给 Codex 画')}
+    <span class="lb">生图交给谁</span><span class="mut">在分派规则里设（“生图、改图”那条）<button class="ghost sm" type="button" data-action="nav" data-v="route">去分派规则</button></span>
     ${seg('imageMode', '生图方式', [['builtin', '内置'], ['api', 'API']], '内置不需要 key；API 方式要 OPENAI_API_KEY，才能选模型和质量')}
     ${api ? text('imageModel', '图片模型') : ''}
     ${api ? seg('imageQuality', '图片质量', [['low', '低'], ['medium', '中'], ['high', '高']]) : ''}

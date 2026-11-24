@@ -84,10 +84,34 @@ export function ruleHits(notes, now = Date.now()) {
 
 /* ---------- 规则在设置里的样子（dispatch.rules）和界面里的样子互换 ---------- */
 export const rulesFromWire = (list, hits = {}) => (Array.isArray(list) ? list : []).filter(r => r && r.id).map(r => ({
-  id: String(r.id), when: String(r.when || ''), kw: String(r.kw || ''), to: keyFromWire(r.to), fb: keyFromWire(r.fb || ''), ask: !!r.ask, on: r.on !== false,
+  id: String(r.id), when: String(r.when || ''), kw: String(r.kw || ''), to: keyFromWire(r.to), fb: keyFromWire(r.fb || ''), ask: !!r.ask, on: r.on !== false, must: r.mode === 'must',
   n: hits[r.id]?.n || 0, over: hits[r.id]?.over || 0,
 }));
-export const rulesToWire = list => list.map(r => ({ id: r.id, when: r.when, kw: r.kw, to: keyToWire(r.to), fb: keyToWire(r.fb), ask: !!r.ask, on: !!r.on }));
+// 第一次用这一版时加上的几条规则（线上的样子）。原来“生图先交给 Codex”是 Codex 设置里的开关，现在是第一条规则，开关关着的这条也关着。
+// 交给的那家没装时这条不往提示里写（见 promptText），装上了自己就生效
+export function defaultRules(settings) {
+  const preferImages = obj(obj(settings).codex).preferForImages !== false;
+  return [
+    { id: 'seed-image', when: '生图、改图（插画、图标、头图、像素图、抠图）', kw: '画 图片 插画 插图 配图 头图 图标 头像 海报 壁纸 封面 贴图 素材 像素图 抠图 去背景 logo icon image illustration sprite', to: 'codex@local', fb: '', ask: false, on: preferImages, mode: 'must' },
+    { id: 'seed-audio', when: '音频：听声音、做声音、配乐、音效、语音', kw: '音频 声音 听听 音效 配乐 音乐 录音 语音 人声 混音 bgm wav mp3 audio sound', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    { id: 'seed-review', when: '复审、复核：让另一个 agent 再看一遍改动，审查可以宽松些', kw: '复审 复核 再审 二审 再看一遍 帮我审 审一下 review', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    { id: 'seed-quick', when: '简单、要快的小活', kw: '简单 快速 顺手 小改 随手', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
+  ];
+}
+// 还没加过默认规则的设置：加上（已经有同 id 的不重复加），记下 seeded
+export function seedRules(settings) {
+  const d = at(settings, ['dispatch']);
+  if (d.seeded) return false;
+  const old = (Array.isArray(d.rules) ? d.rules : []).filter(r => r && typeof r === 'object');
+  const have = new Set(old.map(r => r.id)), text = old.map(r => `${r.when || ''} ${r.kw || ''}`).join(' ');
+  // 已经有同一类的规则（自己写过“生图”“音频”“复审”）就不再加那条
+  const same = { 'seed-image': /生图|画图|插画|图标/, 'seed-audio': /音频|声音|音效/, 'seed-review': /复审|复核|审查|review/i, 'seed-quick': /简单|快速/ };
+  d.rules = [...old, ...defaultRules(settings).filter(r => !have.has(r.id) && !(same[r.id] && same[r.id].test(text)))];
+  d.seeded = 1;
+  return true;
+}
+// mode：suggest 只是建议、由指挥判断；must 照做：命中就交给它，除非用户明确说不要
+export const rulesToWire = list => list.map(r => ({ id: r.id, when: r.when, kw: r.kw, to: keyToWire(r.to), fb: keyToWire(r.fb), ask: !!r.ask, on: !!r.on, mode: r.must ? 'must' : 'suggest' }));
 
 /* ---------- 协作的规矩：设置里的 post.* ---------- */
 const withV = (opts, v) => (opts.includes(v) ? opts : [...opts, v].sort((x, y) => x - y));
@@ -122,14 +146,17 @@ function osOf(l) {
 const effortOk = e => (TH[e] ? e : '');
 const modelOf = (models, k) => { const m = obj(obj(models)[keyToWire(k)]); return { model: String(m.model || ''), think: m.model && String(m.model).startsWith('group/') ? '' : effortOk(m.effort) }; };
 
-// 本机：检测到装了的才列。第一版里 Claude Code 能发出、还不能接收；Codex 能接收、只能回信；Cursor 和 DeepSeek Harness 还没接上
+// 本机：检测到装了的才列。Claude Code 能发出、还不能接收；Codex、DeepSeek Harness、Antigravity 能接收、只能回信；Cursor 还没接上
 function localConn(detect, off, models) {
   const d = detect ? obj(detect) : null, has = a => !d || !!obj(d[toWire(a)]).installed, out = [];
   const det = a => (d ? obj(d[toWire(a)]) : {});
   const isOff = a => (Array.isArray(off) ? off : []).includes(toWire(a));
   if (has('claude')) out.push({ a: 'claude', how: ['plugin', 'hook'], out: 'yes', inn: 'nope', on: !isOff('claude'), model: '', think: '', det: det('claude') });
   if (has('codex')) out.push({ a: 'codex', how: ['codexapp'], out: 'nope', inn: 'yes', on: !isOff('codex'), ...modelOf(models, `codex@${HOME}`), det: det('codex') });
-  for (const a of ['cursor', 'dsh']) if (d && det(a).installed) out.push({ a, how: [], out: 'nope', inn: 'nope', on: false, na: true, det: det(a) });
+  // DeepSeek Harness 经它的命令行、Antigravity 经 agentapi：能收活、能回信，还不能自己派活
+  if (d && det('dsh').installed) out.push({ a: 'dsh', how: ['cli'], out: 'nope', inn: 'yes', on: !isOff('dsh'), ...modelOf(models, `dsh@${HOME}`), det: det('dsh') });
+  if (d && det('antigravity').installed) out.push({ a: 'antigravity', how: ['agentapi'], out: 'nope', inn: 'yes', on: !isOff('antigravity'), ...modelOf(models, `antigravity@${HOME}`), det: det('antigravity') });
+  if (d && det('cursor').installed) out.push({ a: 'cursor', how: [], out: 'nope', inn: 'nope', on: false, na: true, det: det('cursor') });
   return out;
 }
 // 远程：第一版只经 Codex 应用内连，Codex 是入口
@@ -252,8 +279,8 @@ export function mapLive(raw, now = Date.now()) {
     paused: { all: !!P.all, dev: { ...obj(P.lofts) } },
     settings: { notch: obj(S0.perch).notch === false ? 'off' : 'on', quota: q0.show === 'always' ? 'always' : 'hover', secrets: ['warn', 'mask', 'off'].includes(obj(S0.secrets).mode) ? S0.secrets.mode : 'warn', crossTimeoutSec: Number(obj(S0.post).crossTimeoutSec) || 90 },
     CUSTOMM: Object.fromEntries(Object.entries(obj(dv.customModels)).filter(([k]) => k.lastIndexOf('@') > 0).map(([k, v]) => { const i = k.lastIndexOf('@'); return [`${fromWire(k.slice(0, i))}@${k.slice(i + 1)}`, (Array.isArray(v) ? v : []).map(x => String(x).trim()).filter(Boolean)]; }).filter(([, v]) => v.length)),
-    MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [] },
-    DEF_MODEL: { claude: ['', ''], codex: ['', ''], cursor: ['', ''], dsh: ['', ''] },
+    MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [], antigravity: [['flash_lite', '', 'Flash Lite'], ['flash', '', 'Flash'], ['pro', '', 'Pro']] },
+    DEF_MODEL: { claude: ['', ''], codex: ['', ''], cursor: ['', ''], dsh: ['', ''], antigravity: ['', ''] },
     CODEXM: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => ({ slug: String(m.slug), name: String(m.name || m.slug), efforts: (Array.isArray(m.efforts) ? m.efforts : []).map(String) })),
     MAGPIE: { on: groups.length > 0, groups: groups.map(m => [String(m.id), m.context_window ? `magpie 的路由组 · 上下文 ${Math.round(m.context_window / 1000)}k` : 'magpie 的路由组']) },
     CTXW: Object.fromEntries(mpModels.filter(m => m.id && m.context_window).map(m => [String(m.id), Number(m.context_window)])),

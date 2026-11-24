@@ -49,6 +49,7 @@ export function promptText(st) {
     let v = `- ${r.when} → ${nameOf(st, r.to)}`;
     if (lowQ(st, r.to)) v += alive(st, r.fb) ? `。它的额度现在只剩 ${qLeft(st, r.to)}%，先交给 ${nameOf(st, r.fb)}` : `。它的额度现在只剩 ${qLeft(st, r.to)}%`;
     if (asks(st, r, r.to)) v += '。发之前要用户确认';
+    if (r.must) v += '。照做：用户的话里出现这类活就交给它，除非用户明确说不要';
     return v;
   });
   if (!lines.length) return '';
@@ -59,5 +60,6 @@ export function promptText(st) {
     if (askOn(st, 'split')) ask.push('- 一次拆成 3 件以上同时派出时，Pigeon 会先问用户');
     if (askOn(st, 'relay')) ask.push('- 接活的 agent 再往下转派时，Pigeon 会先问用户');
   }
-  return `派活建议（Pigeon 写进来的，只是建议，最后由你判断）：\n${lines.join('\n')}\n- 其他的你自己做，或者自己决定交给谁${ask.length ? '\n' + ask.join('\n') : ''}\n派活时附一句理由；没照上面的建议做，也说明为什么。`;
+  const must = st.RULES.some(r => r.on && r.when && r.must && alive(st, r.to));
+  return `派活建议（Pigeon 写进来的${must ? '。标了“照做”的要照做，其余只是建议，由你判断' : '，只是建议，最后由你判断'}）：\n${lines.join('\n')}\n- 其他的你自己做，或者自己决定交给谁${ask.length ? '\n' + ask.join('\n') : ''}\n派活时附一句理由；没照上面的建议做，也说明为什么。`;
 }

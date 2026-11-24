@@ -200,11 +200,17 @@ function collectImages(threadId, cwd, s, t0) {
 
 /* ---------- settings / doctor ---------- */
 export async function settingsCmd() {
-  const { codex: s, post, source } = await loadSettings();
+  const { codex: s, post, source, raw } = await loadSettings();
+  const d = (raw && raw.dispatch) || {}, rules = Array.isArray(d.rules) ? d.rules : [];
+  // 生图交给谁：加过默认规则后看“生图、改图”那条（seed-image），之前看旧的开关
+  const img = rules.find(r => r && r.id === 'seed-image');
+  const imageLine = d.seeded
+    ? `- 生图交给 Codex：${img && img.on !== false ? `是（分派规则“${img.when}”，${img.mode === 'must' ? '照做' : '建议'}）` : '否（分派规则里没开“生图、改图”那条）'}`
+    : `- 生图优先交给 Codex：${s.preferForImages ? '是' : '否'}`;
   const lines = [
     `Pigeon 设置（来自${source}）：`,
     'Codex 派活（run）：',
-    `- 生图优先交给 Codex：${s.preferForImages ? '是' : '否'}`,
+    imageLine,
     `- 生图方式：${s.imageMode === 'api' ? `API（模型 ${s.imageModel}，质量 ${s.imageQuality}${process.env.OPENAI_API_KEY ? '' : '；但没检测到 OPENAI_API_KEY，会退回内置方式'}）` : '内置 image_gen（不需要 key，模型和质量不可选）'}`,
     `- 图片比例：${ASPECT[s.imageAspect] || s.imageAspect}${s.imageTransparent ? '，透明背景' : ''}；保存到项目的 ${s.imageDir}/`,
     `- 对话记录：${keepOf(s) ? '保留到 Codex 应用' : '临时任务，不保留'}${keepOf(s) ? OPEN_WHEN[openWhenOf(s)] : ''}；单次可用 --temp / --keep 改`,

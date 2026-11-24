@@ -113,9 +113,9 @@ test('你自己当指挥：中心画“你”，本机的 agent 都挂在你下�
   const st = freshState(); st.lead = { kind: 'you' };
   const [mac, win] = pagesOf(st);
   assert.equal(mac.center.kind, 'you');
-  assert.deepEqual(mac.nodes.filter(n => n.kind === 'agent').map(n => n.a), ['claude', 'codex', 'cursor', 'dsh']);
+  assert.deepEqual(mac.nodes.filter(n => n.kind === 'agent').map(n => n.a), ['claude', 'codex', 'cursor', 'dsh', 'antigravity']);
   assert.equal(win.center.host, true);
-  assert.deepEqual(win.center.agents, ['claude', 'codex', 'cursor', 'dsh']);
+  assert.deepEqual(win.center.agents, ['claude', 'codex', 'cursor', 'dsh', 'antigravity']);
 });
 
 test('换个能发出的 agent 当指挥：它在那台的对话都画在中心，最近一次派活的排第一', () => {

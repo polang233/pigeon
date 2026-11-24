@@ -2,18 +2,19 @@
 // 纯数据，不碰 DOM。颜色只写 CSS 变量的名字，色值只在 app.css 里有一份。
 
 // 能接进来的 agent，按这个顺序排（刘海的光带也是这个顺序）
-export const AGENTS = ['claude', 'codex', 'cursor', 'dsh'];
+export const AGENTS = ['claude', 'codex', 'cursor', 'dsh', 'antigravity'];
 // 名字和身份色。you 是你自己：指挥可以是你，你在 Pigeon 里派的活发件人也是你
 export const AG = {
   claude: { name: 'Claude Code', c: 'var(--claude)' },
   codex: { name: 'Codex', c: 'var(--codex)' },
   cursor: { name: 'Cursor', c: 'var(--cursor)' },
   dsh: { name: 'DeepSeek Harness', c: 'var(--dsh)' },
+  antigravity: { name: 'Antigravity', c: 'var(--antigravity)' },
   you: { name: '你', c: 'var(--accent)' },
 };
 // 应用的名字（跳回对话时说“在 X 里打开”）和刘海里放得下的短名
-export const APP = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'DeepSeek Harness' };
-export const SHORT = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'DSH', you: '你' };
+export const APP = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'DeepSeek Harness', antigravity: 'Antigravity' };
+export const SHORT = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', dsh: 'DSH', antigravity: 'AGY', you: '你' };
 
 // 思考强度：名字和几格
 export const TH = { low: ['低', 1], medium: ['中', 2], high: ['高', 3], xhigh: ['极高', 4], max: ['最高', 5], ultra: ['超高', 6] };

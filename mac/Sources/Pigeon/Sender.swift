@@ -90,6 +90,8 @@ extension Hub {
     static let sendTimeout: TimeInterval = 300
     static let refreshTimeout: TimeInterval = 180
     static let maxRemembered = 200
+    /// 能收活的 agent（线上的名字）
+    static let receivers: Set<String> = ["codex", "deepseek", "antigravity"]
 
     /// 子进程的环境：去掉 CLAUDE_CODE_SESSION_ID（这样发件人是 you），端口和数据目录照本应用的，补上 GUI 应用缺的 PATH
     func childEnvironment(nodePath: String) -> [String: String] {
@@ -135,8 +137,11 @@ extension Hub {
         let session = to["session"] as? String ?? ""
         let text = req["text"] as? String ?? ""
         guard !agent.isEmpty else { return completion(400, fail(400, "没有写发给哪个 agent").1) }
-        guard agent == "codex" else {
-            return completion(501, fail(501, "现在只能给 Codex 派活，\(Self.agentLabel(agent)) 还没接上").1)
+        guard Self.receivers.contains(agent) else {
+            return completion(501, fail(501, "现在只能给 Codex、DeepSeek Harness、Antigravity 派活，\(Self.agentLabel(agent)) 还没接上").1)
+        }
+        guard agent == "codex" || loft == "local" else {
+            return completion(400, fail(400, "\(Self.agentLabel(agent)) 只能在这台 Mac 上派活").1)
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return completion(400, fail(400, "消息是空的").1) }
         guard let node = Detector.which("node") else { return completion(500, fail(500, "没找到 node，发不出去").1) }
@@ -148,6 +153,7 @@ extension Hub {
             if title.isEmpty { title = String((text.split(whereSeparator: \.isNewline).first ?? "").prefix(30)) }
             // 值一律写成 --名字=值：值以 - 开头时（标题取自消息第一行，可能是“--verbose 不管用”）不会被命令行当成另一个参数
             args += ["new", "--loft=\(loft)", "--title=\(title)"]
+            if agent != "codex" { args += ["--agent=\(agent)"] }
             if let p = req["project"] as? String, !p.isEmpty { args += ["--project=\(p)"] }
             if let m = req["model"] as? String, !m.isEmpty { args += ["--model=\(m)"] }
             if let e = req["effort"] as? String, !e.isEmpty { args += ["--effort=\(e)"] }
@@ -216,6 +222,8 @@ extension Hub {
         case "claude": "Claude Code"
         case "cursor": "Cursor"
         case "deepseek": "DeepSeek Harness"
+        case "antigravity": "Antigravity"
+        case "codex": "Codex"
         default: agent
         }
     }
@@ -235,6 +243,7 @@ extension Hub {
         case "claude": return (["-b", Detector.claudeBundleID], "")
         case "cursor": return (["-b", Detector.cursorBundleID], "")
         case "deepseek": return (["-b", Detector.deepseekBundleID], "")
+        case "antigravity": return (["-b", Detector.antigravityBundleID], "")
         default: return (nil, "不知道怎么打开 \(agent)")
         }
     }
