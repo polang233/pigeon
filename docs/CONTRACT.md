@@ -480,8 +480,8 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - `devices.customModels`：自己填的模型名，`{ "codex@<主机 id>": ["local/qwen3-coder"] }`。模型列表是从本机 Codex 读的，别的电脑上自定义的模型读不到，可以填在这里；这些模型几档思考强度（`low` 到 `ultra`）都列出来，由对方建对话时校验。
 - `dispatch.rules`：分派规则，从上到下第一条命中的算数。`kw` 按空格、顿号、逗号分开，任意一个出现在任务文字里就命中，不分大小写；没写关键词的永远不命中。阈值是 `quota.low`。
 - `dispatch.rules[].mode`：`suggest`（默认，只是建议，由指挥判断）或 `must`（照做：用户的话里出现这类活就交给它，除非用户在那句话里明说不要）。两种都只是写进提示的口气不同，Pigeon 不硬拦。
-- `dispatch.seeded`：加过默认规则就是 `1`。网页第一次在应用里打开时加四条：生图、改图交给 `codex@local`（`must`；原来的 `codex.preferForImages` 关着时这条也关着）；音频交给 `antigravity@local`；复审、复核交给 `deepseek@local`；简单、要快的小活交给 `deepseek@local`（后三条 `suggest`）。已经有同一类规则的不重复加。加过以后，生图交给谁只看规则，`codex.preferForImages` 不再用。
-- 关键词命中时的提醒：插件的 `UserPromptSubmit` hook 读设置里的 `dispatch.rules`，用户这句话命中某条规则的关键词时（最多两条；规则开着、交给的那家在 `dispatch.json` 的 `alive` 里），在这一轮的提示里点名“像是哪类活、交给谁、怎么交”；`must` 写“请交给”，`suggest` 写“建议交给，由你判断”。只在指挥是 Claude Code、`dispatch.seeded` 了的时候。整段“派活建议”照旧来自 `dispatch.json` 的 `text`。
+- `dispatch.seeded`：加过默认规则就是 `1`。网页第一次在应用里打开时加五条：生图、改图交给 `codex@local`（`must`；原来的 `codex.preferForImages` 关着时这条也关着）；做声音（音效、提示音、配乐、配音、语音）交给 `antigravity@local`（`must`）；听音频、分析音频交给 `antigravity@local`；复审、复核交给 `deepseek@local`；简单、要快的小活交给 `deepseek@local`（后三条 `suggest`）。已经有同一类规则的不重复加。加过以后，生图交给谁只看规则，`codex.preferForImages` 不再用。
+- 关键词命中时的提醒：插件的 `UserPromptSubmit` hook 读设置里的 `dispatch.rules`，用户这句话命中某条规则的关键词时（最多两条；规则开着、交给的那家在 `dispatch.json` 的 `alive` 里），在这一轮的提示里点名“像是哪类活、交给谁、怎么交”（同一个对象只点名一次，取排在前面的规则）；`must` 写“请交给”，`suggest` 写“建议交给，由你判断”。只在指挥是 Claude Code、`dispatch.seeded` 了的时候。整段“派活建议”照旧来自 `dispatch.json` 的 `text`。
 - 配色、明暗、场景、连线样式、实验样式这些纯外观的设置只记在浏览器里，不进设置文件。
 
 ### 对话：`GET /api/lofts` 现在带状态

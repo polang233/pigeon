@@ -97,7 +97,9 @@ export function defaultRules(settings) {
   const preferImages = obj(obj(settings).codex).preferForImages !== false;
   return [
     { id: 'seed-image', when: '生图、改图（插画、图标、头图、像素图、抠图）', kw: '画 图片 插画 插图 配图 头图 图标 头像 海报 壁纸 封面 贴图 素材 像素图 抠图 去背景 logo icon image illustration sprite', to: 'codex@local', fb: '', ask: false, on: preferImages, mode: 'must' },
-    { id: 'seed-audio', when: '音频：听声音、做声音、配乐、音效、语音', kw: '音频 声音 听听 音效 配乐 音乐 录音 语音 人声 混音 bgm wav mp3 audio sound', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    // 做声音要能听成品，Claude 听不见，照做；分析音频 Claude 自己算也够准，只是建议
+    { id: 'seed-audio-make', when: '做声音：音效、提示音、配乐、配音、语音（要能听成品）', kw: '做个音效 做音效 做声音 提示音 音效 配乐 配音 作曲 铃声 语音合成 tts bgm 合成声音', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'must' },
+    { id: 'seed-audio', when: '听音频、分析音频：有几段、有没有爆音、听感怎么样', kw: '听一下 听听 音频 声音 爆音 杂音 咔哒 wav mp3 m4a audio', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'suggest' },
     { id: 'seed-review', when: '复审、复核：让另一个 agent 再看一遍改动，审查可以宽松些', kw: '复审 复核 再审 二审 再看一遍 帮我审 审一下 review', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
     { id: 'seed-quick', when: '简单、要快的小活', kw: '简单 快速 顺手 小改 随手', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
   ];
@@ -109,7 +111,7 @@ export function seedRules(settings) {
   const old = (Array.isArray(d.rules) ? d.rules : []).filter(r => r && typeof r === 'object');
   const have = new Set(old.map(r => r.id)), text = old.map(r => `${r.when || ''} ${r.kw || ''}`).join(' ');
   // 已经有同一类的规则（自己写过“生图”“音频”“复审”）就不再加那条
-  const same = { 'seed-image': /生图|画图|插画|图标/, 'seed-audio': /音频|声音|音效/, 'seed-review': /复审|复核|审查|review/i, 'seed-quick': /简单|快速/ };
+  const same = { 'seed-image': /生图|画图|插画|图标/, 'seed-audio-make': /音效|配乐|提示音|做声音/, 'seed-audio': /音频|听/, 'seed-review': /复审|复核|审查|review/i, 'seed-quick': /简单|快速/ };
   d.rules = [...old, ...defaultRules(settings).filter(r => !have.has(r.id) && !(same[r.id] && same[r.id].test(text)))];
   d.seeded = 1;
   return true;

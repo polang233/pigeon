@@ -264,13 +264,13 @@ test('默认规则：第一次加上四条（生图照做，其余建议）；�
   let s = { codex: { preferForImages: false }, dispatch: { rules: [{ id: 'mine', when: '', kw: '', to: 'codex@local' }] } };
   assert.equal(seedRules(s), true);
   assert.deepEqual(s.dispatch.rules.map(r => [r.id, r.to, r.mode, r.on]), [['mine', 'codex@local', undefined, undefined],
-    ['seed-image', 'codex@local', 'must', false], ['seed-audio', 'antigravity@local', 'suggest', true],
+    ['seed-image', 'codex@local', 'must', false], ['seed-audio-make', 'antigravity@local', 'must', true], ['seed-audio', 'antigravity@local', 'suggest', true],
     ['seed-review', 'deepseek@local', 'suggest', true], ['seed-quick', 'deepseek@local', 'suggest', true]]);
   assert.equal(s.dispatch.seeded, 1);
   assert.equal(seedRules(s), false, '加过一次不再加');
   s = { dispatch: { rules: [{ id: 'r1', when: '生图、改图', kw: '图 画', to: 'codex@local' }, { id: 'r2', when: '代码审查', kw: 'review', to: 'codex@local' }] } };
   seedRules(s);
-  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['r1', 'r2', 'seed-audio', 'seed-quick']);
+  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['r1', 'r2', 'seed-audio-make', 'seed-audio', 'seed-quick']);
   s = {}; seedRules(s);
   assert.equal(s.dispatch.rules[0].on, true, '没写过开关的当成开着');
 });
