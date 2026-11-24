@@ -51,7 +51,7 @@ function cxHTML() {
     <h4>Codex 和 Pigeon</h4>
     <span class="lb" data-tip="在本机 Codex 的配置里加两条回调，它每一轮开始、结束、调工具时告诉 Pigeon。会改本机 Codex 的配置，马上生效">接收 Codex 自己的事件</span>
     <span class="hookrow"><button class="sw" type="button" role="switch" aria-checked="${bool(!!H.installed)}" data-action="cx-hooks" aria-label="接收 Codex 自己的事件" ${H.busy || H.installed == null ? raw('disabled') : ''}></button><small class="${H.err ? 'bad' : 'mut'}" role="status">${H.err || (H.busy ? '读取中…' : H.detail || (H.installed == null ? '' : H.working ? '已收到 Codex 的事件' : '还没收到 Codex 的事件'))}</small></span>
-    <span class="lb">中继对话</span><span class="mut">${relay ? html`在远程设备卡片上的${icon('gear')}里看和换` : html`还没设：添加设备时选一条`}</span>
+    <span class="lb">中继对话</span><span class="mut">${relay ? '在远程设备卡片右上角的设置按钮里看和换' : '还没设：添加设备时选一条'}</span>
     <h4>Claude Code 经 pigeon run 交给 Codex 的活</h4>
     ${sw('routeAll', '都走 Pigeon', 'Claude Code 直接跑 codex exec 或用 Codex 的 MCP 派活时，改走 pigeon run，这样都能看到进度、按这里的设置跑')}
     ${pick('codex.model', '模型', [['', 'Codex 默认'], ...(st.CODEXM || []).map(m => [m.slug, m.name])], m0)}
@@ -119,17 +119,41 @@ function devPanelHTML(d) {
   </div>`;
 }
 
+/* ---------- 本机 DeepSeek Harness、Antigravity 的设置（应用模式）：设置里的 agents.<线上名>.* ---------- */
+const AG_WIRE = { dsh: 'deepseek', antigravity: 'antigravity' };
+const hasAgPanel = (d, c) => live() && d === st.home && !!AG_WIRE[c.a] && !c.na;
+function agPanelHTML(c) {
+  const w = AG_WIRE[c.a], v = (k, def) => srv(st, ['agents', w, k], def), path = k => `agents.${w}.${k}`;
+  const seg = (k, label, opts, tip) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span class="seg" role="group" aria-label="${label}">${opts.map(([x, l]) => html`<button type="button" data-action="srv-set" data-path="${path(k)}" data-v="${x}" aria-pressed="${bool(v(k, '') === x)}">${l}</button>`)}</span>`;
+  const num = (k, label, tip) => html`<span class="lb" data-tip="${tip}">${label}</span><span><input class="numin" type="number" min="0" max="240" step="1" data-action="srv-num" data-path="${path(k)}" data-min="0" data-max="240" value="${v(k, 0)}" aria-label="${label}"> 分钟 <small class="mut">0 是跟着“等回信多久算没回音”</small></span>`;
+  const text = (k, label, ph, tip) => html`<span class="lb" data-tip="${tip}">${label}</span><span><input class="txtin" data-action="srv-text" data-path="${path(k)}" data-def="" value="${v(k, '')}" placeholder="${ph}" autocomplete="off" spellcheck="false" aria-label="${label}"></span>`;
+  const run = c.det && c.det.detail ? html`<span class="lb">现在</span><span class="mut">${c.det.detail}</span>` : '';
+  if (c.a === 'dsh') return html`<div class="cpanel">
+    <h4>交给 DeepSeek Harness 的活</h4>${run}
+    ${seg('sandbox', '权限', [['', '它自己的默认'], ['read-only', '只读'], ['workspace-write', '能改工作目录']], '没在命令里写 --sandbox 时用这个。只读适合复审；它自己的默认是能改工作目录')}
+    ${text('cwd', '在 Pigeon 里派活时的目录', '不填就是你的主目录', '在刘海或频道里派给它、没说目录时，它在这个目录里干活。Claude Code 派的活用 Claude Code 当前的目录')}
+    ${num('timeoutMin', '超时', '等它这么久还没完成就停下，记成没回音')}
+    <span></span><small class="mut">模型用 DeepSeek Harness 自己配的，Pigeon 指定不了。</small>
+  </div>`;
+  return html`<div class="cpanel">
+    <h4>交给 Antigravity 的活</h4>${run}
+    ${num('timeoutMin', '超时', '等它这么久还没完成就停下，记成没回音。它停着等你批准时也在计时')}
+    <span class="lb">读文件要批准</span><span class="mut">它新开的对话不绑目录，读工作区外的文件会停下来问你，Pigeon 的任务上会写“在等你批准”。在 Antigravity 的询问里选 “Yes, and always allow” 以后就不再问，这是 Antigravity 自己的设置，Pigeon 不替你选。</span>
+    <span></span><small class="mut">默认用哪一档模型在上面的“默认模型”里选（Flash Lite、Flash、Pro）。</small>
+  </div>`;
+}
+
 const rowHTML = (d, c) => {
-  const k = `${d}:${c.a}`, isCx = live() && d === st.home && c.a === 'codex';
+  const k = `${d}:${c.a}`, isCx = live() && d === st.home && c.a === 'codex', isAg = hasAgPanel(d, c);
   const tip = c.det && c.det.detail ? c.det.detail : '';
   const mdl = c.inn === 'nope' ? '' : html`<button type="button" class="mdlbtn" data-action="model-panel" data-dev="${d}" data-a="${c.a}" aria-expanded="${bool(ui.conn.mp === k)}">${c.model ? modelTag({ m: c.model, t: c.think }, `默认用 ${c.model}${TH[c.think] ? ' · 思考' + TH[c.think][0] : ''} · 点一下改`) : html`<span class="mdl" data-tip="没指定，用它自己配的 · 点一下改"><span>默认模型</span></span>`}</button>`;
   return html`<div class="arow ${c.role || ''} ${c.on ? '' : 'off'} ${c.na ? 'na' : ''}">
     <span class="g">${brand(c.a)}</span><b ${tip ? html`data-tip="${tip}"` : ''}>${AG[c.a].name}</b>${c.role === 'gate' ? html`<i class="flag gate" data-tip="入口：别的 agent 经它带起">${icon('door')}</i>` : ''}
-    <span class="chips">${c.na ? html`<span class="chip2 na" data-tip="检测到装了 ${AG[c.a].name}，Pigeon 还没接上它：不能给它派活，也不能当指挥">还没接上</span>` : html`${mdl}${c.how.map(howChip)}${isCx ? html`<button type="button" class="chip2 cxbtn" data-action="cx-panel" aria-expanded="${bool(ui.conn.cx)}" data-tip="Codex 自己的事件、中继对话、交给 Codex 的活怎么跑">${icon('gear')}<span>设置</span></button>` : ''}`}</span>
+    <span class="chips">${c.na ? html`<span class="chip2 na" data-tip="检测到装了 ${AG[c.a].name}，Pigeon 还没接上它：不能给它派活，也不能当指挥">还没接上</span>` : html`${mdl}${c.how.map(howChip)}${isCx ? html`<button type="button" class="chip2 cxbtn" data-action="cx-panel" aria-expanded="${bool(ui.conn.cx)}" data-tip="Codex 自己的事件、中继对话、交给 Codex 的活怎么跑">${icon('gear')}<span>设置</span></button>` : ''}${isAg ? html`<button type="button" class="chip2 cxbtn" data-action="ag-panel" data-a="${c.a}" aria-expanded="${bool(ui.conn.ap === c.a)}" data-tip="交给 ${AG[c.a].name} 的活怎么跑">${icon('gear')}<span>设置</span></button>` : ''}`}</span>
     <span class="caps">${cap('out', c.out)}${cap('in', c.inn)}</span>
     ${st.SUB[`${c.a}@${d}`] ? quotaDisc(st, c.a, d) : html`<i class="quota none" data-tip="${live() ? '没有额度读数' : '按量付费，没有订阅额度'}"></i>`}
     ${c.na ? html`<button class="sw" type="button" role="switch" aria-checked="false" disabled aria-label="${AG[c.a].name} 还没接上"></button>` : html`<button class="sw" type="button" role="switch" aria-checked="${bool(c.on)}" data-action="conn-on" data-dev="${d}" data-a="${c.a}" aria-label="接入 ${AG[c.a].name}"></button>`}</div>
-    ${ui.conn.mp === k ? mpanelHTML(c) : ''}${isCx && ui.conn.cx ? cxHTML() : ''}`;
+    ${ui.conn.mp === k ? mpanelHTML(c) : ''}${isCx && ui.conn.cx ? cxHTML() : ''}${isAg && ui.conn.ap === c.a ? agPanelHTML(c) : ''}`;
 };
 
 function cardHTML(d) {
@@ -319,6 +343,7 @@ export function initConn(s) {
     'conn-think': ({ d }) => { const { d: dv, a } = mpKey(); after(store.setConnThink(dv, a, d.t), c => { if (c) toast(said(c)); }); },
     'conn-on': ({ d }) => after(store.toggleConn(d.dev, d.a)),
     'cx-panel': () => { store.toggleCodexPanel(); if (ui.conn.cx) store.loadCodexHooks(); },
+    'ag-panel': ({ d }) => store.toggleAgentPanel(d.a),
     'dev-panel': ({ d }) => { store.toggleDevPanel(d.dev); if (ui.conn.dp) store.loadRelay(); },
     'relay-pick': [({ d, value }) => say(store.relayDo('use', value, d.host)), 'change'],
     'relay-use': ({ d }) => say(store.relayDo('use', d.id, d.host)),

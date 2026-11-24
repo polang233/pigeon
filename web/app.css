@@ -1261,3 +1261,5 @@ main:has(> .chan) { container-type: inline-size; overflow: hidden; }
 .mpanel .mx svg { width: 11px; height: 11px; }
 @media (max-width: 640px) { .devpanel .rwarn { grid-column: 1; } }
 .devpanel .racts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* 面板里文字中夹的小图标：不给尺寸的 SVG 会撑满一整行 */
+.cpanel span svg:not([width]), .mpanel span svg:not([width]) { width: 13px; height: 13px; vertical-align: -2px; flex-shrink: 0; }

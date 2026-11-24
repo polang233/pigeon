@@ -349,7 +349,7 @@ export async function newCmd(args) {
   if (!agent) return o.usage(64, `--agent 只能是 codex、dsh、antigravity，收到「${args.agent}」。`);
   if (agent === DSH && (model || effort)) return o.usage(64, 'DeepSeek Harness 用它自己配的模型，--model 和 --effort 指定不了。');
   if (agent === AGY && effort) return o.usage(64, `Antigravity 不分思考强度，用 --model 选档位（${AGY_MODELS.map(m => m[0]).join(' / ')}）或写具体的模型 id。`);
-  const { post, secrets } = await loadSettings();
+  const { post, secrets, raw } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
   if (warn) o.err(warn);
@@ -371,7 +371,9 @@ export async function newCmd(args) {
     await refuseNew(note, err, 'max_hops', clip(text, 80)); return o.refused(note, err, 'max_hops');
   }
   if (agent !== 'codex') {
-    const cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || process.cwd()));
+    // 目录：命令里写的 > 在 Pigeon 应用里派的用设置里的（没设就是主目录）> 当前目录（Claude Code 派的就是它的项目）
+    const fromApp = !!process.env.PIGEON_SEND_ID, setDir = String(agentCfg(raw, agent).cwd || '').trim().replace(/^~(?=\/|$)/, HOME);
+    const cwd = path.resolve(pr.project && pr.project.path ? pr.project.path : (args.cwd || (fromApp ? (setDir || HOME) : process.cwd())));
     if (!fs.existsSync(cwd)) return o.usage(64, `项目目录不存在：${cwd}`);
     return launchOther(o, note, { agent, session: '', cwd, model, title, mode: sandboxArg(args) }, post, args, text);
   }
@@ -578,8 +580,10 @@ async function watchExec(note, d) {
 
 /* ---------- DSH、Antigravity ---------- */
 // 都在本机，不经中继站、不问放行。由看护进程跑：DSH 跑 dsh headless，Antigravity 经 agentapi 发、再读它本机服务等回复
-// --sandbox：DSH 的权限档（read-only 只读、workspace-write 能改工作目录），不写用它自己的默认（能改工作目录）
+// --sandbox：DSH 的权限档（read-only 只读、workspace-write 能改工作目录），不写看设置，再不写用它自己的默认（能改工作目录）
 const DSH_MODES = ['read-only', 'workspace-write'];
+// 设置里每家的配置：agents.deepseek / agents.antigravity（sandbox、cwd、timeoutMin）
+const agentCfg = (raw, agent) => { const a = raw && raw.agents && raw.agents[agent]; return a && typeof a === 'object' ? a : {}; };
 const sandboxArg = args => (typeof args.sandbox === 'string' ? args.sandbox.trim() : '');
 async function launchOther(o, note, d, post, args, text) {
   const band = note.band, name = AGENT_NAME[d.agent];
@@ -589,8 +593,16 @@ async function launchOther(o, note, d, post, args, text) {
   if (d.agent === AGY && !agentapiBin()) return o.notReady(3, '没找到 Antigravity 的 agentapi（~/.gemini/antigravity/bin/agentapi）。Antigravity 装了吗？');
   if (d.agent === AGY && !agyHub()) return o.notReady(3, HINT_AGY);
   if (d.agent === DSH && d.session && !d.cwd) d.cwd = dshSessionInfo(findDshSession(d.session), 4000).cwd || '';
+  // 设置里的默认：DSH 的权限、Antigravity 新开对话用哪一档（接入页“默认模型”）、各自的超时
+  const { raw } = await loadSettings(), cfg = agentCfg(raw, d.agent);
+  if (d.agent === DSH && !d.mode && DSH_MODES.includes(cfg.sandbox)) d.mode = cfg.sandbox;
+  if (d.agent === AGY && !d.session && !d.model) {
+    const m = ((raw.devices && raw.devices.models) || {})[`${AGY}@${LOCAL}`];
+    if (m && typeof m.model === 'string' && m.model) { d.model = m.model; note.model = m.model; }
+  }
   note.why = await whyOf(args.reason, text, toKeyOf(note.to));
-  note.track.deadline = deadlineOf(note, post);
+  const tmin = Number(cfg.timeoutMin) > 0 ? Number(cfg.timeoutMin) : 0;
+  note.track.deadline = tmin ? note.created + tmin * 60000 : deadlineOf(note, post);
   Object.assign(note.track, { method: d.agent === DSH ? 'dsh' : 'agy', cwd: d.cwd || '' });
   note.state = 'queued';
   await addNote(note);

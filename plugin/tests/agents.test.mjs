@@ -173,3 +173,34 @@ test('Antigravity 没开：不发，给提示', async () => {
     assert.match(r.stdout + r.stderr, /Antigravity 没开/);
   } finally { await app.close(); e.cleanup(); }
 });
+
+test('设置里的默认：DSH 的权限、在 Pigeon 应用里派活时的目录、超时；Antigravity 新开对话用接入页选的那一档', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pigeon-agcfg-'));
+  const e = makeEnv({ settings: { agents: { deepseek: { sandbox: 'read-only', cwd: dir, timeoutMin: 3 } }, devices: { models: { 'antigravity@local': { model: 'pro' } } } } });
+  const app = await fakeApp(); e.env.PIGEON_PORT = String(app.port);
+  const agy = await fakeAgy(e.root);
+  try {
+    const log = path.join(e.root, 'dsh.log');
+    Object.assign(e.env, { PIGEON_DSH_BIN: fakeDsh(e.root), FAKE_DSH_LOG: log, PIGEON_AGY_HOME: agy.home, PIGEON_AGY_AGENTAPI: agy.api });
+    // 应用派的（带 PIGEON_SEND_ID）：没写目录就用设置里的
+    let r = await pigeon(['new', '--agent', 'dsh', 'hi'], { ...e.env, PIGEON_SEND_ID: 'x' });
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    let band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    const call = JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n')[0]);
+    assert.deepEqual(call.argv, ['headless', '--json', '--permission-mode', 'read-only', '-'], '设置里的只读');
+    assert.equal(fs.realpathSync(call.cwd), fs.realpathSync(dir));
+    const n = e.journal().notes.find(x => x.band === band);
+    assert.ok(n.track.deadline - n.created <= 3 * 60000 + 1000, '超时用设置里的 3 分钟');
+    // 命令里写了 --sandbox 的以命令为准
+    r = await pigeon(['new', '--agent', 'dsh', '--sandbox', 'workspace-write', '--cwd', e.root, 'hi'], e.env);
+    band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    assert.deepEqual(JSON.parse(fs.readFileSync(log, 'utf8').trim().split('\n')[1]).argv.slice(2, 4), ['--permission-mode', 'workspace-write']);
+    // Antigravity 没写 --model：用接入页选的 pro
+    r = await pigeon(['new', '--agent', 'antigravity', 'hi'], e.env);
+    band = bandOf(r.stdout);
+    await until(() => e.journal().notes.find(n => n.band === band)?.state === 'home');
+    assert.equal(e.journal().notes.find(x => x.band === band).model, 'pro');
+  } finally { await agy.close(); await app.close(); e.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});

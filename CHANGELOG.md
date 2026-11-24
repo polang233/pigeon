@@ -13,6 +13,8 @@
 - Codex 把闲着的对话记录压成 `.jsonl.zst` 后，读中继对话的大小照样读得到。
 - 接上了本机的 DeepSeek Harness 和 Antigravity：能新开对话、接着它们已有的对话说、把回复取回来，和给 Codex 派活一样。命令行是 `pigeon new --agent dsh|antigravity`，`pigeon send` 认得出它们的对话；刘海的快速派活里也能选它们。接入页上它们从"还没接上"变成能收活，指挥台上显示它们的对话和状态。
 - DeepSeek Harness 可以只读跑（`--sandbox read-only`），适合复审。
+- 接入页上 DeepSeek Harness 和 Antigravity 那一行也有了"设置"：DSH 默认的权限、在 Pigeon 里派活时的目录、超时；Antigravity 的超时。Antigravity 新开对话默认用"默认模型"里选的那一档。
+- 修好了 Codex 设置里"中继对话"那一行：一个图标没给尺寸，撑满了整个面板。
 - Antigravity 读工作区外的文件、停下来等你批准时，任务上写明在等什么，指挥台上它显示成"等你"。Pigeon 不替你点。
 - 分派规则每条可以选"建议"（由指挥判断）或"照做"（命中关键词就交给它，除非你明说不要）。
 - 你给 Claude Code 的话命中某条规则的关键词时，这一轮的提示里会点名交给谁、怎么交。以前只有生图有这个待遇。
