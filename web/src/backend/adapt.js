@@ -151,7 +151,7 @@ const effortOk = e => (TH[e] ? e : '');
 const modelOf = (models, k) => { const m = obj(obj(models)[keyToWire(k)]); return { model: String(m.model || ''), think: m.model && String(m.model).startsWith('group/') ? '' : effortOk(m.effort) }; };
 
 // 本机：检测到装了的才列。Claude Code 能发出、还不能接收；Codex、DeepSeek Harness、Antigravity 能接收、只能回信；Cursor 还没接上
-function localConn(detect, off, models) {
+function localConn(detect, off, models, agyCli = false) {
   const d = detect ? obj(detect) : null, has = a => !d || !!obj(d[toWire(a)]).installed, out = [];
   const det = a => (d ? obj(d[toWire(a)]) : {});
   const isOff = a => (Array.isArray(off) ? off : []).includes(toWire(a));
@@ -159,7 +159,7 @@ function localConn(detect, off, models) {
   if (has('codex')) out.push({ a: 'codex', how: ['codexapp'], out: 'nope', inn: 'yes', on: !isOff('codex'), ...modelOf(models, `codex@${HOME}`), det: det('codex') });
   // DeepSeek Harness 经它的命令行、Antigravity 经 agentapi：能收活、能回信，还不能自己派活
   if (d && det('dsh').installed) out.push({ a: 'dsh', how: ['cli'], out: 'nope', inn: 'yes', on: !isOff('dsh'), ...modelOf(models, `dsh@${HOME}`), det: det('dsh') });
-  if (d && det('antigravity').installed) out.push({ a: 'antigravity', how: ['agentapi'], out: 'nope', inn: 'yes', on: !isOff('antigravity'), ...modelOf(models, `antigravity@${HOME}`), det: det('antigravity') });
+  if (d && det('antigravity').installed) out.push({ a: 'antigravity', how: agyCli ? ['cli', 'agentapi'] : ['agentapi'], out: 'nope', inn: 'yes', on: !isOff('antigravity'), ...modelOf(models, `antigravity@${HOME}`), det: det('antigravity') });
   if (d && det('cursor').installed) out.push({ a: 'cursor', how: [], out: 'nope', inn: 'nope', on: false, na: true, det: det('cursor') });
   return out;
 }
@@ -189,7 +189,7 @@ export function mapLive(raw, now = Date.now()) {
     const def = name || (id === HOME ? '这台 Mac' : id), nm = cleanName(names[id]);
     DEV[id] = { name: nm || def, def, host: name || id, os: osOf(l || { id }), link: id === HOME ? 'local' : 'codex', online: (l ? l.online : true) !== false };
     if (nm && nm !== def) NAMES[id] = nm;
-    CONN[id] = id === HOME ? localConn(raw.detect, off[HOME], models) : remoteConn(id, off[id], models);
+    CONN[id] = id === HOME ? localConn(raw.detect, off[HOME], models, !!obj(obj(raw.agentModels).antigravity).cli) : remoteConn(id, off[id], models);
   };
   for (const l of lofts) {
     if (l.id !== HOME && hidden.has(l.id)) { HIDDEN.push({ id: l.id, name: cleanName(names[l.id]) || l.name || l.id }); continue; }
@@ -282,6 +282,7 @@ export function mapLive(raw, now = Date.now()) {
     RULES: rulesFromWire(obj(S0.dispatch).rules, ruleHits(notes, now)), LOW: Number(q0.low) || 20, RULES2: rules2Of(S0),
     paused: { all: !!P.all, dev: { ...obj(P.lofts) } },
     settings: { notch: obj(S0.perch).notch === false ? 'off' : 'on', quota: q0.show === 'always' ? 'always' : 'hover', secrets: ['warn', 'mask', 'off'].includes(obj(S0.secrets).mode) ? S0.secrets.mode : 'warn', crossTimeoutSec: Number(obj(S0.post).crossTimeoutSec) || 90 },
+    AGY_CLI: !!obj(obj(raw.agentModels).antigravity).cli,
     CUSTOMM: Object.fromEntries(Object.entries(obj(dv.customModels)).filter(([k]) => k.lastIndexOf('@') > 0).map(([k, v]) => { const i = k.lastIndexOf('@'); return [`${fromWire(k.slice(0, i))}@${k.slice(i + 1)}`, (Array.isArray(v) ? v : []).map(x => String(x).trim()).filter(Boolean)]; }).filter(([, v]) => v.length)),
     MODELS: { claude: [], codex: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => [String(m.slug), efforts(m), String(m.name || m.slug)]), cursor: [], dsh: [], antigravity: agyModelsOf(raw.agentModels) },
     DEF_MODEL: { claude: ['', ''], codex: ['', ''], cursor: ['', ''], dsh: ['', ''], antigravity: ['', ''] },

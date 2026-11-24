@@ -61,6 +61,8 @@ export function makeEnv({ mode = 'reply', settings = {}, threads, confirm = 'ok'
     // 不碰真的 DeepSeek Harness 和 Antigravity
     DSH_HOME: path.join(root, 'dsh-home'),
     PIGEON_AGY_HOME: path.join(root, 'agy-home'),
+    PIGEON_AGY_CLI_HOME: path.join(root, 'agy-cli-home'),
+    PIGEON_AGY_BIN: '',
     PIGEON_CONFIRM_BIN: path.join(FIX, 'fake-confirm.mjs'),
     FAKE_CONFIRM: confirm,
     FAKE_CONFIRM_LOG: confirmLog,

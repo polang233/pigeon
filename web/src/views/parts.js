@@ -17,7 +17,7 @@ export const HOW = {
   viacodex: { label: '经 Codex', ic: icon('via'), tip: '由那台电脑上的 Codex 启动并转交' },
   ssh: { label: 'SSH', ic: icon('term'), tip: '经 SSH 在那台电脑上启动它' },
   codexapp: { label: 'Codex 应用', ic: () => brand('codex'), tip: '经本机 Codex 应用给它的对话发消息、新开对话，等它这一轮结束再送进去，不打断；回信从对话里取' },
-  cli: { label: '命令行', ic: icon('term'), tip: '用它自带的命令行在后台跑：新开对话、接着已有对话说，跑完把回复取回来' },
+  cli: { label: '命令行', ic: icon('term'), tip: '用它自带的命令行在后台跑：新开对话、接着已有对话说，跑完把回复取回来；不用开它的应用' },
   agentapi: { label: 'agentapi', ic: icon('term'), tip: '用它给 agent 用的 agentapi 新开对话、发消息，再读它本机服务等回复。要 Antigravity 开着；读回复用的是它的内部接口，升级可能会变' },
   viamagpie: { label: '经 magpie', ic: icon('bird'), tip: '这台经 magpie 把活交给那台的 Pigeon 小助手，小助手在那台本地交给它；回信由这台定时去取' },
 };

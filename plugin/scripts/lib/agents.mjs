@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFileSync } from 'node:child_process';
 import { HOME, pidAlive, pigeonDir, readJson, writeJsonAtomic } from './common.mjs';
 
 export const DSH = 'deepseek', AGY = 'antigravity';
@@ -94,6 +94,77 @@ export function dshEvent(line) {
   return null;
 }
 
+/* ---------- Antigravity 命令行 agy ---------- */
+// 2026-05 出的官方命令行，和桌面应用共用登录，不用开应用。`agy -p= --input-format stream-json --output-format stream-json`：
+// 正文从标准输入给一行 {"event":"user","message":{"content":"…"}}，输出一行一个事件，result 里是 conversation_id、status、response、usage。
+// 要人批准的操作在这种模式下不会停下来等，而是跳过（soft-deny），说明打在错误输出里；退出码照样是 0，所以要看 status 和错误输出。
+// 对话存在 ~/.gemini/antigravity-cli/conversations/，概况在 conversation_summaries.db；默认不显示在桌面应用里。
+export const agyCliHome = () => process.env.PIGEON_AGY_CLI_HOME || path.join(HOME, '.gemini', 'antigravity-cli');
+export function agyCliBin() {
+  // 写了 PIGEON_AGY_BIN（测试时）就只认它，写空串表示没装
+  if (process.env.PIGEON_AGY_BIN !== undefined) { const c = process.env.PIGEON_AGY_BIN; try { if (c) { fs.accessSync(c, fs.constants.X_OK); return c; } } catch {} return ''; }
+  const cands = [ path.join(HOME, '.local', 'bin', 'agy'), ...(process.env.PATH || '').split(':').filter(Boolean).map(d => path.join(d, 'agy'))];
+  for (const c of cands) if (c) { try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {} }
+  return '';
+}
+// mode：accept-edits 能直接改文件、plan 只出方案、auto；空串用它自己的默认
+export const AGY_CLI_MODES = ['accept-edits', 'auto', 'plan'];
+export function agyCliArgs({ session = '', model = '', mode = '', timeoutMin = 0 } = {}) {
+  return ['-p=', '--input-format', 'stream-json', '--output-format', 'stream-json',
+    ...(model ? ['--model', model] : []), ...(session ? ['--conversation', session] : []), ...(mode ? ['--mode', mode] : []),
+    '--print-timeout', `${Math.max(1, Math.round(timeoutMin || 10))}m`];
+}
+export const agyCliInput = text => JSON.stringify({ event: 'user', message: { content: String(text) } }) + '\n';
+// 一行输出 → { conversation }、{ result: { status, response, error, usage } }，别的不管
+export function agyCliEvent(line) {
+  let e; try { e = JSON.parse(line); } catch { return null; }
+  if (!e || typeof e !== 'object') return null;
+  const p = e[e.event] && typeof e[e.event] === 'object' ? e[e.event] : {};
+  if (e.event === 'step_update' && p.conversation_id) return { conversation: String(p.conversation_id) };
+  if (e.event === 'result') return { result: { conversation: String(p.conversation_id || ''), status: String(p.status || ''), response: String(p.response || ''), error: p.error ? String(p.error.message || p.error) : '', usage: p.usage || null } };
+  return null;
+}
+// 错误输出里“没批准、跳过了”的说明
+export const agyDenials = stderr => String(stderr || '').split('\n').map(s => s.trim()).filter(s => /denied|not allowed|permission|requires approval|拒绝|没有权限/i.test(s)).slice(0, 5);
+// 命令行里的对话（概况库里读，只读）。workspace_uris 是 file:// 开头的目录
+export function agyCliSessions({ limit = 15 } = {}) {
+  const db = path.join(agyCliHome(), 'conversation_summaries.db');
+  if (!fs.existsSync(db)) return [];
+  let rows = [];
+  try {
+    rows = JSON.parse(execFileSync('sqlite3', ['-readonly', '-json', `file:${encodeURI(db)}?immutable=1`,
+      `SELECT conversation_id AS id, title, preview, status, workspace_uris AS ws, last_modified_time AS t FROM conversation_summaries WHERE nesting_depth = 0 ORDER BY last_modified_time DESC LIMIT ${Number(limit) || 15}`],
+      { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }) || '[]');
+  } catch { return []; }
+  return rows.map(r => {
+    let ws = []; try { ws = JSON.parse(r.ws || '[]'); } catch { ws = String(r.ws || '').split(/[\s,]+/); }
+    const cwd = (ws.find(u => /^file:\/\//.test(u)) || '').replace(/^file:\/\//, '');
+    return { id: r.id, agent: AGY, title: r.title || String(r.preview || '').split('\n')[0].slice(0, 40) || 'Antigravity 对话', cwd: decodeURIComponent(cwd), updated: Date.parse(r.t) || 0, via: 'cli', ...(/RUNNING/.test(r.status || '') ? { state: 'run' } : {}) };
+  });
+}
+// `agy models`：一行一个“id<Tab>名字 (档)”，同系列并成一个（和 agyModels 一样的形状）。应用没开时用它
+export function agyCliModels() {
+  const bin = agyCliBin();
+  if (!bin) return null;
+  let out = '';
+  try { out = execFileSync(bin, ['models'], { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }); } catch { return null; }
+  const fams = new Map();
+  for (const line of out.split('\n')) {
+    const [id, name] = line.split('\t').map(s => (s || '').trim());
+    if (!id || !name) continue;
+    const m = /^(.*)-(low|medium|high|xhigh|max)$/.exec(id), lv = /\((Low|Medium|High|XHigh|Max)\)\s*$/i.exec(name);
+    if (m && lv) {
+      const f = fams.get(m[1]) || { id: m[1], name: name.replace(/\s*\([^)]*\)\s*$/, ''), efforts: [], tag: '' };
+      f.efforts.push(m[2]); fams.set(m[1], f);
+    } else fams.set(id, { id, name: name.replace(/\s*\((Low|Medium|High|XHigh)\)\s*$/i, ''), efforts: [], tag: '' });
+  }
+  const order = ['low', 'medium', 'high', 'xhigh', 'max'];
+  const models = [...fams.values()].map(f => ({ ...f, efforts: f.efforts.sort((a, b) => order.indexOf(a) - order.indexOf(b)) }));
+  if (!models.length) return null;
+  const neon = models.find(x => x.id === 'gemini-4-neon');
+  return { updated: Date.now(), default: neon ? { model: neon.id, effort: 'high' } : { model: models[0].id, effort: models[0].efforts.includes('high') ? 'high' : models[0].efforts[0] || '' }, models };
+}
+
 /* ---------- Antigravity ---------- */
 export const agyHome = () => process.env.PIGEON_AGY_HOME || path.join(HOME, '.gemini', 'antigravity');
 export const agentapiBin = () => {
@@ -165,7 +236,7 @@ export function agySessions(hub, { limit = 15 } = {}) {
   return l.sort((a, b) => b.updated - a.updated).slice(0, limit).map(s => {
     // 在跑的再看一眼是不是停着等你批准
     const wait = s.running ? agyWaiting(agySteps(hub, s.id)) : '';
-    return { id: s.id, agent: AGY, title: s.title, cwd: '', updated: s.updated, ...(wait ? { state: 'wait', activity: 'waiting', detail: '等你在 Antigravity 里批准：' + wait } : s.running ? { state: 'run' } : {}) };
+    return { id: s.id, agent: AGY, title: s.title, cwd: '', updated: s.updated, via: 'app', ...(wait ? { state: 'wait', activity: 'waiting', detail: '等你在 Antigravity 里批准：' + wait } : s.running ? { state: 'run' } : {}) };
   });
 }
 // 它能用的模型：GetAvailableModels。按它自己“推荐”的顺序，同一系列（groupedModels）的几档思考强度并成一个，
@@ -192,13 +263,13 @@ export function agyModels(hub) {
 // 上次读到的模型列表存一份：Antigravity 没开时界面和命令行照样有得选
 export const agyModelsFile = () => path.join(pigeonDir(), 'models', 'antigravity.json');
 export function agyModelsCached({ refresh = true } = {}) {
-  const fresh = refresh ? agyModels(agyHub()) : null;
+  const fresh = refresh ? (agyModels(agyHub()) || agyCliModels()) : null;
   if (fresh && fresh.models.length) {
     try { fs.mkdirSync(path.dirname(agyModelsFile()), { recursive: true }); writeJsonAtomic(agyModelsFile(), fresh); } catch {}
-    return { ...fresh, live: true };
+    return { ...fresh, live: true, cli: !!agyCliBin() };
   }
   const old = readJson(agyModelsFile(), null);
-  return old && Array.isArray(old.models) ? { ...old, live: false } : { updated: 0, default: { model: '', effort: '' }, models: [], live: false };
+  return old && Array.isArray(old.models) ? { ...old, live: false, cli: !!agyCliBin() } : { updated: 0, default: { model: '', effort: '' }, models: [], live: false, cli: !!agyCliBin() };
 }
 // 模型系列 + 思考强度 → agentapi 认的 id（gemini-4-neon + high → gemini-4-neon-high）；已经是完整 id 或老档位的原样用
 export function agySlug(model, effort, list = []) {

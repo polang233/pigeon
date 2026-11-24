@@ -124,7 +124,7 @@ const AG_WIRE = { dsh: 'deepseek', antigravity: 'antigravity' };
 const hasAgPanel = (d, c) => live() && d === st.home && !!AG_WIRE[c.a] && !c.na;
 function agPanelHTML(c) {
   const w = AG_WIRE[c.a], v = (k, def) => srv(st, ['agents', w, k], def), path = k => `agents.${w}.${k}`;
-  const seg = (k, label, opts, tip) => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span class="seg" role="group" aria-label="${label}">${opts.map(([x, l]) => html`<button type="button" data-action="srv-set" data-path="${path(k)}" data-v="${x}" aria-pressed="${bool(v(k, '') === x)}">${l}</button>`)}</span>`;
+  const seg = (k, label, opts, tip, def = '', after = '') => html`<span class="lb" ${tip ? html`data-tip="${tip}"` : ''}>${label}</span><span><span class="seg" role="group" aria-label="${label}">${opts.map(([x, l]) => html`<button type="button" data-action="srv-set" data-path="${path(k)}" data-v="${x}" aria-pressed="${bool(v(k, def) === x)}">${l}</button>`)}</span>${after ? html` <small class="mut">${after}</small>` : ''}</span>`;
   const num = (k, label, tip) => html`<span class="lb" data-tip="${tip}">${label}</span><span><input class="numin" type="number" min="0" max="240" step="1" data-action="srv-num" data-path="${path(k)}" data-min="0" data-max="240" value="${v(k, 0)}" aria-label="${label}"> 分钟 <small class="mut">0 是跟着“等回信多久算没回音”</small></span>`;
   const text = (k, label, ph, tip) => html`<span class="lb" data-tip="${tip}">${label}</span><span><input class="txtin" data-action="srv-text" data-path="${path(k)}" data-def="" value="${v(k, '')}" placeholder="${ph}" autocomplete="off" spellcheck="false" aria-label="${label}"></span>`;
   const run = c.det && c.det.detail ? html`<span class="lb">现在</span><span class="mut">${c.det.detail}</span>` : '';
@@ -135,11 +135,16 @@ function agPanelHTML(c) {
     ${num('timeoutMin', '超时', '等它这么久还没完成就停下，记成没回音')}
     <span></span><small class="mut">模型用 DeepSeek Harness 自己配的，Pigeon 指定不了。</small>
   </div>`;
+  const cli = !!st.AGY_CLI, via = v('via', 'auto'), useCli = via === 'cli' || (via === 'auto' && cli);
   return html`<div class="cpanel">
     <h4>交给 Antigravity 的活</h4>${run}
-    ${num('timeoutMin', '超时', '等它这么久还没完成就停下，记成没回音。它停着等你批准时也在计时')}
-    <span class="lb">读文件要批准</span><span class="mut">它新开的对话不绑目录，读工作区外的文件会停下来问你，Pigeon 的任务上会写“在等你批准”。在 Antigravity 的询问里选 “Yes, and always allow” 以后就不再问，这是 Antigravity 自己的设置，Pigeon 不替你选。</span>
-    <span></span><small class="mut">默认用哪一档模型在上面的“默认模型”里选（Flash Lite、Flash、Pro）。</small>
+    ${seg('via', '怎么调', [['auto', '自动'], ['cli', '命令行 agy'], ['app', 'Antigravity 应用']], '自动：装了命令行 agy 就用它。命令行 agy：不用开 Antigravity 应用，在派活的目录里干活，要批准的操作会跳过、不会停下来等；对话默认不显示在 Antigravity 应用里。Antigravity 应用：要它开着，对话在应用里看得到，读工作区外的文件会停下来等你批准', 'auto', useCli ? '现在走命令行' : '现在走应用')}
+    ${useCli ? seg('mode', '命令行里能做什么', [['', '它自己的默认'], ['accept-edits', '能直接改文件'], ['plan', '只出方案']], '经命令行跑时传给 agy 的 --mode。要批准的操作在命令行里一律跳过，回信末尾会写跳过了哪些') : ''}
+    ${useCli && !cli ? html`<span></span><small class="bad">没找到 agy（~/.local/bin/agy）。装上它：curl -fsSL https://antigravity.google/cli/install.sh | bash</small>` : ''}
+    ${useCli ? text('cwd', '在 Pigeon 里派活时的目录', '不填就是你的主目录', '经命令行跑时它在这个目录里干活、能读这里的文件。Claude Code 派的活用 Claude Code 当前的目录') : ''}
+    ${num('timeoutMin', '超时', '等它这么久还没完成就停下，记成没回音')}
+    ${useCli ? '' : html`<span class="lb">读文件要批准</span><span class="mut">经应用新开的对话不绑目录，读工作区外的文件会停下来问你，Pigeon 的任务上会写“在等你批准”。在 Antigravity 的询问里选 “Yes, and always allow” 以后就不再问，这是 Antigravity 自己的设置，Pigeon 不替你选。</span>`}
+    <span></span><small class="mut">默认用哪个模型、什么思考强度，在上面的“默认模型”里选。</small>
   </div>`;
 }
 

@@ -96,7 +96,7 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
 
   /* ---------- 整份换一遍：只发真的变了的话题；正在打字的地方先不重画 ---------- */
   const sigs = {};
-  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL', 'CUSTOMM'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'] };
+  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL', 'CUSTOMM', 'AGY_CLI'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'] };
   const noDur = (k, v) => (k === 'dur' || k === 'time' ? undefined : v);
   let held = new Set();
   const holdNow = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && (a.classList.contains('rename') || !!a.closest('.cpanel, .setpop, [data-part="rules"]')); };

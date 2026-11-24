@@ -265,9 +265,9 @@ pigeon new --agent antigravity --model gemini-4-neon --effort high --title "听�
 
 - **DeepSeek Harness**：用它自带的命令行在后台跑，用它自己配的模型。`--cwd` 是它干活的目录，`--sandbox read-only` 只看不改（复审用），不写就能改工作目录。
 - 接入页上这两行都有"设置"：DSH 默认的权限、在 Pigeon 里派活时用哪个目录、超时；Antigravity 的超时。Antigravity 默认用哪一档模型，在那一行的"默认模型"里选。
-- **Antigravity**：用它给 agent 用的 `agentapi` 新开对话、发消息，再读它本机的服务等回复。要 Antigravity 开着。模型和 Codex 一样选"模型 + 思考强度"：`--model gemini-4-neon --effort high`。`pigeon models` 列出它现在能用的（Gemini 4 Neon、Carbon、Hydrogen、Argon、Orchestrator、Claude 5.5 等），列表是从 Antigravity 读的；什么都不写就用它自己的默认。
-  - 它新开的对话不绑项目目录，要它看的文件**写完整路径**。
-  - 它读工作区外的文件时会停下来，等你在 Antigravity 里批准。Pigeon 不替你点：任务上会写"在等你批准"，指挥台上它显示成"等你"。
+- **Antigravity**：装了它的命令行 `agy` 就用它在后台跑，不用开 Antigravity 应用，在你派活的目录里干活（能读那里的音频之类的文件）；要人批准的操作它会跳过，回信末尾写明跳过了什么。它在命令行里的对话默认不显示在 Antigravity 应用里。没装 `agy`，或者在接入页选了"Antigravity 应用"，就用它给 agent 用的 `agentapi` 新开对话、发消息，再读它本机的服务等回复，这时要 Antigravity 开着。装 `agy`：`curl -fsSL https://antigravity.google/cli/install.sh | bash`。模型和 Codex 一样选"模型 + 思考强度"：`--model gemini-4-neon --effort high`。`pigeon models` 列出它现在能用的（Gemini 4 Neon、Carbon、Hydrogen、Argon、Orchestrator、Claude 5.5 等），列表是从 Antigravity 读的；什么都不写就用它自己的默认。
+  - 经 Antigravity 应用时：它新开的对话不绑项目目录，要它看的文件**写完整路径**。
+  - 经 Antigravity 应用时：它读工作区外的文件会停下来，等你在 Antigravity 里批准。Pigeon 不替你点：任务上会写"在等你批准"，指挥台上它显示成"等你"。
   - 读回复用的是 Antigravity 自己界面用的内部接口，不是公开的，Antigravity 升级以后可能要跟着改。
 
 ## 分派规则和提示词

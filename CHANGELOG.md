@@ -15,6 +15,7 @@
 - DeepSeek Harness 可以只读跑（`--sandbox read-only`），适合复审。
 - 接入页上 DeepSeek Harness 和 Antigravity 那一行也有了"设置"：DSH 默认的权限、在 Pigeon 里派活时的目录、超时；Antigravity 的超时。Antigravity 新开对话默认用"默认模型"里选的那一档。
 - 修好了 Codex 设置里"中继对话"那一行：一个图标没给尺寸，撑满了整个面板。
+- 接上了 Antigravity 的命令行 `agy`：装了就默认用它，不用开 Antigravity 应用，在派活的目录里干活；要批准的操作它会跳过、不会卡住，回信末尾写明跳过了什么。接入页能选"自动 / 命令行 / Antigravity 应用"，命令行能选"能直接改文件"或"只出方案"。它在命令行里的对话也列在指挥台上，能接着说。
 - Antigravity 的模型改成从它自己读：Gemini 4 Neon、Carbon、Hydrogen、Argon、Orchestrator、Claude 5.5 等，和 Codex 一样选"模型 + 思考强度"，接入页、刘海、命令行（`pigeon models`）都能选。什么都不选时用 Antigravity 自己的默认（Gemini 4 Neon High）。以前给的 Flash Lite、Flash、Pro 三档会落到旧模型，Flash Lite 实际是 gemini-3.5-flash-lite。
 - Antigravity 读工作区外的文件、停下来等你批准时，任务上写明在等什么，指挥台上它显示成"等你"。Pigeon 不替你点。
 - 分派规则每条可以选"建议"（由指挥判断）或"照做"（命中关键词就交给它，除非你明说不要）。
