@@ -24,6 +24,10 @@ const prefer = !(settings.codex && settings.codex.preferForImages === false);
 const dset = settings.dispatch && typeof settings.dispatch === 'object' ? settings.dispatch : {};
 // 加过默认规则以后，生图交给谁由规则管（“生图、改图”那条），不再看 codex.preferForImages
 const seeded = !!dset.seeded;
+// Antigravity 经命令行 agy 跑（装了、设置里也没改成走应用）
+const agyVia = (settings.agents && settings.agents.antigravity && settings.agents.antigravity.via) || 'auto';
+const agyBin = process.env.PIGEON_AGY_BIN !== undefined ? process.env.PIGEON_AGY_BIN : path.join(os.homedir(), '.local/bin/agy');
+const agyCli = agyVia !== 'app' && !!agyBin && fs.existsSync(agyBin);
 const claudeLeads = () => { const lead = settings.lead; return !lead || (lead.kind === 'agent' && lead.agent === 'claude'); };
 
 // 应用写下的 dispatch.json：text 是分派规则整理成的那段提示，alive 是现在能交出去的对象
@@ -56,7 +60,7 @@ function keywordHints() {
   if (seeded && claudeLeads()) {
     const alive = Array.isArray(dfile.alive) ? dfile.alive : null;
     const names = (settings.devices && settings.devices.names) || {};
-    for (const h of ruleHits(dset.rules, prompt, { alive }).slice(0, 2)) { lines.push(hitLine(h, { names, text: prompt })); ruleHit = true; }
+    for (const h of ruleHits(dset.rules, prompt, { alive }).slice(0, 2)) { lines.push(hitLine(h, { names, text: prompt, agyCli })); ruleHit = true; }
   }
   const wantsImage = /(画|生成|做|出|来|设计|绘制).{0,12}(图|插画|插图|配图|头图|海报|图标|头像|背景|贴图|素材|logo|壁纸|封面)|(插画|插图|配图|头图|像素图|像素画|贴图|抠图|去背景|透明背景)|\b(image|illustration|icon|sprite|logo|wallpaper|banner)s?\b/i.test(prompt);
   const wantsPost = /(发|送|传|捎|带)(个|一?[条句张段])?(话|消息|纸条|信)|(告诉|转告|通知|问问|问一下)(一下)?.{0,8}(codex|那边|另一台|远程|那台|对话)|(让|叫|请|给).{0,6}(另一台|那台|远程)(电脑|机器|设备|windows|mac)/i.test(prompt);

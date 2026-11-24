@@ -25,13 +25,16 @@ export function targetName(key, names = {}) {
 }
 
 // 交给它具体怎么做
-export function howTo(key, { image = false } = {}) {
+// agyCli：装了 Antigravity 命令行 agy、也没在设置里改成走应用
+export function howTo(key, { image = false, agyCli = false } = {}) {
   const [a, d] = split(key);
   if (a === 'codex' && d !== 'local') return '用 pigeon:pigeon-post skill 发到那台电脑（Pigeon 会先问用户放行）。';
   if (a === 'codex') return '一次性的活（生图、审查、写代码）先调用 pigeon:codex-delegation skill；要接着某个已有对话说，用 pigeon:pigeon-post skill。'
     + (image ? '不要自己写脚本逐像素画，也不要用 SVG 凑；用户明确要矢量图、SVG 或 CSS 图形时除外。' : '');
   if (a === 'deepseek') return '先调用 pigeon:pigeon-post skill，用 pigeon new --agent dsh 新开对话（只看不改的复审加 --sandbox read-only），或用 pigeon send 接着它已有的对话。';
-  if (a === 'antigravity') return '先调用 pigeon:pigeon-post skill，用 pigeon new --agent antigravity 新开对话；要它处理的文件写完整路径。Antigravity 要开着，读它工作区外的文件时它会停下来等用户批准。';
+  if (a === 'antigravity') return agyCli
+    ? '先调用 pigeon:pigeon-post skill，用 pigeon new --agent antigravity --cwd <要处理的文件所在的目录> 新开对话（经它的命令行 agy 在那个目录里后台跑，不用开 Antigravity 应用；目录外的文件它读不到）。'
+    : '先调用 pigeon:pigeon-post skill，用 pigeon new --agent antigravity 新开对话；要它处理的文件写完整路径。Antigravity 要开着，读它工作区外的文件时它会停下来等用户批准。';
   return '用 pigeon:pigeon-post skill 交过去。';
 }
 
@@ -39,8 +42,8 @@ const IMAGE = /(画|生成|做|出|设计|绘制).{0,12}(图|插画|插图|配�
 export const wantsImage = text => IMAGE.test(String(text || ''));
 
 // 一条命中写成一句提醒
-export function hitLine({ r, i }, { names = {}, text = '' } = {}) {
+export function hitLine({ r, i }, { names = {}, text = '', agyCli = false } = {}) {
   const must = r.mode === 'must', who = targetName(r.to, names), label = r.when || r.kw;
   return `Pigeon 提醒：这条消息像是「${label}」（分派规则第 ${i + 1} 条）。${must ? `请交给${who}，除非用户在这句话里明确说了不要` : `建议交给${who}，由你判断要不要交`}。`
-    + howTo(r.to, { image: r.id === 'seed-image' || wantsImage(text) });
+    + howTo(r.to, { image: r.id === 'seed-image' || wantsImage(text), agyCli });
 }
