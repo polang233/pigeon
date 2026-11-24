@@ -2,7 +2,7 @@
 
 只记每个版本对用户来说有什么不同。没做完的见 [docs/TODO.md](docs/TODO.md)。
 
-## 未发布
+## 0.3.0（2026-11-24）
 
 - 指挥台：指挥在本机的几个对话都收在指挥身上，不再在旁边多画一个同名的 Claude Code。选中其中一个对话时，右侧列出指挥的其他对话。
 - 不再兼容 Meerkat 时期的旧名字：旧设置路径的迁移、`MEERKAT_*` 环境变量、`meerkat-codex.mjs` 入口、`MeerkatCodex` 事件名、`meerkat_task_id` 字段、`x-meerkat-task` 请求头和 `~/.meerkat/codex-hook.sh` 都不再认。开过"接收 Codex 自己的事件"、hook 还指向 `~/.meerkat/` 的，在设置里把这个开关关掉再打开一次，再到 Codex 里信任一次。
