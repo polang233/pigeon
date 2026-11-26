@@ -175,6 +175,13 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
     openRelay() { return '演示里打不开 Codex'; },
     // 中继站（演示）：示例数据在 mock 里，换、归档、删除只改页面上的
     loadRelay() { emit('RELAY'); },
+    // 一件任务的全文：演示里正文就是要发的内容或标题，回信就是 reply
+    loadFull(band) {
+      st.FULL ??= {};
+      const t = st.T.find(x => x.id === band);
+      if (t) st.FULL[band] = { body: t.body || t.title, answer: t.reply || '', busy: false, err: '', state: t.state };
+      emit('FULL');
+    },
     relayDo(action, id, host = '') {
       const R = st.RELAY, row = R.relays.find(r => r.id === id);
       if (action === 'use') {

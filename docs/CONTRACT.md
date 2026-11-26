@@ -570,8 +570,10 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - `GET /api/agents/models`：应用跑 `pigeon models --json`，回 `{ "antigravity": { "updated", "live", "default": { "model", "effort" }, "models": [ … ] } }`。网页打开时读一次；刘海的派活面板直接读 `~/.pigeon/models/antigravity.json`。
 - **命令行**：`pigeon new --agent dsh|antigravity [--cwd <目录>] [--model …] [--effort …] [--sandbox …] --title … "<话>"`；`pigeon send --to <对话 id 或标题>` 认得出是它们的对话。`--agent` 认 `codex`、`dsh`、`deepseek`、`antigravity`、`agy`。
 - **对话列表**：`lofts.json` 本机那台的 `sessions` 里加上它们最近的对话（`agent` 是 `deepseek` 或 `antigravity`）；有消息正在等它回的标 `state: "run"`。
-- **设置**：`agents.deepseek` 和 `agents.antigravity`，接入页那一行的“设置”里改。`sandbox`（只 DSH：`read-only`、`workspace-write`，空串是它自己的默认）是没在命令里写 `--sandbox` 时用的权限；`cwd`（只 DSH）是在 Pigeon 应用里派活、没说目录时的工作目录，空串是主目录（Claude Code 派的活用它当前的目录，带 `PIGEON_SEND_ID` 环境变量的才算应用派的）；`timeoutMin` 是等多久没完成就记成没回音，0 是跟着 `post.waitTimeoutMin`。Antigravity 新开对话没写 `--model` 时，用 `devices.models["antigravity@local"].model`（接入页的“默认模型”）。
-- **应用派活**：`POST /api/send` 的 `to.agent` 现在可以是 `deepseek` 或 `antigravity`（只能 `loft: "local"`），应用跑 `pigeon new --agent …` 或 `pigeon send`。`POST /api/open` 对它们是打开那个应用。
+- **设置**：`agents.deepseek` 和 `agents.antigravity`，接入页那一行的“设置”里改。`sandbox`（只 DSH：`read-only`、`workspace-write`，空串是它自己的默认）是没在命令里写 `--sandbox` 时用的权限；`cwd`（只 DSH）是在 Pigeon 应用里派活、没说目录时的工作目录，空串是主目录（Claude Code 派的活用它当前的目录，带 `PIGEON_SEND_ID` 环境变量的才算应用派的）；`timeoutMin` 是到点还没做完就停掉、记成没回音；0（默认）不限，等它做完。DSH 和 agy 是插件起的进程，停掉活也就停了，所以默认不限；不限时仍有 4 小时的上限，免得进程一直挂着。agy 的 `--print-timeout` 跟着它：0 传 `0`（agy 自己的默认也是不限），否则传剩下的分钟数。Antigravity 新开对话没写 `--model` 时，用 `devices.models["antigravity@local"].model`（接入页的“默认模型”）。
+- **应用派活**：`POST /api/send` 的 `to.agent` 现在可以是 `deepseek` 或 `antigravity`（只能 `loft: "local"`），应用跑 `pigeon new --agent …` 或 `pigeon send`。`POST /api/open` 对它们是打开那个应用；Antigravity 命令行（`via: "cli"`）的对话在桌面应用里看不到（agy 和应用的对话分开存，官方还没打通），所以带上 `via: "cli"` 和 `cwd` 时，应用在“终端”里跑 `agy -r <id>`（先 cd 到那个目录，agy 的历史按目录分）。
+- **全文**：发出去的正文（打码以后的样子）存在 `~/.pigeon/bodies/<编号>.md`，回信照旧（DSH、Antigravity 存在 `~/.pigeon/answers/<编号>.md`，Codex 从对话记录里读），都只有自己能读。`pigeon read <编号> --json` 输出 `{ ok, band, state, body, answer, error, progress }`；应用的 `GET /api/notes/<编号>` 就是跑它，任务详情和频道里按 Markdown 显示全文。这个改动以前发的消息没有 `body`。
+- **在做什么**：经 agy 跑时，看护进程读它输出里 `state: "ACTIVE"` 的 `step_update`，把这一步写成一句话（“写 sfx/hit.wav（第 12 步）”），存进纸条的 `progress` 并随 `PigeonNote` 事件发给应用，最多三秒一次；做完清空。任务详情里显示成“正在：…”。
 
 ### 分派规则的建议
 

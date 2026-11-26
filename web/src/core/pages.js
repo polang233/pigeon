@@ -55,12 +55,48 @@ export const stateOf = (st, n) => n.kind === 'you' ? 'idle' : worst(n.ids.map(id
 // 第 k 个节点连同挂在它下面的全部节点的对话
 export const deepIds = (p, k) => [...p.nodes[k].ids, ...p.nodes.flatMap((o, j) => o.from === k ? deepIds(p, j) : [])];
 export const parentOf = (p, k) => p.nodes[k].from < 0 ? p.center : p.nodes[p.nodes[k].from];
-// 连到第 k 个节点的那段线上在发生什么：wait 停在跨设备那一段等你确认，live 往外送，back 回信往回走；a 是鸽子的颜色跟谁
+// 一个对话画在这一页的哪个节点上：0 是中心，k + 1 是第 k 个节点，-1 是不在这一页
+export function nodeOf(p, id) {
+  if ((p.center.ids || []).includes(id)) return 0;
+  const k = p.nodes.findIndex(n => n.ids.includes(id));
+  return k >= 0 ? k + 1 : -1;
+}
+// 从节点 j 往上一直走到中心：[j, 它挂在谁下面, …, 0]
+const upTo0 = (p, j) => { const out = [j]; while (j > 0) { j = p.nodes[j - 1].from + 1; out.push(j); } return out; };
+// 一件任务在这一页上走的路线。发信的是中心（指挥，或者你自己派的活）时照旧画在收信那段线上，返回 null。
+// 别的 agent 发的：你自己当指挥时，Pigeon 在中间转一手，路线是“发信方 → 你 → 收信方”，画成一整条；
+// 有指挥时，两个 agent 之间直接传，不经指挥：两边各自走到挂在中心下面的那一层，中间那一跳（peer）直接连过去。
+// hops 是依次经过的节点编号，peer 是直连那一跳在 hops 里的起点（没有是 -1）
+export function routeOf(st, p, t) {
+  const a = nodeOf(p, t.from), b = nodeOf(p, t.to);
+  if (a < 1 || b < 0 || a === b) return null;
+  const ua = upTo0(p, a), ub = upTo0(p, b), top = ua.find(x => ub.includes(x));
+  const up = ua.slice(0, ua.indexOf(top) + 1), down = ub.slice(0, ub.indexOf(top)).reverse();
+  if (top === 0 && p.center.kind !== 'you') {
+    const hops = [...up.slice(0, -1), ...down];
+    return { hops, peer: up.length - 2 };
+  }
+  return { hops: [...up, ...down], peer: -1 };
+}
+// 这一页上要整条画出来的路线：在送的（live）和停在半路等你确认的（wait）。a 是发信方，鸽子跟它的颜色
+export function routesOf(st, p) {
+  const out = [];
+  for (const t of st.T) {
+    const s = t.state === 'asking' ? 'wait' : LIVE.includes(t.state) ? 'live' : '';
+    if (!s) continue;
+    const r = routeOf(st, p, t);
+    if (r) out.push({ ...r, t: t.id, st: s, a: by(st, t.from).agent, b: by(st, t.to).agent });
+  }
+  return out;
+}
+// 连到第 k 个节点的那段线上在发生什么：wait 停在跨设备那一段等你确认，live 往外送，back 回信往回走；a 是鸽子的颜色跟谁。
+// 整条画成路线的任务（routesOf）不算在这里，鸽子沿着路线飞
 export function edgeOf(st, p, k) {
   const n = p.nodes[k], ids = deepIds(p, k), crossing = n.dev !== parentOf(p, k).dev;
-  const t = st.T.find(t => t.state === 'asking' && ids.includes(t.to));
+  const own = t => !routeOf(st, p, t);
+  const t = st.T.find(t => t.state === 'asking' && ids.includes(t.to) && own(t));
   if (t && crossing) return { st: 'wait', a: by(st, t.from).agent };
-  const f = st.T.find(t => LIVE.includes(t.state) && ids.includes(t.to));
+  const f = st.T.find(t => LIVE.includes(t.state) && ids.includes(t.to) && own(t));
   if (f) return { st: 'live', a: by(st, f.from).agent };
   const done = ids.map(id => by(st, id)).find(s => s.state === 'done');
   if (done) return { st: 'back', a: done.agent };

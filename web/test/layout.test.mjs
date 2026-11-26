@@ -166,3 +166,39 @@ test('拖过的节点先占位，别的绕开；位置按比例换算到新网�
   assert.deepEqual(nearestCell(g, 9999, -50), [5, 0]);
   assert.deepEqual(nearestCell(g, 560, 40, 2), [4, 0]);
 });
+
+// 整条路线：别的 agent 发的活从发信方一路画到收信方
+import { routeOf, routesOf, nodeOf } from '../src/core/pages.js';
+import { routePath, peerPath } from '../src/core/layout.js';
+
+test('有指挥时，两个 agent 之间直接传，不经指挥', () => {
+  const st = freshState(), p = devicePage(st, st.home), t = st.T.find(x => x.id === 't-c0d5');
+  const a = nodeOf(p, t.from), b = nodeOf(p, t.to);
+  assert.ok(a > 0 && b > 0);
+  assert.deepEqual(routeOf(st, p, t), { hops: [a, b], peer: 0 });
+  // 这件不再算在 DSH 那段线上，鸽子沿着路线飞
+  assert.notEqual(edgeOf(st, p, b - 1).a, 'codex');
+  assert.ok(routesOf(st, p).some(r => r.t === 't-c0d5' && r.st === 'live' && r.a === 'codex' && r.b === 'dsh'));
+});
+
+test('指挥自己派的活照旧画在收信那段线上', () => {
+  const st = freshState(), p = devicePage(st, st.home);
+  assert.equal(routeOf(st, p, st.T.find(x => x.id === 't-8f2c')), null);
+});
+
+test('你自己当指挥时，Claude 发的活经过你，路线是 Claude → 你 → 收信方', () => {
+  const st = freshState(); st.lead = { kind: 'you' };
+  const p = devicePage(st, st.home), t = st.T.find(x => x.id === 't-8f2c');
+  const a = nodeOf(p, t.from), b = nodeOf(p, t.to);
+  assert.deepEqual(routeOf(st, p, t), { hops: [a, 0, b], peer: -1 });
+});
+
+test('路线几跳首尾接成一条路径，第二跳起不再另起一笔', () => {
+  const A = [{ cx: 0, cy: 100, rx: 30, ry: 30 }, { cx: 200, cy: 0, rx: 25, ry: 25 }, { cx: 200, cy: 200, rx: 25, ry: 25 }];
+  const r = routePath(A, [1, 0, 2], -1, 1, false);
+  assert.equal((r.d.match(/M/g) || []).length, 1);
+  assert.deepEqual(r.g.slice(0, 2), [200 - 30, 0]);
+  // 上下摞着的两个直接连：从外侧绕过去，不穿过中间
+  const pp = peerPath(A[1], A[2], 1, false, A[0]);
+  assert.match(pp.d, /^M230,0 H/);
+});

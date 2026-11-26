@@ -63,8 +63,9 @@ export function eventOf(note, extra = {}) {
   return {
     band: note.band, chain: note.chain, count: note.count, kind: note.kind, via: note.via, state: note.state,
     from: note.from, to: { loft: note.to.loft, loft_name: note.to.loft_name, agent: note.to.agent, session: note.to.session, title: note.to.title },
-    preview: '', answer_preview: '', error: note.error || '',
+    preview: '', answer_preview: '', error: note.error || '', progress: note.progress || '',
     reason: note.reason || '', retry_of: note.retry_of || '', paused: !!note.paused,
+    model: note.model || '', effort: note.effort || '',
     ...(note.why ? { why: note.why } : {}), ...(note.ctx ? { ctx: note.ctx } : {}),
     ...extra,
   };
@@ -77,6 +78,12 @@ export function saveAnswer(band, text) {
   try { fs.mkdirSync(answersDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(answersDir(), band + '.md'), String(text), { mode: 0o600 }); } catch {}
 }
 export const readAnswer = band => { try { return fs.readFileSync(path.join(answersDir(), band + '.md'), 'utf8'); } catch { return ''; } };
+// 发出去的正文也存一份（打码以后的样子），应用里的任务详情、频道能看全文。只在本机、只有自己能读，和回信放在一起
+export const bodiesDir = () => path.join(pigeonDir(), 'bodies');
+export function saveBody(band, text) {
+  try { fs.mkdirSync(bodiesDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(bodiesDir(), band + '.md'), String(text), { mode: 0o600 }); } catch {}
+}
+export const readBody = band => { try { return fs.readFileSync(path.join(bodiesDir(), band + '.md'), 'utf8'); } catch { return ''; } };
 // 看护进程自己跑的几种：codex exec 新开、DSH、Antigravity
 const OWN_WATCH = ['exec', 'dsh', 'agy', 'agycli'];
 
@@ -308,6 +315,7 @@ export async function sendCmd(args) {
   const needAsk = via === 'relay' && post.confirmRemote;
   note.state = needAsk ? 'asking' : 'queued';
   await addNote(note);
+  saveBody(note.band, sc.text);
   await report(note, { preview: clip(sc.text, 80) });
   if (sc.masked.length) o.err(`已按设置自动打码：${sc.masked.join('、')}。`);
 
@@ -398,6 +406,7 @@ export async function newCmd(args) {
   const needAsk = via === 'relay' && post.confirmRemote;
   note.state = needAsk ? 'asking' : 'queued';
   await addNote(note);
+  saveBody(note.band, sc.text);
   await report(note, { preview: clip(sc.text, 80) });
   if (sc.masked.length) o.err(`已按设置自动打码：${sc.masked.join('、')}。`);
 
@@ -615,12 +624,16 @@ async function launchOther(o, note, d, post, args, text) {
     if (d.model) { note.model = pick.model; note.effort = known && known.efforts.length ? d.model.slice(pick.model.length + 1) : ''; }
   }
   note.why = await whyOf(args.reason, text, toKeyOf(note.to));
+  // 超时：设置里写了几分钟就到点停下；0（默认）不限，等它做完。DSH、agy 是 Pigeon 自己起的进程，
+  // 到点停下就是把它停掉、活也停了，所以默认不限；只留一个 OPEN_MAX_MIN 的上限，免得进程一直挂着
   const tmin = Number(cfg.timeoutMin) > 0 ? Number(cfg.timeoutMin) : 0;
-  note.track.deadline = tmin ? note.created + tmin * 60000 : deadlineOf(note, post);
+  note.track.deadline = note.created + (tmin || OPEN_MAX_MIN) * 60000;
+  note.track.limit = tmin;
   Object.assign(note.track, { method: d.agent === DSH ? 'dsh' : d.via === 'cli' ? 'agycli' : 'agy', cwd: d.cwd || '' });
   if (d.agent === AGY && d.via === 'cli') { const m = String(cfg.mode || ''); if (AGY_CLI_MODES.includes(m)) d.mode = m; }
   note.state = 'queued';
   await addNote(note);
+  saveBody(note.band, text);
   await report(note, { preview: clip(text, 80) });
   const message = text.trimEnd() + footer(band, note.from);
   const r = await launch(note, { ...d, type: note.track.method, message }, post);
@@ -640,7 +653,19 @@ async function finishOther(band, answer) {
   await move(band, { state: 'home' }, { answer_preview: clip(answer, 160) });
   try { const { post } = await loadSettings(); saveLofts({ relays: relayIds(post) }); } catch {}
 }
-const timedOutMsg = note => `等了 ${fmtDur(Date.now() - note.created)} 还没完成，已经停下，没有自动重发。`;
+const OPEN_MAX_MIN = 240;
+const timedOutMsg = note => note.track && note.track.limit
+  ? `到了设置里的 ${note.track.limit} 分钟还没完成，已经停下，没有自动重发。要它做更久，在接入页把这一家的超时调大或改成 0（不限）。`
+  : `等了 ${fmtDur(Date.now() - note.created)} 还没完成，已经停下，没有自动重发。`;
+// 在做什么：写进任务，指挥台和任务页上看得到。几秒最多报一次
+function progressReporter(band) {
+  let last = '', at = 0, timer = null, pending = Promise.resolve();
+  const flush = () => { timer = null; at = Date.now(); const v = last; pending = pending.then(async () => { const n = await patchNote(band, { progress: v }); if (n) await report(getNote(band) || n); }).catch(() => {}); };
+  return {
+    set(text) { if (!text || text === last) return; last = text; if (timer) return; const wait = Math.max(0, 3000 - (Date.now() - at)); timer = setTimeout(flush, wait); },
+    async done() { if (timer) { clearTimeout(timer); timer = null; } await pending; },
+  };
+}
 
 async function watchDsh(note, d) {
   const band = note.band, t = note.track;
@@ -686,8 +711,11 @@ async function watchAgyCli(note, d) {
   const bin = agyCliBin();
   if (!bin) { await move(band, { state: 'refused', reason: 'offline', error: '没找到 Antigravity 的命令行 agy。' }); return 0; }
   const cwd = t.cwd && fs.existsSync(t.cwd) ? t.cwd : HOME;
-  const mins = Math.max(1, Math.ceil((t.deadline - Date.now()) / 60000));
+  // 设置里写了超时才传给 agy；没写（0）不限，让它做完
+  const mins = t.limit ? Math.max(1, Math.ceil((t.deadline - Date.now()) / 60000)) : 0;
   const child = spawn(bin, agyCliArgs({ session: d.session || '', model: d.model || '', mode: d.mode || '', timeoutMin: mins }), { cwd, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PIGEON_BAND: band } });
+  const prog = progressReporter(band);
+  let steps = 0;
   child.stdin.end(agyCliInput(message));
   await move(band, { state: 'flying' });
   let buf = '', result = null, err = '', timedOut = false, pending = Promise.resolve();
@@ -700,13 +728,16 @@ async function watchAgyCli(note, d) {
       const e = agyCliEvent(buf.slice(0, nl)); buf = buf.slice(nl + 1);
       if (!e) continue;
       if (e.conversation && !note.to.session) { const id = e.conversation; note.to.session = id; pending = pending.then(() => move(band, { state: 'delivered', to: { session: id } })); }
+      if (e.step) { steps++; prog.set(`${e.step}（第 ${steps} 步）`); }
       if (e.result) { result = e.result; if (result.conversation && !note.to.session) { note.to.session = result.conversation; pending = pending.then(() => move(band, { state: 'delivered', to: { session: result.conversation } })); } stop(); }
     }
   });
   child.stderr.on('data', c => { err = (err + c.toString('utf8')).slice(-8000); });
   const code = await new Promise(r => child.on('close', r));
   clearTimeout(killer);
+  await prog.done();
   await pending;
+  if (getNote(band)?.progress) await patchNote(band, { progress: '' });
   const denied = agyDenials(err);
   if (result && result.status === 'SUCCESS' && result.response.trim()) {
     const note2 = denied.length ? `\n\n（Pigeon：Antigravity 有 ${denied.length} 个操作要人批准，在命令行里被跳过了：${denied.join('；')}）` : '';
@@ -809,6 +840,11 @@ export async function readCmd(args) {
   note = await reapOrphan(note) || note;
   const { answer, progress } = answerOf(note);
   note = (await applyProgress(note, progress)) || note;
+  // --json：应用的任务详情、频道要看全文（发出去的正文和完整回信），都是原样的 Markdown
+  if (args.json) {
+    console.log(JSON.stringify({ ok: true, band, state: note.state, body: readBody(band), answer: answer || '', error: note.error || '', progress: note.progress || '' }));
+    return 0;
+  }
   const lines = [`${band}　${STATE_ZH[note.state] || note.state}${note.paused ? '（暂停中，继续后自动送出）' : ''}　${who(note.from)} → ${where(note.to)}　用时 ${elapsed(note)}${modelLabel(note) ? `　模型 ${modelLabel(note)}` : ''}`];
   if (note.reason) lines.push(`原因：${note.reason}`);
   if (note.error) lines.push(`说明：${note.error}`);

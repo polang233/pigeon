@@ -109,10 +109,25 @@ export function agyCliBin() {
 }
 // mode：accept-edits 能直接改文件、plan 只出方案、auto；空串用它自己的默认
 export const AGY_CLI_MODES = ['accept-edits', 'auto', 'plan'];
+// timeoutMin：0 是不限，等它这一轮做完（agy 自己的默认也是不限）
 export function agyCliArgs({ session = '', model = '', mode = '', timeoutMin = 0 } = {}) {
   return ['-p=', '--input-format', 'stream-json', '--output-format', 'stream-json',
     ...(model ? ['--model', model] : []), ...(session ? ['--conversation', session] : []), ...(mode ? ['--mode', mode] : []),
-    '--print-timeout', `${Math.max(1, Math.round(timeoutMin || 10))}m`];
+    '--print-timeout', Number(timeoutMin) > 0 ? `${Math.max(1, Math.round(timeoutMin))}m` : '0'];
+}
+// 一步在做什么，写成一句给人看的话（任务上的“正在”）。工具名照 agy 的叫法；不认识的照原样
+const AGY_TOOL = { read_file: '读', view_file: '读', list_dir: '看目录', write_file: '写', write_to_file: '写', edit_file: '改', replace_file_content: '改', multi_replace_file_content: '改',
+  run_command: '跑命令', grep_search: '搜', find_by_name: '找文件', search_web: '搜网页', read_url_content: '读网页', generate_image: '生图' };
+export function agyStepText(p) {
+  if (!p || p.state !== 'ACTIVE') return '';
+  if (p.step_type === 'tool') {
+    const t = p.tool_name || (p.tool_info && p.tool_info.name) || '', arg = (p.tool_info && p.tool_info.parameters) || {};
+    const target = arg.Path || arg.AbsolutePath || arg.TargetFile || arg.DirectoryPath || arg.CommandLine || arg.Query || arg.Url || '';
+    const short = String(target).split('/').filter(Boolean).slice(-2).join('/');
+    return `${AGY_TOOL[t] || t}${short ? ' ' + short.slice(0, 80) : ''}`;
+  }
+  if (p.step_type === 'agent_response' || p.step_type === 'planner_response') return '在想';
+  return '';
 }
 export const agyCliInput = text => JSON.stringify({ event: 'user', message: { content: String(text) } }) + '\n';
 // 一行输出 → { conversation }、{ result: { status, response, error, usage } }，别的不管
@@ -120,7 +135,7 @@ export function agyCliEvent(line) {
   let e; try { e = JSON.parse(line); } catch { return null; }
   if (!e || typeof e !== 'object') return null;
   const p = e[e.event] && typeof e[e.event] === 'object' ? e[e.event] : {};
-  if (e.event === 'step_update' && p.conversation_id) return { conversation: String(p.conversation_id) };
+  if (e.event === 'step_update' && p.conversation_id) return { conversation: String(p.conversation_id), step: agyStepText(p) };
   if (e.event === 'result') return { result: { conversation: String(p.conversation_id || ''), status: String(p.status || ''), response: String(p.response || ''), error: p.error ? String(p.error.message || p.error) : '', usage: p.usage || null } };
   return null;
 }

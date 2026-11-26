@@ -56,7 +56,7 @@ export const nameOf = (st, k) => (k === 'you' ? '你' : `${AG[agOf(k)]?.name || 
 export const online = (st, d) => !!st.DEV[d] && st.DEV[d].online !== false;
 
 // 回到它自己的应用里看这个对话。本机的在它自己的应用里打开，别的电脑上的经本机 Codex 的远程打开
-export const jumpLabel = (st, s) => s.dev === st.home ? `在 ${APP[s.agent] || '它的应用'} 里打开` : st.DEV[s.dev]?.link === 'codex' ? '在本机 Codex 里打开' : '打开对话';
+export const jumpLabel = (st, s) => s.cli ? '在终端里接着看' : s.dev === st.home ? `在 ${APP[s.agent] || '它的应用'} 里打开` : st.DEV[s.dev]?.link === 'codex' ? '在本机 Codex 里打开' : '打开对话';
 
 // 全部暂停，或者只停这一台
 export const isPaused = (st, d) => st.paused.all || !!st.paused.dev[d];

@@ -95,3 +95,26 @@ export function edgePath(a, c, z, arc) {
   const d = Math.abs(y2 - y1) < 2 ? `M${x1},${y1} H${x2}` : `M${x1},${y1} H${mx - sx * rr} Q${mx},${y1} ${mx},${y1 + sy * rr} V${y2 - sy * rr} Q${mx},${y2} ${mx + sx * rr},${y2} H${x2}`;
   return { d, left: sx < 0, g: [x1, y1, x2, y2] };
 }
+
+// 两个 agent 直接传（不经指挥）的那一跳。左右隔得开就用普通折线；上下摞着时从两边朝外的那一侧绕过去，
+// 像一个方括号，不穿过别的节点。o 是中心的位置，往远离中心的那一侧绕
+export function peerPath(a, c, z, arc, o) {
+  if (arc || Math.abs(c.cx - a.cx) >= a.rx + c.rx + 16 * z) return edgePath(a, c, z, arc);
+  const side = (a.cx + c.cx) / 2 >= o.cx ? 1 : -1, x1 = a.cx + side * (a.rx + 5), x2 = c.cx + side * (c.rx + 5);
+  const xo = Math.max(x1 * side, x2 * side) * side + side * 22 * z, y1 = a.cy, y2 = c.cy, sy = Math.sign(y2 - y1) || 1;
+  const rr = Math.min(10 * z, Math.abs(y2 - y1) / 2);
+  const d = `M${x1},${y1} H${xo - side * rr} Q${xo},${y1} ${xo},${y1 + sy * rr} V${y2 - sy * rr} Q${xo},${y2} ${xo - side * rr},${y2} H${x2}`;
+  return { d, left: false, g: [x1, y1, x2, y2] };
+}
+// 一整条路线：依次经过 hops 里的节点（A 是全部节点的头像位置，0 是中心），peer 那一跳直接连。
+// 每一跳的线和树上那段重合，只是方向跟着路线走；几跳首尾接成一条路径，鸽子沿着它一路飞过去
+export function routePath(A, hops, peer, z, arc) {
+  const segs = [];
+  for (let i = 0; i + 1 < hops.length; i++) {
+    const a = A[hops[i]], c = A[hops[i + 1]];
+    segs.push(i === peer ? peerPath(a, c, z, arc, A[0]) : edgePath(a, c, z, arc));
+  }
+  const d = segs.map((s, i) => (i ? s.d.replace(/^M/, 'L') : s.d)).join(' ');
+  const first = segs[0].g, last = segs[segs.length - 1].g;
+  return { d, left: last[2] < first[0], g: [first[0], first[1], last[2], last[3]] };
+}

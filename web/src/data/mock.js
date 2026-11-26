@@ -57,7 +57,7 @@ export function createMock(now = Date.now()) {
     { id: 's2', cwd: '/Users/demo/Code/pigeon', agent: 'codex', dev: 'mac', title: '画应用图标', state: 'run', activity: 'typing', model: 'GPT-5.5', think: 'medium', note: '生图中，已跑 2 分 10 秒' },
     { id: 's3', cwd: '/Users/demo/Code/pigeon', agent: 'codex', dev: 'mac', title: '审查确认框改动', state: 'done', model: 'GPT-5.5', think: 'high', note: '回信：两处建议' },
     { id: 's4', cwd: '/Users/demo/Code/pigeon', agent: 'cursor', dev: 'mac', title: '设置页表单', state: 'run', activity: 'typing', model: 'Composer 2', think: '', note: '正在改 settings.js' },
-    { id: 's5', cwd: '/Users/demo/Code/site', agent: 'dsh', dev: 'mac', title: '批量改文案', state: 'idle', model: 'DeepSeek V4 Flash', think: 'low', note: '空闲 12 分钟' },
+    { id: 's5', cwd: '/Users/demo/Code/site', agent: 'dsh', dev: 'mac', title: '批量改文案', state: 'run', activity: 'building', model: 'DeepSeek V4 Flash', think: 'low', note: 'Codex 直接交过来的：压图中' },
     { id: 's6', cwd: 'F:\\Code\\pigeon', agent: 'codex', dev: 'win', title: 'Windows 构建', state: 'run', activity: 'building', model: 'GPT-5.5', think: 'high', note: 'cargo build，已跑 4 分钟' },
     { id: 's7', cwd: 'F:\\Code\\pigeon', agent: 'codex', dev: 'win', title: '问候', state: 'idle', model: 'GPT-5.5', think: 'low', note: '空闲' },
     { id: 's8', cwd: 'F:\\Code\\pigeon', agent: 'claude', dev: 'win', via: 'codex', title: '跑测试集', state: 'wait', activity: 'waiting', model: 'Sonnet 5.5', think: 'medium', note: '这个任务在等你确认才发过去' },
@@ -71,6 +71,7 @@ export function createMock(now = Date.now()) {
   // 重发的带 retry_of；暂停中的带 paused: true（叠在 queued 或 asking 上）。from、to 是对话 id，你派的活 from 是 'you'
   const T = [
     { id: 't-8f2c', time: '10:41', from: 's1', to: 's2', kind: '生图', title: '画应用图标：信鸽侧影，深色底，不要文字', state: 'flying', dur: '2:10' },
+    { id: 't-c0d5', time: '10:40', from: 's2', to: 's5', kind: '压图', title: '把 assets/generated 里的 40 张图压成 webp，原图留着', state: 'flying', dur: '0:40' },
     { id: 't-5a2e', time: '10:40', from: 's1', to: 's4', kind: '实现', title: '顺手把表单的 aria-label 补上', state: 'queued', dur: '' },
     { id: 't-71ab', time: '10:39', from: 's1', to: 's6', kind: '构建', title: '在 Windows 上跑一遍构建，把报错贴回来', state: 'delivered', dur: '4:02' },
     { id: 't-66d0', time: '10:36', from: 's1', to: 's4', kind: '实现', title: '设置页加“跨设备发送前先问我”开关', state: 'flying', dur: '6:48' },

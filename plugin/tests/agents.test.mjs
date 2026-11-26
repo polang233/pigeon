@@ -249,8 +249,9 @@ const id = opt('--conversation') || 'cli-conv-1';
 if (process.env.FAKE_AGY_DENY) console.error('Permission denied: run_command "rm -rf build" requires approval (soft-denied in print mode)');
 const out = [{ event: 'init', init: { cwd: process.cwd(), permission_mode: 'request-review', model: opt('--model') } },
   { event: 'step_update', step_update: { conversation_id: id, step_index: 0, state: 'DONE', step_type: 'user_input' } },
+  { event: 'step_update', step_update: { conversation_id: id, step_index: 1, state: 'ACTIVE', step_type: 'tool', tool_name: 'write_file', tool_info: { name: 'write_file', parameters: { Path: '/tmp/x/sfx/hit.wav' } } } },
   { event: 'result', result: { conversation_id: id, status: process.env.FAKE_AGY_STATUS || 'SUCCESS', response: '收到：' + msg, num_turns: 1 } }];
-for (const o of out) console.log(JSON.stringify(o));
+for (const o of out) { console.log(JSON.stringify(o)); if (o.event === 'step_update') await new Promise(r => setTimeout(r, Number(process.env.FAKE_AGY_STEP_MS) || 0)); }
 `, { mode: 0o755 });
   return f;
 }
@@ -261,7 +262,7 @@ test('装了 agy 就经命令行：新开、接着说、模型 + 强度拼成 id
   try {
     const log = path.join(e.root, 'agy.log');
     Object.assign(e.env, { PIGEON_AGY_BIN: fakeAgyCli(e.root), FAKE_AGY_LOG: log, PIGEON_AGY_HOME: agy.home, PIGEON_AGY_AGENTAPI: agy.api });
-    let r = await pigeon(['new', '--agent', 'antigravity', '--cwd', e.root, '--model', 'gemini-4-neon', '--effort', 'low', '听一下 a.wav'], { ...e.env, FAKE_AGY_DENY: '1' });
+    let r = await pigeon(['new', '--agent', 'antigravity', '--cwd', e.root, '--model', 'gemini-4-neon', '--effort', 'low', '听一下 a.wav'], { ...e.env, FAKE_AGY_DENY: '1', FAKE_AGY_STEP_MS: '400' });
     assert.equal(r.code, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /经 Antigravity 命令行 agy/);
     let band = bandOf(r.stdout);
@@ -274,10 +275,19 @@ test('装了 agy 就经命令行：新开、接着说、模型 + 强度拼成 id
     assert.ok(call.argv.join(' ').includes('--model gemini-4-neon-low'));
     assert.ok(call.argv.join(' ').includes('--mode accept-edits'), '设置里的 --mode');
     assert.ok(!call.argv.join(' ').includes('a.wav'), '正文从标准输入给，不在命令行上');
+    assert.ok(call.argv.join(' ').endsWith('--print-timeout 0'), '没设超时就不限，让它做完');
+    assert.ok(app.events.some(x => x.band === band && /写 sfx\/hit\.wav（第 1 步）/.test(x.progress || '')), '在做什么报给了应用');
+    assert.equal(n.progress || '', '', '做完就清掉');
     assert.equal(fs.realpathSync(call.cwd), fs.realpathSync(e.root));
     r = await pigeon(['read', band], e.env);
     assert.match(r.stdout, /收到：听一下 a.wav/);
     assert.match(r.stdout, /被跳过了：Permission denied: run_command/);
+    // 应用看全文：发出去的正文和完整回信
+    r = await pigeon(['read', band, '--json'], e.env);
+    const full = JSON.parse(r.stdout.trim().split('\n').at(-1));
+    assert.equal(full.state, 'home');
+    assert.equal(full.body, '听一下 a.wav');
+    assert.match(full.answer, /^收到：听一下 a.wav/);
     // 命令行的对话概况库里有它：按标题接着说，走 --conversation，目录用它原来的
     const home = e.env.PIGEON_AGY_CLI_HOME; fs.mkdirSync(home, { recursive: true });
     execFileSync('sqlite3', [path.join(home, 'conversation_summaries.db'), `CREATE TABLE conversation_summaries (conversation_id text, title text, preview text, status text, workspace_uris text, last_modified_time datetime, nesting_depth integer); INSERT INTO conversation_summaries VALUES ('cli-conv-1', '听音频', '', 'IDLE', '["file://${e.root}"]', '2026-11-24T10:00:00Z', 0);`]);

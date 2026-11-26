@@ -51,4 +51,5 @@ export const icon = name => svg(IC[name]);
 
 // 各家 agent 的像素标志；you（你自己）用信鸽的线条图标
 export const Brand = () => window.Pigeon.Brand;
-export const brand = a => (a === 'you' ? icon('bird') : raw(Brand().svg(a)));
+// 你自己（在 Pigeon 里派活）用 Pigeon 的标志（assets/mark.png 的剪影，颜色跟着文字）
+export const brand = a => (a === 'you' ? raw('<i class="youmark" aria-hidden="true"></i>') : raw(Brand().svg(a)));

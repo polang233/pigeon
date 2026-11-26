@@ -237,6 +237,8 @@ final class Hub: @unchecked Sendable {
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/notes"):
             respondJSON(conn, Self.notesBody(retryable: Set(sentBodies.keys)), keepAlive: keepAlive)
+        case ("GET", _) where path.hasPrefix("/api/notes/"):
+            performNoteFull(band: String(path.dropFirst("/api/notes/".count))) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
         case (_, "/api/notes"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/lofts"):

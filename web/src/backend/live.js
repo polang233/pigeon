@@ -235,7 +235,7 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
     // 跳回对话：POST /api/open { loft, agent, session }
     openSession(id) {
       const s = by(st, id); if (!s) return no('这个对话已经不在了');
-      return api('/api/open', { method: 'POST', body: wireEnd(s) }).then(() => `已${jumpLabel(st, s)}「${s.title}」`);
+      return api('/api/open', { method: 'POST', body: { ...wireEnd(s), ...(s.cli ? { via: 'cli', cwd: s.cwd || '' } : {}) } }).then(() => s.cli ? `在终端里打开了「${s.title}」` : `已${jumpLabel(st, s)}「${s.title}」`);
     },
     // 中继站对话不一定在对话列表里，按 id 直接在 Codex 里打开
     openRelay(id) { return api('/api/open', { method: 'POST', body: { loft: 'local', agent: 'codex', session: id } }).then(() => '在 Codex 里打开了'); },
@@ -296,6 +296,17 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
         const cm = at(s, ['devices', 'customModels']); cm[k] = (Array.isArray(cm[k]) ? cm[k] : []).filter(x => x !== m); if (!cm[k].length) delete cm[k];
         const ms = at(s, ['devices', 'models']); if (ms[k] && ms[k].model === m) delete ms[k];
       }).then(() => `去掉了 ${m}`);
+    },
+    // 一件任务的全文：GET /api/notes/<编号>，发出去的正文和完整回信（原样的 Markdown）。
+    // 记下读的时候任务是什么状态；状态变了（比如回信到了）页面会再读一次
+    loadFull(band) {
+      st.FULL ??= {};
+      const f = st.FULL[band], t = st.T.find(x => x.id === band);
+      if (f && f.busy) return Promise.resolve(f);
+      st.FULL[band] = { ...(f || {}), busy: true, err: '', state: t ? t.state : '' }; emit('FULL');
+      return get(`/api/notes/${encodeURIComponent(band)}`).then(
+        r => { st.FULL[band] = { body: String(r.body || ''), answer: String(r.answer || ''), busy: false, err: '', state: t ? t.state : '' }; emit('FULL'); },
+        e => { st.FULL[band] = { ...(st.FULL[band] || {}), busy: false, err: `读不到全文：${e.message}` }; emit('FULL'); });
     },
     // 中继站：GET /api/relay 读在用的和用过的；POST /api/relay 换、归档、恢复、删除。改完再读一次
     loadRelay() {

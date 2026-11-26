@@ -37,13 +37,14 @@ const endpoint = (o, old = {}) => {
 // 一条纸条的新消息合进已有的那条。已经回信、没发出、没回音的不会再回到路上；迟到的旧消息只补字段
 export function mergeNote(prev, p, ts = Date.now()) {
   const n = prev ? { ...prev } : { band: p.band, chain: p.band, count: 1, kind: 'send', via: '', state: 'queued', from: endpoint(), to: endpoint(), preview: '', answer_preview: '', error: '', created: ts, updated: ts };
-  for (const k of ['chain', 'kind', 'via', 'reply_to', 'retry_of', 'reason']) if (p[k]) n[k] = String(p[k]);
+  for (const k of ['chain', 'kind', 'via', 'reply_to', 'retry_of', 'reason', 'model', 'effort']) if (p[k]) n[k] = String(p[k]);
   if (Number(p.count) > 0) n.count = Number(p.count);
   if (p.from) n.from = endpoint(p.from, n.from);
   if (p.to) n.to = endpoint(p.to, n.to);
   if (p.preview) n.preview = oneLine(p.preview, 80);
   if (p.answer_preview) n.answer_preview = oneLine(p.answer_preview, 160);
   if (p.error != null && p.state) n.error = String(p.error || '');
+  if (p.progress != null) n.progress = oneLine(String(p.progress || ''), 120);
   if (p.why && typeof p.why === 'object') n.why = p.why;
   if (p.ctx && typeof p.ctx === 'object') n.ctx = p.ctx;
   if ('paused' in p) n.paused = !!p.paused;
@@ -176,6 +177,8 @@ function sessionOf(s, dev) {
     id: String(s.id), agent, dev, title: oneLine(s.title, 40) || baseName(s.cwd) || '对话', state, ...(state === 'run' || state === 'wait' ? { activity: s.activity || (state === 'wait' ? 'waiting' : '') } : {}),
     ...(s.error ? { error: String(s.error) } : {}), model: String(s.model || ''), think: effortOk(s.effort), ...(s.parent ? { parent: String(s.parent) } : {}),
     note: s.relay ? `中继对话：往别的电脑发消息都经过它${note ? ' · ' + note : ''}` : note, cwd: s.cwd || '', ...(s.relay ? { relay: true } : {}), updated: Number(s.updated) || 0,
+    // Antigravity 命令行 agy 里的对话：Antigravity 应用里看不到，在终端里用 agy -r 接着看
+    ...(agent === 'antigravity' && s.via === 'cli' ? { cli: true } : {}),
   };
 }
 
@@ -241,6 +244,9 @@ export function mapLive(raw, now = Date.now()) {
       ...(n.retry_of ? { retry_of: n.retry_of } : {}), ...(n.paused && ['queued', 'asking'].includes(state) ? { paused: true } : {}),
       ...(n.answer_preview ? { reply: n.answer_preview } : {}), ...(n.retryable ? { retryable: true } : {}), ...(n.error ? { error: String(n.error) } : {}),
       ...(stale ? { stale: true } : {}), ...(q?.text ? { body: String(q.text) } : {}), via: n.via || '',
+      ...(n.progress && live(state) ? { doing: n.progress } : {}),
+      // 新开对话时指定的模型和思考强度（发给已有对话的没有，用那个对话自己的）
+      ...(n.model ? { model: String(n.model), think: effortOk(n.effort) } : {}),
     });
   }
   // 队列里有、纸条还没到的：先按队列里的样子记一件“等你确认”
@@ -260,7 +266,7 @@ export function mapLive(raw, now = Date.now()) {
     if (!from || !to) continue;
     const ss = S.find(s => s.id === to); if (ss?.stub) { ss.state = sstate; ss.note = r.status === 'running' ? (r.detail || '经 pigeon run 在跑') : r.summary || '跑完了'; if (r.model) ss.model = r.model; if (r.cwd && !ss.cwd) ss.cwd = r.cwd; }
     T.push({ id: r.id, time: whenZh(r.started, now), created: r.started, from, to, kind: RUN_KIND[r.kind] || '派活', title: r.title, dur: durZh((r.ended || now) - r.started),
-      state: r.status === 'running' ? (r.thread ? 'delivered' : 'flying') : r.status === 'done' ? 'home' : 'failed', ...(r.summary ? { reply: r.summary } : {}), via: 'run', files: r.files || [] });
+      state: r.status === 'running' ? (r.thread ? 'delivered' : 'flying') : r.status === 'done' ? 'home' : 'failed', ...(r.summary ? { reply: r.summary } : {}), via: 'run', files: r.files || [], ...(r.model ? { model: String(r.model) } : {}) });
   }
   T.sort((a, b) => b.created - a.created);
 

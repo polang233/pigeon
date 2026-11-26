@@ -10,6 +10,7 @@ import { g, taskSt, secretBody, secretNote } from './parts.js';
 import { registerAll } from '../actions.js';
 import { toast, after } from './toast.js';
 import { durZh } from '../core/time.js';
+import { mdToHtml, looksMd } from '../core/md.js';
 
 let store, st, ui, shown = '';
 
@@ -79,6 +80,23 @@ export function stepsHTML(t, x) {
   const at = bad >= 0 ? bad : order.indexOf(t.state);
   return html`<div class="steps">${order.map((k, i) => html`<div class="${i === bad ? 'bad' : i < at || t.state === 'home' ? 'done' : i === at ? 'now' : ''}"><b>${STEPS[k][0]}</b>${i === bad ? (t.state === 'lost' ? '没回音' : t.state === 'failed' ? '出错了' : REASON[t.reason] || '没发出') : i === at && t.paused ? '暂停中，继续后送出' : STEPS[k][1]}</div>`)}</div>`;
 }
+// 全文：像 Markdown 的按 Markdown 画，不像的照原样（保留换行）
+export const mdBlock = s => html`<div class="md ${looksMd(s) ? '' : 'plain'}">${looksMd(s) ? mdToHtml(s) : s}</div>`;
+export const fullOf = id => (st.FULL || {})[id];
+// 没读过、或者读的时候任务还是别的状态（比如那时还没回信），就去读一次
+export function wantFull(t) {
+  if (!t || !store.loadFull) return;
+  const f = fullOf(t.id);
+  if (!f || (!f.busy && !f.err && f.state !== t.state)) store.loadFull(t.id);
+}
+// 发出去的内容和回信的全文；还在读时先用预览
+export function fullHTML(t, { body = true, reply = true } = {}) {
+  const F = fullOf(t.id);
+  const sent = body ? (F && F.body ? html`<h4>发出的内容</h4>${mdBlock(F.body)}` : F && F.busy ? html`<p class="note mut">在读全文…</p>`
+    : F && !F.err ? html`<h4>发出的内容</h4>${mdBlock(t.title)}<p class="note mut">这件发得早，当时只记了开头，没存全文</p>` : '') : '';
+  const ans = reply ? (F && F.answer ? html`<h4>${t.state === 'failed' ? '出错的说法' : '回信'}</h4>${mdBlock(F.answer)}` : t.reply ? html`<h4>${t.state === 'failed' ? '出错的说法' : '回信'}</h4>${mdBlock(t.reply)}` : '') : '';
+  return html`${sent}${F && F.err ? html`<p class="note">${F.err}</p>` : ''}${ans}`;
+}
 function drawerHTML(t) {
   if (!t) return html`<div data-part="drawer" hidden></div>`;
   const a = by(st, t.from), b = by(st, t.to), x = cross(st, t), q = st.Q.find(q => q.band === t.id);
@@ -91,7 +109,8 @@ function drawerHTML(t) {
     ${t.state === 'asking' && q ? html`<p class="note">${q.paused ? '已放行，暂停中，继续后送出' : html`<span data-deadline="${q.deadline}" data-long="1">还剩 ${secsLeft(q, store.clock())} 秒，不点就不发</span>`}</p>` : ''}
     ${body && t.state === 'asking' ? html`<h4>要发的内容</h4><div class="reply">${secretBody(st, body)}</div>${secretNote(st, body)}` : t.state === 'asking' && q?.secrets?.length ? html`<p class="snote">${icon('key')}<span>发送前查到像 ${q.secrets.join('、')} 的字符串</span></p>` : ''}
     ${t.error && ['refused', 'lost', 'failed'].includes(t.state) ? html`<p class="note">${t.error}</p>` : t.stale ? html`<p class="note">两个多小时没有新消息，当成没回音</p>` : ''}
-    ${t.reply ? html`<h4>${t.state === 'failed' ? '出错的说法' : '回信'}</h4><div class="reply">${t.reply}</div>` : ''}
+    ${LIVE.includes(t.state) && t.error ? html`<p class="note warn">${t.error}</p>` : ''}${LIVE.includes(t.state) && t.doing ? html`<p class="note">正在：${t.doing}</p>` : ''}
+    ${t.state === 'asking' ? (t.reply ? html`<h4>回信</h4>${mdBlock(t.reply)}` : '') : fullHTML(t)}
     ${whyHTML(t)}${ctxHTML(t)}
     <div class="insp" style="border:0;padding:0"><div class="acts">${ask}${canRetry(t) ? html`<button class="btn" type="button" data-action="retry-task" data-id="${t.id}">重发</button>` : ''}${b.id === 'you' || (b.stub && st.mode === 'live') ? '' : html`<button class="ghost" type="button" data-action="jump" data-s="${b.id}">${icon('jump')}${jumpLabel(st, b)}</button>`}${t.state === 'home' && st.mode !== 'live' ? html`<button class="ghost" type="button" data-action="fwd">把回信转给指挥</button>` : ''}</div></div>
   </div>`;
@@ -106,10 +125,11 @@ export function mountTasks(main) {
     part(main, 'head', headHTML());
     part(main, 'list', listHTML(list));
     part(main, 'drawer', drawerHTML(open));
+    wantFull(open);
   };
   patch(main, html`<div data-part="head"></div><div class="body"><div data-part="list"></div><div data-part="drawer"></div></div>`);
   draw();
-  const off = store.on(['T', 'S', 'Q', 'DEV', 'RULES', 'SUB', 'lead', 'settings.secrets', 'ui.tasks'], draw);
+  const off = store.on(['T', 'S', 'Q', 'DEV', 'RULES', 'SUB', 'lead', 'settings.secrets', 'ui.tasks', 'FULL'], draw);
   return () => off();
 }
 

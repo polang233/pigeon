@@ -3,13 +3,13 @@
 // 在输入框里 @ 谁就是派活给谁，回信回到频道；没 @ 谁交给指挥；切成“留言”只记在频道里，不送给任何 agent。
 // 几块各自重画：chlist 频道列表、chhead 频道头、stream 消息流、picks 交给谁、people 成员。输入框只在换频道时重画，打字不重画。
 import { html, raw } from '../html.js';
-import { icon } from '../icons.js';
+import { icon, brand } from '../icons.js';
 import { $, part, patch, reduce } from '../dom.js';
 import { AG } from '../core/labels.js';
 import { by, cross, shortDev, jumpLabel, isYou } from '../core/names.js';
 import { channelsOf, streamOf, replyCount, mentionsOf, mentionAt, targetsOf } from '../core/channels.js';
-import { g, taskSt, stTag, devIc, secretBody, secretNote } from './parts.js';
-import { whyChip, whyHTML, ctxHTML, stepsHTML, canRetry, mountTasks } from './tasks.js';
+import { g, taskSt, stTag, devIc, secretBody, secretNote, modelTag } from './parts.js';
+import { whyChip, whyHTML, ctxHTML, stepsHTML, canRetry, mountTasks, mdBlock, fullOf, fullHTML, wantFull } from './tasks.js';
 import { registerAll } from '../actions.js';
 import { toast, after } from './toast.js';
 
@@ -23,8 +23,10 @@ const notesOf = c => (c && st.NOTES[c.id]) || [];
 const unreadOf = c => Math.max(0, replyCount(streamOf(st, c, [])) - (ui.chan.seen[c.id] ?? 0));
 
 // 头像：agent 用它的像素标志，你用信鸽
-const ava = (s, state) => s.id === 'you' ? html`<span class="g you">${icon('bird')}</span>` : g(s.agent, '', state);
+const ava = (s, state) => s.id === 'you' ? html`<span class="g you">${brand('you')}</span>` : g(s.agent, '', state);
 const devShort = d => st.DEV[d] ? shortDev(st, d) : d;
+// 用的模型和思考强度：这件任务新开对话时指定的优先，没有就用接活那个对话自己的；都不知道就不画
+const mdlOf = (t, s) => t && t.model ? { m: t.model, t: t.think } : s && s.model ? { m: s.model, t: s.think, run: s.state === 'run' } : null;
 // 路径只留最后两段，悬停看全的
 const shortPath = p => { const xs = String(p).split(/[\\/]/).filter(Boolean); return (xs.length > 2 ? '…/' : '') + xs.slice(-2).join(p.includes('\\') ? '\\' : '/'); };
 
@@ -62,24 +64,27 @@ function taskMsg(m) {
     ? html`<button class="btn sm" type="button" data-action="release" data-id="${t.id}">放行</button><button class="ghost sm" type="button" data-action="block" data-id="${t.id}">拦下</button>` : '';
   return html`<article class="msg task ${t.state}" id="m-${t.id}" data-id="${t.id}">${ava(a)}
     <div class="mb"><header><b>${a.id === 'you' ? '你' : AG[a.agent].name}</b>${a.id === 'you' ? '' : html`<small class="ell">${a.title}</small>`}
-      <span class="to"><span class="arrowto">→</span>${g(b.agent, 'sm')}<b>${AG[b.agent].name}</b>${x ? html`<span class="badge">${devIc(st, b.dev)}${devShort(b.dev)}</span>` : ''}<small class="ell">${b.title}</small></span><time class="num">${t.time}</time></header>
+      <span class="to"><span class="arrowto">→</span>${g(b.agent, 'sm')}<b>${AG[b.agent].name}</b>${x ? html`<span class="badge">${devIc(st, b.dev)}${devShort(b.dev)}</span>` : ''}<small class="ell">${b.title}</small>${modelTag(mdlOf(t, b))}</span><time class="num">${t.time}</time></header>
       <div class="bubble">${t.body && t.state === 'asking' ? secretBody(st, t.body) : t.title}</div>${t.body && t.state === 'asking' ? secretNote(st, t.body) : ''}
       <footer>${taskSt(t)}${whyChip(t)}<span class="sp"></span>${ask}${canRetry(t) ? html`<button class="btn sm" type="button" data-action="retry-task" data-id="${t.id}">重发</button>` : ''}
         <button class="linkbtn" type="button" data-action="msg-more" data-id="${t.id}" aria-expanded="${more ? 'true' : 'false'}">${more ? '收起' : '详情'}</button></footer>
-      ${more ? html`<div class="mdetail">${stepsHTML(t, x)}${t.error && ['refused', 'lost', 'failed'].includes(t.state) ? html`<p class="note">${t.error}</p>` : ''}${whyHTML(t)}${ctxHTML(t)}</div>` : ''}
+      ${more ? html`<div class="mdetail">${stepsHTML(t, x)}${t.error && ['refused', 'lost', 'failed'].includes(t.state) ? html`<p class="note">${t.error}</p>` : ''}${t.state === 'asking' ? '' : fullHTML(t, { reply: false })}${whyHTML(t)}${ctxHTML(t)}</div>` : ''}
     </div></article>`;
 }
 function replyMsg(m) {
   const t = m.t, s = by(st, m.from);
   if (!s) return '';
-  const text = m.own ? (t.reply ? `${t.title}\n${t.reply}` : t.title) : t.reply;
+  // 回信：读过全文就按 Markdown 画全文；没读过先画预览，预览可能被截短，给一个“看全文”
+  const F = fullOf(t.id), whole = F && F.answer;
+  const text = whole || (m.own ? (t.reply ? `${t.title}\n${t.reply}` : t.title) : t.reply);
+  const cut = !whole && st.mode === 'live' && !m.own;
   return html`<article class="msg reply ${m.thread ? 'threaded' : ''}" id="m-${m.id}">${ava(s, s.state)}
-    <div class="mb"><header><b>${AG[s.agent].name}</b><small class="ell">${s.title}</small><span class="rtag">回信</span>${s.dev !== st.home ? html`<span class="badge">${devIc(st, s.dev)}${devShort(s.dev)}</span>` : ''}<time class="num">${t.time}</time></header>
-      <div class="bubble">${text}</div>
+    <div class="mb"><header><b>${AG[s.agent].name}</b><small class="ell">${s.title}</small><span class="rtag">回信</span>${modelTag(mdlOf(t, s))}${s.dev !== st.home ? html`<span class="badge">${devIc(st, s.dev)}${devShort(s.dev)}</span>` : ''}<time class="num">${t.time}</time></header>
+      <div class="bubble">${mdBlock(text)}${cut ? html`<button class="linkbtn" type="button" data-action="msg-full" data-id="${t.id}">${F && F.busy ? '在读全文…' : F && F.err ? F.err + '，再试一次' : '看全文'}</button>` : ''}</div>
       <footer class="ract"><button class="ghost sm" type="button" data-action="chan-ask" data-s="${s.id}">接着问</button><button class="ghost sm" type="button" data-action="chan-fwd" data-id="${t.id}" data-s="${s.id}">转给…</button>${s.stub && st.mode === 'live' ? '' : html`<button class="ghost sm" type="button" data-action="jump" data-s="${s.id}">${icon('jump')}${jumpLabel(st, s)}</button>`}</footer>
     </div></article>`;
 }
-const noteMsg = m => html`<article class="msg note" id="m-${m.id}"><span class="g you">${icon('bird')}</span>
+const noteMsg = m => html`<article class="msg note" id="m-${m.id}"><span class="g you">${brand('you')}</span>
   <div class="mb"><header><b>你</b><span class="rtag">留言</span><time class="num">${m.time}</time></header><div class="bubble">${m.text}</div></div></article>`;
 
 function streamHTML(c) {
@@ -112,7 +117,7 @@ function peopleHTML(c) {
   if (!c || !ui.chan.people) return html`<aside class="people" data-part="people" hidden></aside>`;
   const L = c.lead && c.lead !== 'you' ? by(st, c.lead) : null;
   const row = (s, role) => html`<div class="prow">${ava(s, s.state)}<button type="button" class="pmain" data-action="chan-mention" data-s="${s.id}" data-tip="@ 它">
-      <b>${AG[s.agent].name}${role ? html`<i class="role">${role}</i>` : ''}</b><small class="ell">${s.title}</small></button>
+      <b>${AG[s.agent].name}${role ? html`<i class="role">${role}</i>` : ''}</b><small class="ell">${s.title}</small>${modelTag(mdlOf(null, s))}</button>
       ${stTag(s.state)}</div>`;
   const byDev = {};
   c.members.map(id => by(st, id)).filter(Boolean).forEach(s => (byDev[s.dev] ??= []).push(s));
@@ -120,9 +125,9 @@ function peopleHTML(c) {
   const rest = st.S.filter(s => !s.parent && !s.relay && s.id !== c.lead && !c.members.includes(s.id));
   return html`<aside class="people" data-part="people" aria-label="成员">
     <div class="people-h"><b>成员</b><span class="sp"></span><button class="px" type="button" data-action="chan-people" aria-label="收起成员">${icon('x')}</button></div>
-    <h3>指挥</h3>${L ? row(L, '') : html`<div class="prow"><span class="g you">${icon('bird')}</span><div class="pmain"><b>你</b><small>你自己派活</small></div></div>`}
+    <h3>指挥</h3>${L ? row(L, '') : html`<div class="prow"><span class="g you">${brand('you')}</span><div class="pmain"><b>你</b><small>你自己派活</small></div></div>`}
     ${devs.map(d => html`<h3>${devIc(st, d)}${st.DEV[d]?.name || d} · ${byDev[d].length}</h3>${byDev[d].map(s => row(s, ''))}`)}
-    ${isYou(st) ? '' : html`<h3>你</h3><div class="prow"><span class="g you">${icon('bird')}</span><div class="pmain"><b>你</b><small>在频道里留言、@ 谁派活</small></div></div>`}
+    ${isYou(st) ? '' : html`<h3>你</h3><div class="prow"><span class="g you">${brand('you')}</span><div class="pmain"><b>你</b><small>在频道里留言、@ 谁派活</small></div></div>`}
     <details class="pull"><summary class="ghost">${icon('plus')}拉进来</summary>
       ${rest.length ? rest.map(s => html`<button type="button" class="prow pick-in" data-action="chan-pull" data-s="${s.id}">${ava(s, s.state)}<span class="pmain"><b>${AG[s.agent].name}</b><small class="ell">${s.title} · ${devShort(s.dev)}</small></span></button>`) : html`<p class="mut">别的对话都在这个频道里了</p>`}
     </details></aside>`;
@@ -247,7 +252,7 @@ export function mountChannels(main) {
   if (main.clientWidth && main.clientWidth < 1000) ui.chan.people = false;
   patch(main, html`<div class="chan" id="chan"><aside data-part="chlist"></aside><section class="chmain" id="chmain"></section><aside data-part="people"></aside></div>`);
   draw();
-  const off = store.on(['T', 'S', 'Q', 'DEV', 'NOTES', 'lead', 'RULES', 'SUB', 'paused', 'ui.chan', 'settings.secrets'], draw);
+  const off = store.on(['T', 'S', 'Q', 'DEV', 'NOTES', 'lead', 'RULES', 'SUB', 'paused', 'ui.chan', 'settings.secrets', 'FULL'], draw);
   const offPicks = store.on(['ui.chan.picks'], () => { const c = current(); if (c) { part($('#chmain', root), 'picks', picksHTML(c)); const ta = $('#chan-input', root); if (ta) ta.placeholder = ui.chan.mode === 'note' ? '写一句留言，只记在频道里' : '@ 交给谁，写下要做的事；不 @ 就交给指挥'; } });
   const blur = e => {
     if (!e.target.closest?.('#mention, #chan-input')) hideMenu();
@@ -305,8 +310,10 @@ export function initChannels(s) {
     },
     'chan-pull': ({ d }) => { const c = current(); if (c) { store.chanPull(c.id, d.s); toast('拉进来了（原型里只记在这个页面，刷新就没了）'); } },
     // 展开或收起一件的详情：只重画消息流，滚动位置不动
+    // 回信看全文：读完 FULL 话题会重画
+    'msg-full': ({ d }) => { const t = st.T.find(x => x.id === d.id); if (t && store.loadFull) store.loadFull(t.id); },
     'msg-more': ({ d }) => {
-      if (opened.has(d.id)) opened.delete(d.id); else opened.add(d.id);
+      if (opened.has(d.id)) opened.delete(d.id); else { opened.add(d.id); wantFull(st.T.find(x => x.id === d.id)); }
       const c = current(), sv = $('[data-part="stream"]', root); if (!c || !sv) return;
       const top = sv.scrollTop; part($('#chmain', root), 'stream', streamHTML(c)); $('[data-part="stream"]', root).scrollTop = top;
     },

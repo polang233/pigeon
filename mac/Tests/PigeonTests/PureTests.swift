@@ -71,6 +71,12 @@ import Testing
         t.ingest(ev("UserPromptSubmit", ["prompt": "修一下登录\n第二行"]), now: t0)
         var e = t.entry(agent: "claude", id: "s1")!
         #expect(e.state == "run" && e.activity == "thinking" && e.title == "修一下登录")
+        // Claude Code 自己发起的一轮（后台任务做完的通知、斜杠命令）不改标题
+        for raw in ["<task-notification>\n<task-id>b1</task-id>", "<command-name>/clear</command-name>", "  \n<local-command-stdout>x</local-command-stdout>"] {
+            t.ingest(ev("UserPromptSubmit", ["prompt": raw]), now: t0)
+        }
+        #expect(t.entry(agent: "claude", id: "s1")!.title == "修一下登录")
+        #expect(SessionTracker.title("<b>粗体</b> 也是用户写的") == "<b>粗体</b> 也是用户写的")
         t.ingest(ev("PreToolUse", ["tool_name": "Bash", "tool_input": ["command": "swift test"], "tool_use_id": "u1"]), now: t0 + 1)
         e = t.entry(agent: "claude", id: "s1")!
         #expect(e.activity == "testing" && e.detail == "swift test")
@@ -218,6 +224,10 @@ import Testing
         #expect(Hub.openArguments(agent: "codex", session: "abc-123").args == ["codex://threads/abc-123"])
         #expect(Hub.openArguments(agent: "codex", session: "a b/../x").args == nil)
         #expect(Hub.openArguments(agent: "you", session: "").args == nil)
+        // agy 命令行的对话：在终端里 agy -r 接着打开，目录用单引号包好
+        let sc = Hub.agyTerminalScript(session: "4db2e2c5-a12d", cwd: "/Users/x/it's", agy: "/Users/x/.local/bin/agy")
+        #expect(sc == "#!/bin/zsh\ncd '/Users/x/it'\\''s' 2>/dev/null || cd ~\nexec '/Users/x/.local/bin/agy' -r 4db2e2c5-a12d\n")
+        #expect(Hub.agyTerminalScript(session: "a; rm -rf x", cwd: "", agy: "agy") == nil)
     }
 }
 

@@ -24,6 +24,7 @@
 //   USAGE      用量统计（只有应用模式）
 //   HOOKS      Codex 回调的开关状态（只有应用模式）
 //   RELAY      中继站：在用的和用过的、各自的模型和上下文大小（接入页打开远程设备的设置时读）
+//   FULL       任务的全文：发出去的正文和完整回信（打开任务详情、频道里展开时读），state.FULL[编号]
 //   link       和应用的连接断了或者连上了（只有应用模式）
 //   NOTES      频道里的留言
 //   ui.*       界面状态：ui.view 当前页、ui.open 远程设备展开、ui.stage.page/sel、ui.tasks、ui.chan、ui.route.try/hit、

@@ -248,9 +248,33 @@ extension Hub {
         }
     }
 
+    /// Antigravity 命令行 agy 的对话不显示在 Antigravity 应用里（官方还没打通，见 google-antigravity/antigravity-cli#1773），
+    /// 所以在终端里用 `agy -r <id>` 接着打开：写一个 .command 小脚本，交给“终端”运行。cwd 是那个对话原来的目录（agy 的历史按目录分）
+    static func agyTerminalScript(session: String, cwd: String, agy: String) -> String? {
+        guard !session.isEmpty, safeID.firstMatch(in: session, range: NSRange(session.startIndex..., in: session)) != nil else { return nil }
+        let q = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let dir = cwd.isEmpty ? "" : "cd \(q(cwd)) 2>/dev/null || "
+        return "#!/bin/zsh\n\(dir)cd ~\nexec \(q(agy)) -r \(session)\n"
+    }
+    static func agyPath() -> String? {
+        let local = Paths.home.appendingPathComponent(".local/bin/agy").path
+        return FileManager.default.isExecutableFile(atPath: local) ? local : Detector.which("agy")
+    }
+
     func performOpen(_ body: Data, completion: @escaping @Sendable (Int, Data) -> Void) {
         guard let req = bodyObject(body) else { return completion(400, fail(400, "请求体必须是 JSON 对象").1) }
-        let (args, error) = Self.openArguments(agent: req["agent"] as? String ?? "", session: req["session"] as? String ?? "")
+        var (args, error) = Self.openArguments(agent: req["agent"] as? String ?? "", session: req["session"] as? String ?? "")
+        if req["agent"] as? String == "antigravity", req["via"] as? String == "cli" {
+            guard let agy = Self.agyPath() else { return completion(400, fail(400, "没找到 Antigravity 的命令行 agy").1) }
+            guard let script = Self.agyTerminalScript(session: req["session"] as? String ?? "", cwd: req["cwd"] as? String ?? "", agy: agy) else { return completion(400, fail(400, "对话 id 里有不能用的字符").1) }
+            let dir = Paths.dataDir.appendingPathComponent("tmp", isDirectory: true), file = dir.appendingPathComponent("agy-resume.command")
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try script.write(to: file, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+            } catch { return completion(500, fail(500, "没能写出打开用的小脚本").1) }
+            args = ["-a", "Terminal", file.path]; error = ""
+        }
         guard let args else { return completion(400, fail(400, error).1) }
         let opener = self.opener
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -280,6 +304,23 @@ extension Hub {
             let r = Runner.run(executable: node, arguments: full, stdin: nil, environment: env, cwd: Paths.home, timeout: 30)
             let (status, out) = Self.interpretRelay(r)
             queue.async { completion(status, out) }
+        }
+    }
+
+    // MARK: 一张纸条的全文
+
+    static let bandPattern = try! NSRegularExpression(pattern: #"^[a-z]-[0-9a-f]{6,16}$"#)
+    /// GET /api/notes/<编号>：`pigeon read <编号> --json`，发出去的正文和完整回信（原样的 Markdown），任务详情和频道里看全文用
+    func performNoteFull(band: String, completion: @escaping @Sendable (Int, Data) -> Void) {
+        guard Self.bandPattern.firstMatch(in: band, range: NSRange(band.startIndex..., in: band)) != nil else { return completion(400, fail(400, "编号不对").1) }
+        guard let node = Detector.which("node") else { return completion(500, fail(500, "没找到 node").1) }
+        guard let scripts = scriptsDir() else { return completion(500, fail(500, "没找到 pigeon.mjs").1) }
+        let env = childEnvironment(nodePath: node), queue = self.queue
+        let full = [scripts.appendingPathComponent("pigeon.mjs").path, "read", band, "--json"]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = Runner.run(executable: node, arguments: full, stdin: nil, environment: env, cwd: Paths.home, timeout: 30)
+            let (status, out) = Self.interpretRelay(r)
+            queue.async { completion(status == 409 ? 404 : status, out) }
         }
     }
 

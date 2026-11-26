@@ -248,10 +248,13 @@ struct SessionTracker {
         }
     }
 
+    /// 对话标题取用户这一轮说的第一行。Claude Code 自己发起的一轮（后台任务做完的 <task-notification>、
+    /// 斜杠命令的 <command-name>、<local-command-stdout> 之类）不是用户说的话，不拿来当标题，原标题不动
     static func title(_ raw: Any?) -> String? {
         guard let s = raw as? String else { return nil }
-        let line = s.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
-        return line.map { String($0.prefix(60)) }
+        guard let line = s.split(whereSeparator: \.isNewline).map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty }) else { return nil }
+        if line.range(of: #"^<[a-z]+(-[a-z]+)+[ >]"#, options: .regularExpression) != nil { return nil }
+        return String(line.prefix(60))
     }
 
     /// StopFailure 里的错误原因，翻成一句中文

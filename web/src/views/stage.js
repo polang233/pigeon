@@ -17,8 +17,8 @@ import { $, $$, patch, part, reduce } from '../dom.js';
 import { whileVisible } from '../visible.js';
 import { AG, ST, TS, TH, ACT, LIVE } from '../core/labels.js';
 import { by, cross, kids, worst, shortDev, jumpLabel, isPaused, isYou, leadKey, canLead, canTake, online } from '../core/names.js';
-import { pagesOf, stateOf, parentOf, edgeOf, modelOf, poseOf, pageSessions, events, leadSessions } from '../core/pages.js';
-import { zoomOf, gridOf, leavesOf, placeCells, cellXY, edgePath, cellsOf, freeCell, saveCell, loadCell, nearestCell } from '../core/layout.js';
+import { pagesOf, stateOf, parentOf, edgeOf, routesOf, routeOf, modelOf, poseOf, pageSessions, events, leadSessions } from '../core/pages.js';
+import { zoomOf, gridOf, leavesOf, placeCells, cellXY, edgePath, routePath, cellsOf, freeCell, saveCell, loadCell, nearestCell } from '../core/layout.js';
 import { qc } from '../core/quota.js';
 import { rst } from '../core/time.js';
 import { g, stTag, taskSt, devIc, devBadge, quotaDisc, modelTag, LINK, icOf } from './parts.js';
@@ -91,9 +91,9 @@ function groupHTML(n, k) {
       <div class="gminis">${n.agents.map(mini)}</div></div></div>`;
 }
 
-// 你自己当指挥：中心画一只信鸽和“你”
+// 你自己当指挥：中心是那只灰色的像素信鸽（原来停在指挥头上的那只，偶尔低头啄一下），放进卡片里，头上不再另停一只
 const youHTML = sk => html`<button type="button" class="node k-lead k-you" data-center ${selAttrs({ t: 'you' })} aria-label="你，指挥">
-    <span class="ava">${sk ? '' : raw('<i class="perch" aria-hidden="true"></i>')}<span class="youface">${icon('bird')}</span></span>
+    <span class="ava"><span class="youface"><i class="youpet" aria-hidden="true"></i></span></span>
     <span class="nm">你</span><span class="mdl"><span>自己派活</span></span></button>`;
 function nodeHTML(n, k, sk) {
   if (n.kind === 'group') return groupHTML(n, k);
@@ -111,7 +111,8 @@ function nodeHTML(n, k, sk) {
     </button>`;
 }
 // 一只鸽子：会自己动的 SVG 做背景
-const bird = (a, cls, k) => { const p = Brand().pigeon(hex(a === 'you' ? 'accent' : a), cls === 'wait' ? 'hover' : 'fly'); return html`<i class="pg ${cls}" data-k="${k}" style="--sheet:${p.url};--fw:${p.w * 1.6}px;--fh:${p.h * 1.6}px"></i>`; };
+// k 是连到第 k 个节点的那段线；route 为真时 k 是第几条整条路线（routesOf）
+const bird = (a, cls, k, route = false) => { const p = Brand().pigeon(hex(a === 'you' ? 'accent' : a), cls === 'wait' ? 'hover' : 'fly'); return html`<i class="pg ${cls} ${route ? 'route' : ''}" ${route ? html`data-r="${k}"` : html`data-k="${k}"`} style="--sheet:${p.url};--fw:${p.w * 1.6}px;--fh:${p.h * 1.6}px"></i>`; };
 
 function pageHTML(p, i, sk) {
   const off = !online(st, p.key), only = PAGES.length === 1;
@@ -123,6 +124,7 @@ function pageHTML(p, i, sk) {
     ${only ? html`<div class="emptyhint"><span>只有这台电脑。要把活派到别的电脑上，先添加一台。</span><button class="ghost" type="button" data-action="adddev">${icon('plus')}添加设备</button></div>` : ''}
     <div class="orbit"><svg class="wires" aria-hidden="true"></svg>
       ${p.nodes.map((n, k) => { const e = edgeOf(st, p, k); return e.st ? bird(e.a, e.st, k) : ''; })}
+      ${routesOf(st, p).map((r, j) => bird(r.a, r.st, j, true))}
       ${nodeHTML(p.center, null, sk)}${p.nodes.map((n, k) => nodeHTML(n, k, sk))}
     </div></section>`;
 }
@@ -182,12 +184,21 @@ function wire(i) {
   const { p, orbit, z, b, W, H } = G, N = p.nodes, arc = st.settings.lines === 'arc';
   const A = b.map(o => { const av = $('.ava, .gcard', o.el); return { cx: o.x - o.w / 2 + (av.offsetLeft + av.offsetWidth / 2) * z, cy: o.y - o.h / 2 + (av.offsetTop + av.offsetHeight / 2) * z, rx: av.offsetWidth / 2 * z, ry: av.offsetHeight / 2 * z }; });
   const E = N.map((n, k) => edgePath(A[n.from + 1], A[k + 1], z, arc));
+  // 整条的路线：别的 agent 发的活，从发信方一路连到收信方（经过你，或者两个 agent 直接连）
+  const R = routesOf(st, p).map(r => ({ ...r, ...routePath(A, r.hops, r.peer, z, arc) }));
+  const colA = a => hex(a === 'you' ? 'accent' : a);
   const col = n => n.kind === 'group' ? hex('accent') : hex(n.a);
   const wires = $('svg.wires', orbit);
   wires.setAttribute('viewBox', `0 0 ${W} ${H}`);
   wires.setAttribute('class', `wires ${arc ? 'arc' : 'px'}`);
-  wires.innerHTML = String(html`<defs>${N.map((n, k) => { const [x1, y1, x2, y2] = E[k].g; return html`<linearGradient id="gr${i}-${k}" gradientUnits="userSpaceOnUse" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"><stop offset="0" stop-color="${col(parentOf(p, k))}"/><stop offset="1" stop-color="${col(n)}"/></linearGradient>`; })}</defs>${N.map((n, k) => { const crossing = n.dev !== parentOf(p, k).dev; return html`<path data-k="${k}" ${arc ? '' : html`style="stroke:url(#gr${i}-${k})"`} class="${edgeOf(st, p, k).st} ${crossing ? 'cross' : ''} ${n.from >= 0 && !crossing ? 'dotted' : ''}" d="${E[k].d}"/>`; })}`);
-  $$('.pg', orbit).forEach(el => { const k = +el.dataset.k; el.style.offsetPath = `path("${E[k].d}")`; if (!el.style.animationDelay) el.style.animationDelay = `${(k * .41) % 1.8}s, 0s`; el.classList.toggle('flip', el.classList.contains('back') ? !E[k].left : E[k].left); });
+  wires.innerHTML = String(html`<defs>${N.map((n, k) => { const [x1, y1, x2, y2] = E[k].g; return html`<linearGradient id="gr${i}-${k}" gradientUnits="userSpaceOnUse" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"><stop offset="0" stop-color="${col(parentOf(p, k))}"/><stop offset="1" stop-color="${col(n)}"/></linearGradient>`; })}${R.map((r, j) => { const [x1, y1, x2, y2] = r.g; return html`<linearGradient id="rg${i}-${j}" gradientUnits="userSpaceOnUse" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"><stop offset="0" stop-color="${colA(r.a)}"/><stop offset="1" stop-color="${colA(r.b)}"/></linearGradient>`; })}</defs>${N.map((n, k) => { const crossing = n.dev !== parentOf(p, k).dev; return html`<path data-k="${k}" ${arc ? '' : html`style="stroke:url(#gr${i}-${k})"`} class="${edgeOf(st, p, k).st} ${crossing ? 'cross' : ''} ${n.from >= 0 && !crossing ? 'dotted' : ''}" d="${E[k].d}"/>`; })}${R.map((r, j) => html`<path data-r="${j}" data-t="${r.t}" class="route ${r.st} ${r.peer >= 0 ? 'peer' : ''}" style="stroke:url(#rg${i}-${j})" d="${r.d}"/>`)}`);
+  $$('.pg', orbit).forEach(el => {
+    const route = el.dataset.r != null, k = route ? +el.dataset.r : +el.dataset.k, P = route ? R[k] : E[k];
+    if (!P) return;
+    el.style.offsetPath = `path("${P.d}")`; if (!el.style.animationDelay) el.style.animationDelay = `${(k * .41) % 1.8}s, 0s`;
+    // 路线中途会拐回头，鸽子朝着整条路线的大方向
+    el.classList.toggle('flip', el.classList.contains('back') ? !P.left : P.left);
+  });
   // 跨设备的那一段，靠收信那头标出是怎么连的
   $$('.linkb', orbit).forEach(el => el.remove());
   N.forEach((n, k) => {
@@ -208,7 +219,7 @@ function wire(i) {
     el.innerHTML = String(html`<header><span class="gdev">${devIc(st, od)}</span><b>${st.DEV[od].name}</b><button type="button" class="gx" data-action="fold-dev" data-dev="${od}" data-tip="收起">${icon('fold')}</button></header>`);
     orbit.insertBefore(el, wires);
   }
-  if (hot.i === i) hot.ks.forEach(k => $(`path[data-k="${k}"]`, wires)?.classList.add('hot'));
+  if (hot.i === i) { hot.ks.forEach(k => $(`path[data-k="${k}"]`, wires)?.classList.add('hot')); if (hot.t) $(`path[data-t="${hot.t}"]`, wires)?.classList.add('hot'); }
 }
 
 /* ---------- 实验样式的画布：逐帧画头像、画背景 ---------- */
@@ -326,9 +337,14 @@ function ticker(reset) {
   if (!ev.length) { el.innerHTML = '<span class="mut">安静</span>'; return; }
   if (reset) tkI = 0;
   const { t, at } = ev[tkI % ev.length], a = by(st, t.from), b2 = by(st, t.to);
-  hot = { i: pi, ks: [] };
+  hot = { i: pi, ks: [], t: '' };
   const hl = k => { if (k < 1) return; const n = p.nodes[k - 1]; hot.ks.push(k - 1); $(`path[data-k="${k - 1}"]`, orbit)?.classList.add('hot'); $(`.node[data-k="${k - 1}"]`, orbit)?.classList.add('hot'); hl(n.from + 1); };
-  hl(at); $('.node[data-center]', orbit)?.classList.add('hot');
+  const rt = routeOf(st, p, t);
+  if (rt) {
+    // 别的 agent 发的：亮起整条路线和沿路的节点
+    hot.t = t.id; $(`path[data-t="${t.id}"]`, orbit)?.classList.add('hot');
+    rt.hops.forEach(k => (k ? $(`.node[data-k="${k - 1}"]`, orbit) : $('.node[data-center]', orbit))?.classList.add('hot'));
+  } else { hl(at); $('.node[data-center]', orbit)?.classList.add('hot'); }
   el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
   patch(el, html`<button type="button" data-action="open-task" data-id="${t.id}"><span class="g sm">${brand(a.agent)}</span><span class="arr">→</span><span class="g sm">${brand(b2.agent)}</span>${cross(st, t) ? html`<span class="badge">${devIc(st, b2.dev)}${shortDev(st, b2.dev)}</span>` : ''}<span class="ell">${t.title}</span><i class="dot ${LIVE.includes(t.state) ? 'run' : ''}" style="--s:${TS[t.state][1]}" data-tip="${TS[t.state][0]}" role="img" aria-label="${TS[t.state][0]}"></i></button>`);
   tkI++;
@@ -410,7 +426,7 @@ function drawInsp() {
       ${others.length ? html`<h3>指挥的其他对话 · ${others.length}</h3><div class="list">${others.map(o => html`<button type="button" class="item" ${selAttrs({ t: 'session', id: o.id })}>${g(o.agent, 'sm')}<div><b>${o.title}</b><small>${o.state === 'error' ? o.error : o.note}</small></div>${stTag(o.state)}</button>`)}</div>` : ''}`;
   } else if (sel.t === 'you') {
     const ts = st.T.filter(t => t.from === 'you');
-    h = html`<div class="who"><span class="g">${icon('bird')}</span><div><b>你</b><small>指挥 · 在 Pigeon 里自己派活</small></div></div>
+    h = html`<div class="who"><span class="g">${brand('you')}</span><div><b>你</b><small>指挥 · 在 Pigeon 里自己派活</small></div></div>
       <p class="note">你派的活回信不送回任何对话，在任务页和刘海的“回信到了”里看。</p>
       <div class="acts"><button class="btn" type="button" data-action="compose">${icon('send')}派活</button><button class="ghost" type="button" data-action="nav" data-v="conn">换指挥</button></div>
       <h3>你派的 · ${ts.length}</h3><div class="list">${ts.length ? ts.map(taskRow) : html`<p class="note">还没派过。点“派活”，或者在刘海上快速派活</p>`}</div>`;
