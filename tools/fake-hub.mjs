@@ -8,6 +8,8 @@
 // 调试用的几个地址（不在契约里）：
 //   GET /__fake/fail?path=/api/pause&status=500&error=…&n=1   接下来 n 次请求这个路径都回错（看页面的错误提示）
 //   GET /__fake/magpie?on=0                                   magpie 的三个接口回 502（on=1 恢复）
+//   GET /__fake/usage?on=0                                    用量回空（看接入页用量的空状态，on=1 恢复）
+//   GET /__fake/setup?plugin=none|installed|ok                新装检查清单里 Claude Code 插件的状态（刷新页面后看）
 //   GET /__fake/drop                                          断开所有 SSE 连接（看页面的重连）
 //   GET /__fake/state                                         看现在的设置、最近一次 PUT /api/dispatch、刘海收到的请求
 //   GET /__fake/ask                                           来一件跨设备的事排进等你的一队
@@ -106,6 +108,15 @@ const usage = { day: new Date(T0).toISOString().slice(0, 10), agents: {
 } };
 const codexModels = [{ slug: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', efforts: ['low', 'medium', 'high', 'xhigh'] }, { slug: 'gpt-6.1-mini', name: 'GPT-6.1 mini', efforts: ['minimal', 'low', 'medium', 'high'] }];
 let hooks = { installed: true, working: true, detail: '已收到 Codex 的事件' };
+let usageOn = true;
+// 新装检查清单（GET /api/setup）和统一 MCP（GET/POST /api/mcp）
+let plugin = { installed: true, hookReceived: true };
+const setupOf = () => ({ node: { ok: true, path: '/usr/local/bin/node', version: 'v22.15.0', zstd: true }, claudePlugin: plugin, codexHooks: hooks, marketplacePath: '/Applications/Pigeon.app/Contents/Resources', pigeonScript: '', localSessions: 3 });
+const mcp = { wrapper: '~/.pigeon/pigeon-mcp', script: '', nodeOk: true, clients: {
+  codex: { installed: true, configPath: '~/.codex/config.toml', detail: '' },
+  antigravity: { installed: false, configPath: '~/.gemini/config/mcp_config.json', detail: '' },
+  cursor: { installed: false, configPath: '~/.cursor/mcp.json', detail: '' },
+} };
 let magpieOn = process.env.FAKE_MAGPIE !== 'off';
 const iso = s => new Date(T0 + s * 1000).toISOString();
 const magpie = {
@@ -211,6 +222,8 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'), path = url.pathname, M = req.method;
   if (path.startsWith('/__fake/')) {
     if (path === '/__fake/fail') { fails.set(url.searchParams.get('path'), { status: Number(url.searchParams.get('status') || 500), error: url.searchParams.get('error') || '假服务故意回错', n: Number(url.searchParams.get('n') || 1) }); return json(res, 200, { ok: true, fails: [...fails] }); }
+    if (path === '/__fake/usage') { usageOn = url.searchParams.get('on') !== '0'; send({ type: 'usage', usage: usageOn ? usage : { day: usage.day, agents: {} } }); return json(res, 200, { ok: true, usageOn }); }
+    if (path === '/__fake/setup') { const v = url.searchParams.get('plugin'); plugin = { installed: v !== 'none', hookReceived: v === 'ok' || !v }; return json(res, 200, { ok: true, plugin }); }
     if (path === '/__fake/magpie') { magpieOn = url.searchParams.get('on') !== '0'; return json(res, 200, { ok: true, magpieOn }); }
     if (path === '/__fake/drop') { for (const c of clients) c.end(); clients.clear(); return json(res, 200, { ok: true }); }
     if (path === '/__fake/run') { runDemo(); return json(res, 200, { ok: true }); }
@@ -277,7 +290,15 @@ const server = http.createServer(async (req, res) => {
     if (M === 'PATCH') { if (!body || typeof body !== 'object' || Array.isArray(body)) return json(res, 400, { error: '设置要是一个对象' }); mergeInto(settings, body); pushSettings(); return json(res, 200, settings); }
   }
   if (path === '/api/detect') { if (M === 'POST') send({ type: 'detect', ts: Date.now(), agents: detect }); return json(res, 200, detect); }
-  if (path === '/api/usage' && M === 'GET') return json(res, 200, usage);
+  if (path === '/api/usage' && M === 'GET') return json(res, 200, usageOn ? usage : { day: usage.day, agents: {} });
+  if (path === '/api/setup' && M === 'GET') return json(res, 200, setupOf());
+  if (path === '/api/mcp') {
+    if (M === 'POST') {
+      if (!mcp.clients[body.client]) return json(res, 400, { error: '没有这个应用' });
+      mcp.clients[body.client].installed = !!body.enable; send({ type: 'mcp', mcp });
+    }
+    return json(res, 200, mcp);
+  }
   if (path === '/api/codex/models' && M === 'GET') return json(res, 200, codexModels);
   if (path === '/api/agents/models' && M === 'GET') return json(res, 200, { antigravity: { updated: T0, live: true, default: { model: 'gemini-4-neon', effort: 'high' }, models: [
     { id: 'gemini-4-neon', name: 'Gemini 4 Neon', efforts: ['low', 'medium', 'high', 'xhigh'], tag: 'New' },
