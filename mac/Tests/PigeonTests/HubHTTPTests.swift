@@ -47,6 +47,10 @@ import Testing
         let (_, data) = try await c.post("/api/ask", ["kind": "cross", "band": "b-t", "preview": "x", "timeoutSec": 1])
         #expect(json(data)["action"] as? String == "timeout")
         #expect(try await queueItems(c).isEmpty)
+        // 转派也有等待上限，不会一直挂着
+        let (_, d2) = try await c.post("/api/ask", ["kind": "relay", "band": "b-r", "preview": "x", "timeoutSec": 1])
+        #expect(json(d2)["action"] as? String == "timeout")
+        #expect(try await queueItems(c).isEmpty)
     }
 
     @Test func settingsDefaultTimeoutUsed() async throws {
@@ -317,6 +321,31 @@ import Testing
             hub.send(jsonBytes(["to": ["agent": "codex", "session": "s9"], "text": "yo"])) { cont.resume(returning: $0) }
         }
         #expect(json(viaAPI)["band"] as? String == "b-fake000001")
+
+        // 本机新开对话带上 cwd（频道派活时用）
+        let withCwd = try await c.post("/api/send", ["to": ["loft": "local", "agent": "antigravity", "session": ""], "text": "听一下", "cwd": "/tmp/my-proj"])
+        #expect(withCwd.0 == 200 && json(withCwd.1)["ok"] as? Bool == true)
+        let cwdArgs = try call()["args"] as? [String] ?? []
+        #expect(cwdArgs.contains("--agent=antigravity") && cwdArgs.contains("--cwd=/tmp/my-proj"))
+    }
+
+    @Test(.enabled(if: Detector.which("node") != nil)) func setupAndLocalLoftsRefresh() async throws {
+        TestEnv.prepare()
+        let hub = try await Client.startHub(port: 47415)
+        defer { hub.stop() }
+        hub.pluginScriptsOverride = try fakePlugin(script: Self.recorder)
+        let c = Client(port: 47415)
+
+        let (st1, setupData) = try await c.get("/api/setup")
+        #expect(st1 == 200)
+        let setup = json(setupData)
+        #expect((setup["node"] as? [String: Any])?["ok"] as? Bool == true)
+        #expect(setup["claudePlugin"] != nil && setup["codexHooks"] != nil)
+
+        let (st2, localData) = try await c.post("/api/lofts/local", [String: Any]())
+        #expect(st2 == 200 && json(localData)["ok"] as? Bool == true)
+        let rec = json(try Data(contentsOf: Paths.dataDir.appendingPathComponent("fake-call.json")))
+        #expect(rec["args"] as? [String] == ["lofts"])
     }
 
     @Test(.enabled(if: Detector.which("node") != nil)) func refreshRunsLoftsCommand() async throws {
@@ -345,6 +374,129 @@ import Testing
         #expect(json(r.1)["ok"] as? Bool == true && calls.value == [["codex://threads/abc"]])
         #expect(try await c.post("/api/open", ["agent": "codex", "session": "a b"]).0 == 400)
     }
+
+    @Test func runsAndAutostartEndpoints() async throws {
+        TestEnv.prepare()
+        let fm = FileManager.default
+        try fm.createDirectory(at: Paths.runsDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: Paths.runningDir, withIntermediateDirectories: true)
+        defer {
+            try? fm.removeItem(at: Paths.runsDir)
+            try? fm.removeItem(at: Paths.runningDir)
+        }
+        try jsonBytes(["id": "pg-done", "title": "已完成", "kind": "review", "status": "done", "started": 1000, "ended": 2000, "updated": 2000])
+            .write(to: Paths.runsDir.appendingPathComponent("pg-done.meta.json"))
+        try jsonBytes(["id": "pg-stale", "title": "中断了", "kind": "code", "status": "running", "started": 3000, "updated": 3000])
+            .write(to: Paths.runsDir.appendingPathComponent("pg-stale.meta.json"))
+        let deadLock = Paths.runningDir.appendingPathComponent("999999.pg-stale")
+        try Data("3000".utf8).write(to: deadLock)
+        try jsonBytes(["id": "pg-live", "title": "还在跑", "kind": "code", "status": "running", "started": 4000, "updated": 4000])
+            .write(to: Paths.runsDir.appendingPathComponent("pg-live.meta.json"))
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let liveLock = Paths.runningDir.appendingPathComponent("\(pid).pg-live")
+        try Data("4000".utf8).write(to: liveLock)
+
+        let hub = try await Client.startHub(port: 47416)
+        defer { hub.stop() }
+        let c = Client(port: 47416)
+
+        let (stRuns, runsData) = try await c.get("/api/runs")
+        #expect(stRuns == 200)
+        let runs = json(runsData)["runs"] as? [[String: Any]] ?? []
+        let byID = Dictionary(uniqueKeysWithValues: runs.compactMap { r in (r["id"] as? String).map { ($0, r) } })
+        #expect(byID["pg-done"]?["status"] as? String == "done")
+        #expect(byID["pg-stale"]?["status"] as? String == "failed")
+        #expect(byID["pg-live"]?["status"] as? String == "running")
+        #expect(!fm.fileExists(atPath: deadLock.path))
+        #expect(fm.fileExists(atPath: liveLock.path))
+
+        let (stAuto, autoData) = try await c.get("/api/autostart")
+        #expect(stAuto == 200)
+        let auto = json(autoData)
+        #expect(auto["supported"] as? Bool == false && auto["enabled"] as? Bool == false)
+    }
+
+    @Test func mcpInstallAndHTTPEndpoints() async throws {
+        TestEnv.prepare()
+        let fm = FileManager.default
+        let codexFile = MCPInstall.Client.codex.configFile
+        let agyFile = MCPInstall.Client.antigravity.configFile
+        let cursorFile = MCPInstall.Client.cursor.configFile
+        try? fm.removeItem(at: codexFile)
+        try? fm.removeItem(at: agyFile)
+        try? fm.removeItem(at: cursorFile)
+        try? fm.removeItem(at: MCPInstall.wrapperURL)
+
+        // 已有注释、其他 MCP、项目表都要原样保留
+        try fm.createDirectory(at: codexFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let initialToml = """
+        # keep comment
+        [mcp_servers.node_repl]
+        command = "node"
+
+        [projects."/tmp/demo"]
+        trust_level = "trusted"
+        """
+        try Data(initialToml.utf8).write(to: codexFile)
+
+        try fm.createDirectory(at: cursorFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"mcpServers":{"other":{"command":"echo"}}}"#.utf8).write(to: cursorFile)
+
+        // 提供虚假脚本目录 + fake node 检查
+        let fakeScripts = TestEnv.root.appendingPathComponent("mcp-scripts", isDirectory: true)
+        try fm.createDirectory(at: fakeScripts, withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env node\n".utf8).write(to: fakeScripts.appendingPathComponent("mcp.mjs"))
+
+        let hub = try await Client.startHub(port: 47417)
+        hub.pluginScriptsOverride = fakeScripts
+        defer { hub.stop() }
+        let c = Client(port: 47417)
+
+        let (stGet, getData) = try await c.get("/api/mcp")
+        #expect(stGet == 200)
+        let clients0 = json(getData)["clients"] as? [String: Any]
+        #expect((clients0?["codex"] as? [String: Any])?["installed"] as? Bool == false)
+        #expect((clients0?["cursor"] as? [String: Any])?["installed"] as? Bool == false)
+
+        // 安装 codex / antigravity / cursor
+        let (stCodexOn, codexOn) = try await c.post("/api/mcp", ["client": "codex", "enable": true])
+        #expect(stCodexOn == 200)
+        #expect(((json(codexOn)["clients"] as? [String: Any])?["codex"] as? [String: Any])?["installed"] as? Bool == true)
+        let savedToml = try String(contentsOf: codexFile, encoding: .utf8)
+        #expect(savedToml.contains("# keep comment"))
+        #expect(savedToml.contains("[mcp_servers.node_repl]"))
+        #expect(savedToml.contains("[projects.\"/tmp/demo\"]"))
+        #expect(savedToml.contains("[mcp_servers.pigeon]"))
+        #expect(fm.isExecutableFile(atPath: MCPInstall.wrapperURL.path))
+
+        let (stAgyOn, _) = try await c.post("/api/mcp", ["client": "antigravity", "enable": true])
+        #expect(stAgyOn == 200)
+        let agyObj = json(try Data(contentsOf: agyFile))
+        #expect(((agyObj["mcpServers"] as? [String: Any])?["pigeon"] as? [String: Any])?["args"] as? [String] == ["--client", "antigravity"])
+
+        let (stCurOn, _) = try await c.post("/api/mcp", ["client": "cursor", "enable": true])
+        #expect(stCurOn == 200)
+        let curObj = json(try Data(contentsOf: cursorFile))
+        let curServers = curObj["mcpServers"] as? [String: Any]
+        #expect(curServers?["other"] != nil && curServers?["pigeon"] != nil)
+
+        // 卸载 codex & cursor：原有内容完好
+        #expect(try await c.post("/api/mcp", ["client": "codex", "enable": false]).0 == 200)
+        let afterToml = try String(contentsOf: codexFile, encoding: .utf8)
+        #expect(!afterToml.contains("[mcp_servers.pigeon]"))
+        #expect(afterToml.contains("[mcp_servers.node_repl]"))
+        #expect(afterToml.contains("[projects.\"/tmp/demo\"]"))
+
+        #expect(try await c.post("/api/mcp", ["client": "cursor", "enable": false]).0 == 200)
+        let curAfter = json(try Data(contentsOf: cursorFile))["mcpServers"] as? [String: Any]
+        #expect(curAfter?["other"] != nil && curAfter?["pigeon"] == nil)
+
+        // 非法 client 与损坏的 JSON 均回 400 且不覆盖
+        #expect(try await c.post("/api/mcp", ["client": "bogus", "enable": true]).0 == 400)
+        try Data("{bad-json".utf8).write(to: cursorFile)
+        #expect(try await c.post("/api/mcp", ["client": "cursor", "enable": true]).0 == 400)
+        #expect(try String(contentsOf: cursorFile, encoding: .utf8) == "{bad-json")
+    }
 }
 
 /// 测试里在回调和测试之间共享的小盒子
@@ -361,8 +513,13 @@ extension HubHTTPTests {
     @Test func settingsCacheFollowsFile() throws {
         TestEnv.prepare()
         #expect(Settings.object().isEmpty)
-        try Settings.save(Data(#"{"perch":{"notch":false}}"#.utf8))
+        #expect(Settings.hotkeyEnabled())
+        #expect(Settings.hotkeySpec() == .defaultSpec)
+        try Settings.save(Data(#"{"perch":{"notch":false,"hotkey":false,"hotkeySpec":"cmd+shift+p"}}"#.utf8))
         #expect(!Settings.notchEnabled())
+        #expect(!Settings.hotkeyEnabled())
+        #expect(Settings.hotkeySpec().raw == "shift+cmd+p")
+        #expect(Settings.hotkeySpec().displayLabel == "⇧ ⌘ P")
         // 绕过 Settings 直接改文件
         try Data(#"{"perch":{"notch":true},"lead":"x"}"#.utf8).write(to: Paths.settingsFile, options: .atomic)
         #expect(Settings.notchEnabled())

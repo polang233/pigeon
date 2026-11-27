@@ -155,6 +155,7 @@ extension Hub {
             args += ["new", "--loft=\(loft)", "--title=\(title)"]
             if agent != "codex" { args += ["--agent=\(agent)"] }
             if let p = req["project"] as? String, !p.isEmpty { args += ["--project=\(p)"] }
+            if loft == "local", let cwd = req["cwd"] as? String, !cwd.isEmpty { args += ["--cwd=\(cwd)"] }
             if let m = req["model"] as? String, !m.isEmpty { args += ["--model=\(m)"] }
             if let e = req["effort"] as? String, !e.isEmpty { args += ["--effort=\(e)"] }
         } else {
@@ -412,6 +413,52 @@ extension Hub {
     private func finishRefresh(_ status: Int, _ body: Data) {
         let waiters = refreshWaiters
         refreshWaiters = []
+        for w in waiters { w(status, body) }
+    }
+
+    // MARK: 重读本机对话
+
+    /// `pigeon lofts`（不带 `--refresh`，只扫本机，零 token 成本）。同时来了几次就合并成一次。
+    func performLocalLoftsRefresh(completion: (@Sendable (Int, Data) -> Void)? = nil) {
+        queue.async { [weak self] in
+            guard let self else { completion?(500, Self.jsonData(["ok": false, "error": "应用正在退出"])); return }
+            if let completion { self.localRefreshWaiters.append(completion) }
+            guard !self.localRefreshing else { return }
+            self.localRefreshing = true
+            guard let node = Detector.which("node") else {
+                self.finishLocalRefresh(500, self.fail(500, "没找到 node").1)
+                return
+            }
+            guard let scripts = self.scriptsDir() else {
+                self.finishLocalRefresh(500, self.fail(500, "没找到 pigeon.mjs").1)
+                return
+            }
+            let args = [scripts.appendingPathComponent("pigeon.mjs").path, "lofts"]
+            let env = self.childEnvironment(nodePath: node)
+            let queue = self.queue
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let r = Runner.run(executable: node, arguments: args, stdin: nil, environment: env,
+                                   cwd: Paths.home, timeout: 20)
+                let out: Data
+                if r.status == 0 && !r.timedOut {
+                    out = Self.jsonData(["ok": true])
+                } else {
+                    let said = r.stderrText.split(whereSeparator: \.isNewline).last ?? r.stdoutText.split(whereSeparator: \.isNewline).last
+                    let err = r.timedOut ? "扫描本机对话超时" : (said.map { String($0.prefix(200)) } ?? "扫描失败")
+                    out = Self.jsonData(["ok": false, "error": err.isEmpty ? "扫描失败" : err])
+                }
+                queue.async { [weak self] in
+                    self?.finishLocalRefresh(200, out)
+                    self?.scheduleLoftsPush()
+                }
+            }
+        }
+    }
+
+    private func finishLocalRefresh(_ status: Int, _ body: Data) {
+        localRefreshing = false
+        let waiters = localRefreshWaiters
+        localRefreshWaiters = []
         for w in waiters { w(status, body) }
     }
 }

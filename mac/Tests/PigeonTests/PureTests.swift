@@ -35,6 +35,58 @@ import Testing
         #expect(s.rule == "r1")
         #expect(s.ask)  // 不在本机，默认要问
     }
+
+    @Test func promptTextGeneration() {
+        let settings: [String: Any] = [
+            "lead": ["kind": "agent", "agent": "claude", "loft": "local"],
+            "devices": ["names": ["win": "台式机"]],
+            "post": ["confirmRemote": true, "crossTimeoutSec": 90],
+            "dispatch": ["rules": [
+                ["id": "r1", "when": "生图", "kw": "画图", "to": "codex@local", "fb": "deepseek@local", "ask": false, "on": true, "mode": "must"],
+                ["id": "r2", "when": "远程", "kw": "win", "to": "codex@win", "fb": "", "ask": false, "on": true, "mode": "suggest"],
+            ]],
+        ]
+        let prompt = Dispatch.promptText(settings: settings, alive: ["codex@local", "deepseek@local", "codex@win"],
+                                         quota: ["codex@local": 15], low: 20)
+        #expect(prompt.contains("标了“照做”的要照做"))
+        #expect(prompt.contains("生图 → Codex（本机）。它的额度现在只剩 15%，先交给 DeepSeek Harness（本机）。照做"))
+        #expect(prompt.contains("远程 → Codex（台式机）。发之前要用户确认"))
+
+        let youSettings: [String: Any] = ["lead": ["kind": "you"], "dispatch": settings["dispatch"]!]
+        #expect(Dispatch.promptText(settings: youSettings, alive: ["codex@local"]).isEmpty)
+    }
+}
+
+@Suite struct DetectorAndWatchTests {
+    @Test func extraBinDirsAndNodeVersion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("det-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/versions/node/v20.11.0/bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/versions/node/v22.16.0/bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/alias"), withIntermediateDirectories: true)
+        try "22.16.0\n".write(to: root.appendingPathComponent(".nvm/alias/default"), atomically: true, encoding: .utf8)
+
+        let dirs = Detector.extraBinDirs(home: root.path)
+        #expect(dirs.contains("\(root.path)/.asdf/shims"))
+        #expect(dirs.contains("\(root.path)/.local/share/mise/shims"))
+        #expect(dirs.contains("\(root.path)/.nodenv/shims"))
+        #expect(dirs.contains("\(root.path)/.fnm/current/bin"))
+        let i22 = dirs.firstIndex(of: "\(root.path)/.nvm/versions/node/v22.16.0/bin")!
+        let i20 = dirs.firstIndex(of: "\(root.path)/.nvm/versions/node/v20.11.0/bin")!
+        #expect(i22 < i20)
+
+        #expect(Detector.parseNodeZstdSupport("v22.15.0"))
+        #expect(Detector.parseNodeZstdSupport("v24.1.0"))
+        #expect(!Detector.parseNodeZstdSupport("v22.14.9"))
+        #expect(!Detector.parseNodeZstdSupport("v20.18.0"))
+    }
+
+    @Test func watchPartyAgentNames() {
+        #expect(Watch.Party.agentName("deepseek") == "DeepSeek Harness")
+        #expect(Watch.Party.agentName("antigravity") == "Antigravity")
+        #expect(Watch.Party.agentName("cursor") == "Cursor")
+        #expect(Watch.Party.agentName("codex") == "Codex")
+    }
 }
 
 @Suite struct ActivityTests {
@@ -240,5 +292,91 @@ import Testing
         #expect(!Hub.forwardsHook(["hook_event_name": "UserPromptSubmit"]))
         #expect(!Hub.forwardsHook(["hook_event_name": "PigeonRun", "source": "codex"]))
         #expect(!Hub.forwardsHook([:]))
+    }
+}
+
+@Suite struct HotKeySpecTests {
+    @Test func parsesCanonicalSpecsAndLabels() {
+        #expect(HotKeySpec.defaultSpec.raw == "opt+space")
+        #expect(HotKeySpec.defaultSpec.displayLabel == "⌥ 空格")
+        let a = HotKeySpec.parse("Cmd+Shift+P")
+        #expect(a?.raw == "shift+cmd+p")
+        #expect(a?.displayLabel == "⇧ ⌘ P")
+        let b = HotKeySpec.parse("alt + control + F5")
+        #expect(b?.raw == "ctrl+opt+f5")
+        #expect(b?.displayLabel == "⌃ ⌥ F5")
+        #expect(HotKeySpec.parse("space") == nil)
+        #expect(HotKeySpec.parse("opt+bogus") == nil)
+        #expect(HotKeySpec.parse("") == nil)
+    }
+}
+
+@Suite struct CodexConfigEdit {
+    @Test func 删pigeon表不连带后面的表() {
+        let src = """
+        model = "x"
+
+        [mcp_servers.pigeon]
+        command = "/old"
+        args = ["--client", "codex"]
+
+        [mcp_servers.pigeon.env]
+        A = "1"
+
+        [projects."/Users/me/foo"] # 备注
+        trust_level = "trusted"
+
+        [ desktop ]
+        x = 1
+        """
+        let out = MCPInstall.stripCodexSection(src)
+        #expect(!out.contains("/old"))
+        #expect(!out.contains("A = \"1\""))
+        #expect(out.contains("[projects.\"/Users/me/foo\"] # 备注"))
+        #expect(out.contains("trust_level = \"trusted\""))
+        #expect(out.contains("[ desktop ]"))
+        #expect(out.contains("model = \"x\""))
+    }
+
+    @Test func 认得各种写法的表头() {
+        #expect(MCPInstall.tomlHeaderKeys("[mcp_servers.pigeon]  # 注释") == ["mcp_servers", "pigeon"])
+        #expect(MCPInstall.tomlHeaderKeys("[ mcp_servers . \"pigeon\" ]") == ["mcp_servers", "pigeon"])
+        #expect(MCPInstall.tomlHeaderKeys("[[skills.config]]") == ["skills", "config"])
+        #expect(MCPInstall.tomlHeaderKeys("  [1, 2]") == nil)
+        #expect(MCPInstall.tomlHeaderKeys("[a] x") == nil)
+        #expect(MCPInstall.scanCodex("[mcp_servers.\"pigeon\"] # x\ncommand = \"a\"\n").tables == 1)
+    }
+
+    @Test func 多行字符串里的方括号不当表头() {
+        let src = "[mcp_servers.pigeon]\ncommand = \"a\"\n[other]\nnote = \"\"\"\n[mcp_servers.pigeon]\n\"\"\"\n"
+        #expect(MCPInstall.scanCodex(src).tables == 1)
+        let out = MCPInstall.stripCodexSection(src)
+        #expect(out.contains("[other]"))
+        #expect(out.contains("note = \"\"\"\n[mcp_servers.pigeon]\n\"\"\""))
+    }
+
+    @Test func 别的写法认出来但不自动改() {
+        #expect(MCPInstall.scanCodex("[mcp_servers]\npigeon = { command = \"a\" }\n").other)
+        #expect(MCPInstall.scanCodex("mcp_servers.pigeon.command = \"a\"\n").other)
+        #expect(!MCPInstall.scanCodex("[mcp_servers]\nidea = { command = \"a\" }\n").other)
+        #expect(MCPInstall.isCodexInstalled("[mcp_servers]\npigeon.command = \"a\"\n"))
+    }
+
+    @Test func 写配置保留链接和权限并留备份() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("pigeon-safewrite-\(UUID().uuidString)")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let real = dir.appendingPathComponent("real.toml"), link = dir.appendingPathComponent("config.toml")
+        try Data("old\n".utf8).write(to: real)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: real.path)
+        try fm.createSymbolicLink(at: link, withDestinationURL: real)
+        try MCPInstall.safeWrite(Data("new\n".utf8), to: link)
+        #expect(try fm.destinationOfSymbolicLink(atPath: link.path) == real.path)
+        #expect(try String(contentsOf: real, encoding: .utf8) == "new\n")
+        let perms = try fm.attributesOfItem(atPath: real.path)[.posixPermissions] as? NSNumber
+        #expect(perms?.intValue == 0o600)
+        let bak = try String(contentsOf: dir.appendingPathComponent("real.toml.pigeon-bak").resolvingSymlinksInPath(), encoding: .utf8)
+        #expect(bak == "old\n")
     }
 }

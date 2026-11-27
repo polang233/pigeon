@@ -93,7 +93,8 @@ final class AskQueue: @unchecked Sendable {
             project: body["project"] as? String ?? "",
             parts: kind == "split" ? body["parts"] as? [Any] : nil,
             waiters: [waiter])
-        if kind == "cross" {
+        // 跨设备发送和转派都有等待上限（同一个设置），拆活还没有来源，不限
+        if kind == "cross" || kind == "relay" {
             let given = (body["timeoutSec"] as? NSNumber)?.intValue ?? 0
             let sec = min(86400, max(1, given > 0 ? given : defaultTimeoutSec))
             item.deadline = now.addingTimeInterval(TimeInterval(sec))

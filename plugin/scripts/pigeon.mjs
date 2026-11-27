@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { parseArgs } from './lib/common.mjs';
 import { run, settingsCmd, doctor } from './lib/run.mjs';
 import { sendCmd, newCmd, waitCmd, readCmd, fetchCmd, logCmd, loftsCmd, relayCmd, modelsCmd, watch } from './lib/post.mjs';
+import { startStdioServer } from './mcp.mjs';
 
 const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也跨电脑。
 
@@ -20,7 +21,7 @@ const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也�
   pigeon new --agent dsh|antigravity [--cwd <目录>] --title "<标题>" "<话>"   在这台 Mac 上新开 DeepSeek Harness 或 Antigravity 的对话
        DSH：用它自己配的模型；--sandbox read-only 只读（复审用），不写能改工作目录
        Antigravity：--model <模型> --effort <思考强度>（比如 gemini-4-neon、high；pigeon models 列出能用的）；
-         它的对话不绑目录，要看文件就在话里写完整路径；Antigravity 要开着
+         装了 agy 命令行时在 --cwd 目录里后台跑，不用开应用；走应用时对话不绑目录，文件写完整路径且应用要开着
   pigeon models [antigravity] [--json]   Antigravity 能用的模型
        给它们已有的对话接着说，照样用 pigeon send --to <对话id或标题>
   pigeon wait <编号> [--timeout 分钟]     等到回信到了或没回音，打印回信
@@ -33,6 +34,7 @@ const HELP = `Pigeon（信鸽）：让 agent 互相发消息，跨工具，也�
 把活交给 Codex：
   pigeon run --kind image|code|review|general --title "标题" [--cwd 目录] --brief-file 任务说明.md [--temp|--keep] [--reason "<为什么交给它>"]
   pigeon run --kind review -- 直接写任务说明
+  pigeon mcp [--client codex|antigravity|cursor|dsh]   以统一 MCP 服务（stdio JSON-RPC）运行
   pigeon settings   看当前设置
   pigeon doctor     检查 Codex 能不能用
   pigeon open <对话id>   在 Codex 应用里打开对话`;
@@ -57,6 +59,7 @@ export async function main(argv) {
     case 'log': return logCmd(args);
     case 'relay': return relayCmd(args);
     case 'models': return modelsCmd(args);
+    case 'mcp': return startStdioServer(rest);
     case '_watch': return watch(args._[0]);
     case undefined: case 'help': case '--help': case '-h':
       console.log(HELP); return 0;

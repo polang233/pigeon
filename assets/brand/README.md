@@ -8,6 +8,7 @@
 | --- | --- |
 | `pigeon-logo.svg` | 源文件，鸽子占满画布的八成 |
 | `pigeon-app-icon.svg` | 白底满版，鸽子缩到约七成、按重心往右上挪了一点，应用图标、头像用 |
+| `pigeon-app-icon-rounded.png` | 512×512 圆角矩形应用图标预览图（含透明圆角与极淡内描边，由 `make-icon.swift` 矢量渲染），README 等暗/浅混合页面使用 |
 | `pigeon-logo-dark.svg` | 深色满版，摆法同上 |
 | `pigeon-glyph.svg` | 透明底，放在浅色背景上 |
 | `pigeon-glyph-dark.svg` | 透明底，放在深色背景上，鸽子换成浅色 |
@@ -22,5 +23,3 @@
 - 应用图标：`mac/Resources/Pigeon.icon`（macOS 26 起，分层，深色、着色、透明外观由系统生成）和 `mac/Resources/AppIcon.icns`（macOS 14、15，`swift mac/scripts/make-icon.swift` 生成）；
 - 菜单栏：`mac/Resources/MenuBarIcon.svg`，小尺寸专用的单色模板图。照原样缩到 18 点，翅膀的缝只有半个像素宽，看着发虚，所以整体描粗、缝加宽、眼睛放大，去掉翅斑、鼻瘤和信筒；
 - 网页：`web/assets/mark.png`（侧栏标志的遮罩）、`web/assets/favicon.png`。
-
-`pigeon-mark.png`、`pigeon-stamp.png` 是 0.2 之前的旧标志，留着对照。

@@ -487,8 +487,8 @@ test('relay use --host / list / archive / delete：换下来的记进用过的�
   } finally { await done(); }
 });
 
-test('relay use：应用开着时走 PUT /api/settings', async () => {
-  const { e, app, done } = await setup({ appSettings: { version: 1, codex: { model: 'm' }, unknown: 1 } });
+test('relay use：应用开着时走 PATCH /api/settings，不覆盖其他字段', async () => {
+  const { e, app, done } = await setup({ appSettings: { version: 1, codex: { model: 'm' }, paused: { all: true }, unknown: 1 } });
   try {
     const r = await pigeon(['relay', 'use', T.relay], e.env);
     assert.equal(r.code, 0, r.stdout);
@@ -496,6 +496,7 @@ test('relay use：应用开着时走 PUT /api/settings', async () => {
     assert.equal(app.settings().post.relayThread, T.relay);
     assert.equal(app.settings().unknown, 1);
     assert.equal(app.settings().codex.model, 'm');
+    assert.equal(app.settings().paused.all, true);
   } finally { await done(); }
 });
 
@@ -514,7 +515,15 @@ test('run：行为不变，事件改名 PigeonRun、任务 id 前缀 pg-、两�
     assert.deepEqual(runs.map(x => x.phase).filter((p, i, a) => a.indexOf(p) === i), ['start', 'thread', 'activity', 'end']);
     assert.ok(runs.every(x => /^pg-/.test(x.task_id)));
     assert.equal(runs.at(-1).status, 'done');
-    assert.ok(fs.existsSync(path.join(e.pigeonHome, 'runs')));
+    const runsPath = path.join(e.pigeonHome, 'runs');
+    assert.ok(fs.existsSync(runsPath));
+    const metaFile = fs.readdirSync(runsPath).find(f => f.endsWith('.meta.json'));
+    assert.ok(metaFile, '应写入 <taskId>.meta.json');
+    const meta = JSON.parse(fs.readFileSync(path.join(runsPath, metaFile), 'utf8'));
+    assert.equal(meta.status, 'done');
+    assert.equal(meta.title, '审查');
+    assert.equal(meta.kind, 'review');
+    assert.ok(meta.thread);
   } finally { await done(); }
 });
 

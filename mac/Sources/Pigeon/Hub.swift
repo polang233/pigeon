@@ -15,8 +15,8 @@ final class Hub: @unchecked Sendable {
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
     private var sseClients: [ObjectIdentifier: HTTPConnection] = [:]
-    private var lastHookAt: Date?
-    private var lastAgents: Agents?
+    var lastHookAt: Date?
+    var lastAgents: Agents?
     private var timers: [DispatchSourceTimer] = []
     private var reportedFailure = false
     private var watch = Watch()
@@ -25,7 +25,7 @@ final class Hub: @unchecked Sendable {
     private let usage = Usage()
     private var lastUsage: Usage.Summary?
     private var usagePending = false
-    private var lastCodexHookAt: Date?
+    var lastCodexHookAt: Date?
 
     // 新界面要的状态（都只在 queue 上访问）
     var sessions = SessionTracker()
@@ -41,6 +41,8 @@ final class Hub: @unchecked Sendable {
     /// 应用自己派出去、命令还没跑完的活：send_id → 回话的闭包和留给重发的原文。跨设备的那件一排进等你的一队就先回话。
     var pendingSends: [String: (completion: @Sendable (Int, Data) -> Void, remembered: Data)] = [:]
     var refreshWaiters: [@Sendable (Int, Data) -> Void] = []
+    var localRefreshWaiters: [@Sendable (Int, Data) -> Void] = []
+    var localRefreshing = false
 
     // 测试里可以换掉的外部依赖
     var pluginScriptsOverride: URL?
@@ -157,7 +159,6 @@ final class Hub: @unchecked Sendable {
         save.schedule(deadline: .now() + 30, repeating: 30)
         save.setEventHandler { [weak self] in self?.usage.saveIfNeeded() }
         save.resume()
-        timers.append(save)
         heartbeat.resume()
         detect.resume()
         expire.resume()
@@ -166,7 +167,7 @@ final class Hub: @unchecked Sendable {
         loftsTick.schedule(deadline: .now() + 2, repeating: 2)
         loftsTick.setEventHandler { [weak self] in self?.loftsTickFired() }
         loftsTick.resume()
-        timers = [heartbeat, detect, expire, loftsTick]
+        timers = [heartbeat, detect, expire, save, loftsTick]
     }
 
     func connectionClosed(_ conn: HTTPConnection) {
@@ -241,6 +242,22 @@ final class Hub: @unchecked Sendable {
             performNoteFull(band: String(path.dropFirst("/api/notes/".count))) { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
         case (_, "/api/notes"):
             methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/runs"):
+            respondJSON(conn, Self.runsBody(), keepAlive: keepAlive)
+        case (_, "/api/runs"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/autostart"):
+            respondJSON(conn, LoginItem.body(), keepAlive: keepAlive)
+        case ("POST", "/api/autostart"):
+            handleAutostart(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/autostart"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/mcp"):
+            respondJSON(conn, MCPInstall.body(scriptsDir: pluginScriptsOverride ?? PluginScripts.locate()), keepAlive: keepAlive)
+        case ("POST", "/api/mcp"):
+            handleMCP(req, conn: conn, keepAlive: keepAlive)
+        case (_, "/api/mcp"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/lofts"):
             respondJSON(conn, composeLofts(), keepAlive: keepAlive)
         case (_, "/api/lofts"):
@@ -258,6 +275,14 @@ final class Hub: @unchecked Sendable {
         case ("POST", "/api/lofts/refresh"):
             performRefresh { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
         case (_, "/api/lofts/refresh"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("POST", "/api/lofts/local"):
+            performLocalLoftsRefresh { [weak self] status, body in self?.respondStatus(conn, status, body, keepAlive: keepAlive) }
+        case (_, "/api/lofts/local"):
+            methodNotAllowed(conn, keepAlive: keepAlive)
+        case ("GET", "/api/setup"):
+            respondJSON(conn, setupStatus(), keepAlive: keepAlive)
+        case (_, "/api/setup"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/queue"):
             respondJSON(conn, asks.snapshot(), keepAlive: keepAlive)
@@ -381,6 +406,7 @@ final class Hub: @unchecked Sendable {
     func settingsChanged(_ body: Data) {
         notify = NotifyPrefs.load()
         broadcast(Self.envelope(type: "settings", key: "settings", json: Self.singleLine(body)))
+        syncDispatchFileIfNeeded()
         onSettings?(body)
     }
 
@@ -403,6 +429,92 @@ final class Hub: @unchecked Sendable {
         for i in notes.indices where retryable.contains(notes[i]["band"] as? String ?? "") { notes[i]["retryable"] = true }
         let body: [String: Any] = ["notes": notes]
         return (try? JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes])) ?? Data(#"{"notes":[]}"#.utf8)
+    }
+
+    /// 扫描 `~/.pigeon/running/` 得到当前确实还活着的 `pigeon run` task_id（顺手清掉已经退出的残留锁文件）。
+    private static func aliveRunTaskIDs() -> Set<String> {
+        let fm = FileManager.default
+        let dir = Paths.runningDir
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
+        var alive: Set<String> = []
+        for name in names {
+            guard let dot = name.firstIndex(of: ".") else { continue }
+            let pidStr = String(name[..<dot]), taskID = String(name[name.index(after: dot)...])
+            guard let pid = Int32(pidStr), pid > 0, !taskID.isEmpty else { continue }
+            let rc = Darwin.kill(pid, 0)
+            if rc == 0 || errno == EPERM {
+                alive.insert(taskID)
+            } else if errno == ESRCH {
+                try? fm.removeItem(at: dir.appendingPathComponent(name))
+            }
+        }
+        return alive
+    }
+
+    /// `{ "runs": [...] }`：读 `~/.pigeon/runs/*.meta.json`，把已经不在跑的孤儿 `running` 修正为 `failed`。
+    static func runsBody() -> Data {
+        let fm = FileManager.default
+        let dir = Paths.runsDir
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            return Data(#"{"runs":[]}"#.utf8)
+        }
+        let alive = aliveRunTaskIDs()
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        var runs: [[String: Any]] = []
+        for url in files where url.lastPathComponent.hasSuffix(".meta.json") {
+            guard var obj = readJSONObject(url),
+                  let id = obj["id"] as? String ?? obj["task_id"] as? String, !id.isEmpty else { continue }
+            obj["id"] = id
+            if (obj["status"] as? String) == "running" && !alive.contains(id) {
+                obj["status"] = "failed"
+                if (obj["ended"] as? NSNumber) == nil { obj["ended"] = nowMs }
+                obj["updated"] = nowMs
+                let curSummary = (obj["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if curSummary.isEmpty {
+                    obj["summary"] = "上次任务意外中断（进程已退出）"
+                }
+                if let fixed = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys, .withoutEscapingSlashes]) {
+                    try? fixed.write(to: url, options: .atomic)
+                }
+            }
+            runs.append(obj)
+        }
+        func sortTime(_ r: [String: Any]) -> Double {
+            (r["updated"] as? NSNumber)?.doubleValue
+                ?? (r["ended"] as? NSNumber)?.doubleValue
+                ?? (r["started"] as? NSNumber)?.doubleValue
+                ?? 0
+        }
+        runs.sort { sortTime($0) > sortTime($1) }
+        let out: [String: Any] = ["runs": Array(runs.prefix(100))]
+        return (try? JSONSerialization.data(withJSONObject: out, options: [.withoutEscapingSlashes])) ?? Data(#"{"runs":[]}"#.utf8)
+    }
+
+    private func handleAutostart(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
+        let body = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any]
+        let enable = (body?["enable"] as? Bool) ?? true
+        let res = LoginItem.setEnabled(enable)
+        respondStatus(conn, res.status, res.body, keepAlive: keepAlive)
+        if res.status == 200 {
+            broadcast(Self.envelope(type: "autostart", key: "autostart", json: res.body))
+        }
+    }
+
+    private func handleMCP(_ req: HTTPRequest, conn: HTTPConnection, keepAlive: Bool) {
+        let body = (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any]
+        let clientName = body?["client"] as? String ?? ""
+        let enable = (body?["enable"] as? Bool) ?? true
+        let res = MCPInstall.setEnabled(clientName: clientName, enable: enable, scriptsDir: pluginScriptsOverride ?? PluginScripts.locate())
+        respondStatus(conn, res.status, res.body, keepAlive: keepAlive)
+        if res.status == 200 {
+            broadcast(Self.envelope(type: "mcp", key: "mcp", json: Self.singleLine(res.body)))
+        }
+    }
+
+    func broadcastAutostart(_ body: Data) {
+        queue.async { [weak self] in
+            self?.broadcast(Self.envelope(type: "autostart", key: "autostart", json: Self.singleLine(body)))
+        }
     }
 
     static let defaultLofts = Data(#"{"version":1,"updated":0,"lofts":[{"id":"local","name":"这台 Mac","online":true,"sessions":[],"projects":[]}]}"#.utf8)
@@ -589,6 +701,7 @@ final class Hub: @unchecked Sendable {
                 let agents = Detector.detect(runningIDs: ids, lastHookAt: self.lastHookAt)
                 let changed = agents != self.lastAgents
                 self.lastAgents = agents
+                if changed { self.syncDispatchFileIfNeeded() }
                 if changed || forceBroadcast { self.broadcast(self.detectMessage(agents)) }
                 if changed { self.onAgents?(agents) }
                 completion?(agents)

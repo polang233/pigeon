@@ -22,12 +22,16 @@ else
   mkdir -p "$CONTENTS/Resources/web"
 fi
 
-# 应用自己派活要用的命令行脚本
-if [ -d "$ROOT_DIR/plugin/scripts" ]; then
+# 打包完整插件市场到应用内（不依赖用户保留源码仓库），同时提供自带命令行脚本
+if [ -d "$ROOT_DIR/plugin" ]; then
   mkdir -p "$CONTENTS/Resources/plugin"
-  rsync -a --delete --exclude '.DS_Store' "$ROOT_DIR/plugin/scripts/" "$CONTENTS/Resources/plugin/scripts/"
+  rsync -a --delete --exclude '.DS_Store' --exclude '/tests/' "$ROOT_DIR/plugin/" "$CONTENTS/Resources/plugin/"
 else
-  echo "警告：没有找到 $ROOT_DIR/plugin/scripts，应用里不能自己派活" >&2
+  echo "警告：没有找到 $ROOT_DIR/plugin，应用里不能自己派活" >&2
+fi
+if [ -f "$ROOT_DIR/.claude-plugin/marketplace.json" ]; then
+  mkdir -p "$CONTENTS/Resources/.claude-plugin"
+  cp "$ROOT_DIR/.claude-plugin/marketplace.json" "$CONTENTS/Resources/.claude-plugin/marketplace.json"
 fi
 
 # 菜单栏图标（单色模板图）

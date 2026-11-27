@@ -46,12 +46,37 @@ export const relayMsg = (action, r, host) => action === 'use'
 
 // 读一遍全部，建好后端。notify(文字) 用来说后台出的错（底部提示）
 export async function connectLive(lofts0, { notify = () => {} } = {}) {
-  const raw = { lofts: lofts0, detect: null, settings: {}, queue: [], codexModels: [], mpModels: [], usage: null, hooks: null };
+  const raw = { lofts: lofts0, detect: null, settings: {}, queue: [], codexModels: [], mpModels: [], usage: null, hooks: null, setup: null, autostart: null, mcp: null };
   const notes = new Map(), runs = new Map();
   const view = () => ({ ...raw, notes: [...notes.values()], runs: [...runs.values()] });
 
   function takeNotes(list) {
     for (const n of Array.isArray(list) ? list : []) if (n && n.band) notes.set(n.band, mergeNote(notes.get(n.band) || null, { ...n, ts: n.updated }, Number(n.updated) || Date.now()));
+    trim();
+  }
+  function takeRuns(list) {
+    for (const r of Array.isArray(list) ? list : []) {
+      if (!r || !r.id) continue;
+      const cur = runs.get(r.id);
+      if (!cur || (Number(r.updated) || 0) >= (Number(cur.updated) || 0)) {
+        runs.set(r.id, {
+          id: String(r.id),
+          title: String(r.title || 'Codex 任务'),
+          kind: String(r.kind || ''),
+          model: String(r.model || ''),
+          cwd: String(r.cwd || ''),
+          session: String(r.session || ''),
+          status: r.status === 'running' ? 'running' : r.status === 'done' ? 'done' : 'failed',
+          started: Number(r.started) || Date.now(),
+          updated: Number(r.updated) || Number(r.started) || Date.now(),
+          ...(r.ended ? { ended: Number(r.ended) } : {}),
+          thread: String(r.thread || ''),
+          detail: String(r.detail || ''),
+          summary: String(r.summary || ''),
+          files: Array.isArray(r.files) ? r.files : [],
+        });
+      }
+    }
     trim();
   }
   function trim() {
@@ -63,21 +88,26 @@ export async function connectLive(lofts0, { notify = () => {} } = {}) {
     const want = {
       lofts: get('/api/lofts'), detect: get('/api/detect'), settings: get('/api/settings'), notes: get('/api/notes'), queue: get('/api/queue'),
       usage: get('/api/usage'), codexModels: get('/api/codex/models'), mpModels: get('/api/magpie/models'), agentModels: get('/api/agents/models'),
+      setup: get('/api/setup'), runs: get('/api/runs'), autostart: get('/api/autostart'), mcp: get('/api/mcp'),
     };
     const keys = Object.keys(want), got = await Promise.allSettled(Object.values(want)), bad = [];
     got.forEach((g, i) => {
       const k = keys[i];
-      if (g.status !== 'fulfilled') { if (!['mpModels', 'usage', 'codexModels', 'agentModels'].includes(k)) bad.push(k); return; }
+      if (g.status !== 'fulfilled') { if (!['mpModels', 'usage', 'codexModels', 'agentModels', 'setup', 'runs', 'autostart', 'mcp'].includes(k)) bad.push(k); return; }
       const v = g.value;
       if (k === 'lofts' && v && Array.isArray(v.lofts)) raw.lofts = v;
       else if (k === 'detect' && v && typeof v === 'object') raw.detect = v;
       else if (k === 'settings') raw.settings = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
       else if (k === 'notes') takeNotes(v?.notes);
+      else if (k === 'runs') takeRuns(v?.runs);
       else if (k === 'queue') raw.queue = Array.isArray(v?.items) ? v.items : [];
       else if (k === 'usage') raw.usage = v && v.agents ? v : null;
       else if (k === 'codexModels') raw.codexModels = Array.isArray(v) ? v : [];
       else if (k === 'agentModels') raw.agentModels = v && typeof v === 'object' ? v : {};
       else if (k === 'mpModels') raw.mpModels = Array.isArray(v?.data) ? v.data : [];
+      else if (k === 'setup') raw.setup = v && typeof v === 'object' ? v : null;
+      else if (k === 'autostart') raw.autostart = v && typeof v === 'object' ? v : null;
+      else if (k === 'mcp') raw.mcp = v && typeof v === 'object' ? v : null;
     });
     if (bad.length) notify(`有几样没读到（${bad.join('、')}），先按上次的显示`);
   }
@@ -96,7 +126,7 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
 
   /* ---------- 整份换一遍：只发真的变了的话题；正在打字的地方先不重画 ---------- */
   const sigs = {};
-  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL', 'CUSTOMM', 'AGY_CLI'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'] };
+  const GROUPS = { DEV: ['DEV', 'CONN', 'NAMES', 'HIDDEN', 'MODELS', 'CODEXM', 'MAGPIE', 'CTXW', 'DEF_MODEL', 'CUSTOMM', 'AGY_CLI', 'MCP'], S: ['S'], T: ['T'], Q: ['Q'], RULES: ['RULES', 'LOW'], RULES2: ['RULES2'], lead: ['lead'], paused: ['paused'], SETUP: ['SETUP'], AUTOSTART: ['AUTOSTART'] };
   const noDur = (k, v) => (k === 'dur' || k === 'time' ? undefined : v);
   let held = new Set();
   const holdNow = () => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && (a.classList.contains('rename') || !!a.closest('.cpanel, .setpop, [data-part="rules"]')); };
@@ -170,6 +200,8 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
       case 'lofts': if (msg.lofts && Array.isArray(msg.lofts.lofts)) { raw.lofts = msg.lofts; rebuildSoon(); } break;
       case 'queue': raw.queue = Array.isArray(msg.items) ? msg.items : []; rebuildSoon(); break;
       case 'usage': if (msg.usage && msg.usage.agents) { st.USAGE = msg.usage; emit('USAGE'); } break;
+      case 'autostart': if (msg.autostart && typeof msg.autostart === 'object') { raw.autostart = msg.autostart; rebuildSoon(); } break;
+      case 'mcp': if (msg.mcp && typeof msg.mcp === 'object') { raw.mcp = msg.mcp; rebuildSoon(); } break;
       case 'settings': {
         const s = msg.settings;
         if (!s || typeof s !== 'object' || JSON.stringify(s) === lastWritten) break;
@@ -261,6 +293,14 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
       return p.then(() => (now === old ? null : name ? `改名为「${now}」` : `已恢复成「${D.def}」`));
     },
     setOnline() {},
+    // 重新读一次本机对话（零 token 成本）
+    refreshLocal() {
+      return api('/api/lofts/local', { method: 'POST', body: {} }).then(async () => {
+        await loadAll();
+        rebuild();
+        return '已重新扫描本机对话';
+      });
+    },
     // 重新读一次远程电脑：POST /api/lofts/refresh（经中继对话，要花 token）
     refreshRemote() { return api('/api/lofts/refresh', { method: 'POST', body: {} }).then(() => '重新读了一次，远程电脑有变化会自己更新'); },
     reconnect() { return be.refreshRemote(); },
@@ -348,6 +388,19 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
     },
     // 别的设置（通知 notify.*、交给 Codex 的活 codex.*、中继对话 post.relayThread、等回信 post.waitTimeoutMin）：path 是一串键
     setServer(path, v) { return patch(s => setAt(s, path, v)); },
+    setAutostart(enable) {
+      return api('/api/autostart', { method: 'POST', body: { enable: !!enable } }).then(a => {
+        if (a && typeof a === 'object') { raw.autostart = a; rebuild(); }
+        return a?.enabled ? '已开启登录时自动启动' : '已关闭登录时自动启动';
+      });
+    },
+    setMcp(client, enable) {
+      return api('/api/mcp', { method: 'POST', body: { client, enable: !!enable } }).then(m => {
+        if (m && typeof m === 'object') { raw.mcp = m; rebuild(); }
+        const name = { codex: 'Codex', antigravity: 'Antigravity', cursor: 'Cursor' }[client] || client;
+        return enable ? `已接入 ${name} 的 Pigeon MCP，重开对话即可使用` : `已从 ${name} 移除 Pigeon MCP`;
+      });
+    },
 
     /* ---------- 任务 ---------- */
     // 重发：只有应用自己发的（retryable）才有原文。POST /api/send { to, text, title, retry_of }，原文由应用按 retry_of 从内存里取
@@ -359,8 +412,31 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
         .then(r => { if (r?.band) { ui.tasks.open = r.band; emit('ui.tasks'); } return { result: 'sent', task: { id: r?.band || '' } }; });
     },
     send() { return no('在刘海上派活'); },
-    // 频道里直接派活要等频道接上应用（0.3b）；现在先用刘海或命令行派
-    chanSend() { return no('频道里直接派活还没接上应用，先在刘海上派活'); },
+    // 频道里直接派活：走 POST /api/send，本机新开对话带上频道目录，远程新开带上默认项目
+    async chanSend({ targets, text, chan }) {
+      const takeable = (targets || []).filter(m => ['codex', 'deepseek', 'antigravity'].includes(toWire(m.agent)));
+      if (!takeable.length) return no('请先 @ 一个能接活的 agent（Codex、DeepSeek Harness 或 Antigravity）');
+      const localCwd = (chan?.paths || []).find(p => p.dev === st.home)?.path || '';
+      const defProj = dev => {
+        if (dev === st.home) return '';
+        const l = (raw.lofts?.lofts || []).find(x => x.id === dev);
+        const ps = (l?.projects || []).map(p => p.id).filter(Boolean);
+        const hit = (l?.sessions || []).slice().sort((a, b) => (b.updated || 0) - (a.updated || 0)).find(s => s.projectId && ps.includes(s.projectId));
+        return hit?.projectId || ps[0] || '';
+      };
+      const results = [];
+      for (const m of takeable) {
+        const w = toWire(m.agent), isNew = m.fresh || !m.session;
+        const c = (st.CONN[m.dev] || []).find(x => x.a === m.agent);
+        const project = isNew ? defProj(m.dev) : '';
+        const body = isNew
+          ? { to: { loft: m.dev, agent: w, session: '' }, text, ...(c?.model ? { model: c.model } : {}), ...(c?.think ? { effort: c.think } : {}), ...(project ? { project } : {}), ...(localCwd && m.dev === st.home ? { cwd: localCwd } : {}), why: { reason: '你在频道里派的' } }
+          : { to: { loft: m.dev, agent: w, session: m.session }, text, why: { reason: '你在频道里派的' } };
+        const r = await api('/api/send', { method: 'POST', body });
+        results.push({ result: r?.state === 'asking' ? 'asking' : 'sent', band: r?.band || '' });
+      }
+      return { results };
+    },
 
     /* ---------- 等你的一队：POST /api/queue/<id> { action: release | block | release_masked } ---------- */
     qDo(i, ok, opt = {}) {

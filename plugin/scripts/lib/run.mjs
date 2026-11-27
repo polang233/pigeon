@@ -4,7 +4,10 @@
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { whyOf } from './meta.mjs';
+import { dshBin, agyCliBin, agyHub, agentapiBin } from './agents.mjs';
+import { pruneArtifacts } from './journal.mjs';
 import { HOME, sleep, oneLine, fmtDur, request, emit, loadSettings, codexBin, codexHome, runsDir, runningDir, codexAppRunning } from './common.mjs';
 
 const ASPECT = { square: '正方形（1:1）', landscape: '横版（3:2）', portrait: '竖版（2:3）' };
@@ -96,6 +99,7 @@ export async function run(args) {
   const t0 = Date.now();
 
   fs.mkdirSync(runsDir(), { recursive: true });
+  pruneArtifacts();
   if (!(await waitForSlot(Math.max(1, Number(s.maxConcurrent) || 2), taskId, t0 + timeoutMs))) {
     console.log(`Codex 排队超时：等了 ${s.timeoutMin} 分钟仍没有空位。`); return 2;
   }
@@ -105,8 +109,34 @@ export async function run(args) {
   const openWhen = openWhenOf(s);
   const model = s.model || defaultModel();
   const prompt = buildPrompt(kind, brief, s, cwd);
+  const metaFile = path.join(runsDir(), `${taskId}.meta.json`);
   const lastFile = path.join(runsDir(), `${taskId}.last.md`);
   const logFile = path.join(runsDir(), `${taskId}.jsonl`);
+  const meta = {
+    id: taskId,
+    title,
+    kind,
+    prompt: oneLine(brief, 160),
+    cwd,
+    model: model || '',
+    temp: !keep,
+    status: 'running',
+    started: t0,
+    updated: t0,
+    thread: '',
+    detail: '',
+    summary: '',
+    files: [],
+  };
+  const saveMeta = (patch = {}) => {
+    Object.assign(meta, patch, { updated: Date.now() });
+    try {
+      fs.mkdirSync(runsDir(), { recursive: true });
+      const tmp = `${metaFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(meta));
+      fs.renameSync(tmp, metaFile);
+    } catch {}
+  };
   const cliArgs = ['exec', '--json', '--skip-git-repo-check', '-C', cwd, '-s', sandboxFor(kind, s), '-o', lastFile];
   if (s.model) cliArgs.push('-m', s.model);
   if (s.effort) cliArgs.push('-c', `model_reasoning_effort="${s.effort}"`);
@@ -115,6 +145,7 @@ export async function run(args) {
 
   // 为什么交给它：指挥写的理由，加上应用按规则给的判断（应用没开就是 lead）
   const why = await whyOf(args.reason, brief, 'codex@local');
+  saveMeta({ model: model || '' });
   await report({ phase: 'start', task_id: taskId, title, kind, prompt: oneLine(brief, 160), cwd, model, temp: !keep, why });
   if (kind === 'image') report({ phase: 'activity', task_id: taskId, activity: 'image' });
 
@@ -134,13 +165,15 @@ export async function run(args) {
       const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
       let ev; try { ev = JSON.parse(line); } catch { continue; }
       if (ev.type === 'thread.started') {
-        threadId = ev.thread_id; report({ phase: 'thread', task_id: taskId, thread_id: threadId });
+        threadId = ev.thread_id; saveMeta({ thread: threadId }); report({ phase: 'thread', task_id: taskId, thread_id: threadId });
         // 一开始就打开：Codex 应用的列表不列 Pigeon 派的对话，只能靠链接打开；-g 不抢焦点
         if (keep && openWhen === 'start') { try { spawn('open', ['-g', `codex://threads/${threadId}`], { stdio: 'ignore', detached: true }).unref(); } catch {} }
       }
       const it = ev.item || {};
       if (ev.type === 'item.started' && it.type === 'command_execution') {
-        report({ phase: 'activity', task_id: taskId, activity: activityOfCommand(it.command), detail: oneLine(cleanCommand(it.command), 80) });
+        const detail = oneLine(cleanCommand(it.command), 80);
+        saveMeta({ detail });
+        report({ phase: 'activity', task_id: taskId, activity: activityOfCommand(it.command), detail });
       }
       if (ev.type === 'item.started' && /image/.test(it.type || '')) report({ phase: 'activity', task_id: taskId, activity: 'image' });
       if (ev.type === 'item.completed' && it.type === 'agent_message') lastMsg = it.text || lastMsg;
@@ -161,6 +194,7 @@ export async function run(args) {
   const status = ok ? 'done' : 'failed';
   const summary = oneLine(timedOut ? `超时：${s.timeoutMin} 分钟内没完成` : ok ? lastMsg : (errs[0] || lastMsg || `codex 退出码 ${code}`), Number(s.summaryChars) || 300);
 
+  saveMeta({ status, summary, files, thread: threadId || meta.thread, ended: Date.now(), ...(usage ? { usage } : {}), ...(model ? { model } : {}) });
   await report({ phase: 'end', task_id: taskId, status, summary, files, thread_id: threadId, usage, model });
   if (ok && threadId && keep && openWhen === 'end') { try { execFileSync('open', [`codex://threads/${threadId}`]); } catch {} }
 
@@ -227,15 +261,37 @@ export async function settingsCmd() {
   return 0;
 }
 
+function claudeSetup() {
+  const claudeDir = path.join(HOME, '.claude');
+  let cmd = '';
+  for (const d of (process.env.PATH || '').split(':').filter(Boolean).concat([path.join(HOME, '.local/bin'), path.join(HOME, '.claude/local'), '/opt/homebrew/bin', '/usr/local/bin'])) {
+    const p = path.join(d, 'claude');
+    try { fs.accessSync(p, fs.constants.X_OK); cmd = p; break; } catch {}
+  }
+  const read = f => { try { return fs.readFileSync(path.join(claudeDir, f), 'utf8'); } catch { return ''; } };
+  const plugin = /"pigeon(@|")/.test(read('plugins/installed_plugins.json')) || /forward\.sh/.test(read('settings.json') + read('settings.local.json'));
+  return { cmd, plugin };
+}
+
 export async function doctor() {
   const bin = codexBin();
   const app = await request('GET', '/api/detect');
   const { post } = await loadSettings();
+  const zstdOk = typeof zlib.zstdDecompressSync === 'function';
+  const claude = claudeSetup();
+  const dsh = dshBin();
+  const agy = agyCliBin();
+  const agyApp = agentapiBin();
+  const agyLive = agyApp ? agyHub() : null;
   const lines = [
+    `Node.js：${process.version}${zstdOk ? '' : '（提示：低于 v22.15，读取 DeepSeek Harness 对话需要 v22.15+）'}`,
+    `Claude Code：${claude.cmd || '没找到命令'}；Pigeon 插件/hook：${claude.plugin ? '已配置' : '未检测到（请在 Claude Code 里安装 pigeon 插件）'}`,
     `codex 命令：${bin || '没找到'}`,
     `Codex 登录：${fs.existsSync(path.join(codexHome(), 'auth.json')) ? '已登录（有 auth.json）' : '没找到登录信息'}`,
     `Codex 桌面应用：${codexAppRunning() ? '在运行' : '没开（本机消息会排队等它打开；远程发送用不了）'}`,
-    `Pigeon 应用：${app ? '在运行' : '没开（不影响调用，只是没有画面）'}`,
+    `DeepSeek Harness（dsh）：${dsh || '未检测到'}`,
+    `Antigravity：命令行 agy ${agy || '未装'}；应用 agentapi ${agyApp ? (agyLive ? '在运行' : '已安装但未打开') : '未装'}`,
+    `Pigeon 应用：${app ? '在运行' : '没开（不影响命令行调用，只是没有画面）'}`,
     `中继站：${post.relayThread || '还没设置'}（详细检查：pigeon relay check）`,
   ];
   if (app && app.json && app.json.codex) lines.push(`Codex 状态：${app.json.codex.detail}`);

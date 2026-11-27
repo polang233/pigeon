@@ -2,7 +2,7 @@
 // 发件的命令、后台看护进程、wait 可能同时写，所以写之前先拿一把目录锁，写临时文件再改名。
 import fs from 'node:fs';
 import path from 'node:path';
-import { journalFile, readJson, writeJsonAtomic, sleep } from './common.mjs';
+import { journalFile, pigeonDir, readJson, writeJsonAtomic, sleep } from './common.mjs';
 
 // 原来的六个状态不变，前面加一个 asking（等用户确认）。asking 只能走到 queued、flying、refused。
 export const STATES = ['asking', 'queued', 'flying', 'delivered', 'home', 'refused', 'lost'];
@@ -47,6 +47,27 @@ async function withLock(file, fn) {
   try { return await fn(); } finally { fs.rmSync(lock, { recursive: true, force: true }); }
 }
 
+let lastPruned = 0;
+// 清理超过 7 天的临时正文、回信和 run 日志（~/.pigeon/{bodies,answers,runs}）
+export function pruneArtifacts(dir = pigeonDir(), now = Date.now(), { force = false } = {}) {
+  if (!force && now - lastPruned < 10 * 60 * 1000) return 0;
+  lastPruned = now;
+  let removed = 0;
+  for (const sub of ['bodies', 'answers', 'runs']) {
+    const full = path.join(dir, sub);
+    let names;
+    try { names = fs.readdirSync(full); } catch { continue; }
+    for (const name of names) {
+      const f = path.join(full, name);
+      try {
+        const st = fs.statSync(f);
+        if (st.isFile() && now - st.mtimeMs >= KEEP_MS) { fs.rmSync(f, { force: true }); removed++; }
+      } catch {}
+    }
+  }
+  return removed;
+}
+
 // mutate(notes) 可以原地改；返回值透传给调用方
 export function updateJournal(mutate, file = journalFile()) {
   return withLock(file, async () => {
@@ -54,6 +75,7 @@ export function updateJournal(mutate, file = journalFile()) {
     const out = await mutate(j.notes);
     j.notes = prune(j.notes);
     writeJsonAtomic(file, j);
+    if (file === journalFile()) pruneArtifacts(path.dirname(file));
     return out;
   });
 }

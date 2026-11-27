@@ -23,7 +23,13 @@ export const AGY_TIERS = ['flash_lite', 'flash', 'pro'];
 const DSH_CLI = '/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh';
 export const dshHome = () => process.env.DSH_HOME || path.join(HOME, '.dsh');
 export function dshBin() {
-  for (const c of [process.env.PIGEON_DSH_BIN, DSH_CLI]) if (c) { try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {} }
+  const cands = [
+    process.env.PIGEON_DSH_BIN,
+    DSH_CLI,
+    path.join(HOME, 'Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh'),
+    ...(process.env.PATH || '').split(':').filter(Boolean).map(d => path.join(d, 'dsh')),
+  ];
+  for (const c of cands) if (c) { try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {} }
   return '';
 }
 // 跑一件事的参数：正文从标准输入给，不出现在进程列表里

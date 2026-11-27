@@ -110,6 +110,18 @@ export function fakeApp({ settings = null, ask = null, askDelayMs = 0, suggest =
       }
       if (req.url === '/api/settings' && current) {
         if (req.method === 'PUT') current = JSON.parse(body);
+        if (req.method === 'PATCH') {
+          const merge = (base, patch) => {
+            for (const [k, v] of Object.entries(patch || {})) {
+              if (v === null) delete base[k];
+              else if (v && typeof v === 'object' && !Array.isArray(v)) {
+                if (!base[k] || typeof base[k] !== 'object' || Array.isArray(base[k])) base[k] = {};
+                merge(base[k], v);
+              } else base[k] = v;
+            }
+          };
+          merge(current, JSON.parse(body));
+        }
         res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(current));
       }
       res.writeHead(404); res.end();

@@ -253,6 +253,24 @@ private func ctx(_ s: NotchState = .queue, pointer: Bool = false, focus: Bool = 
         #expect(s.session == "")
     }
 
+    @Test func 新开对话选本机目录() {
+        var s = ComposeState()
+        ComposeLogic.open(&s, target: codex, session: nil, in: data)
+        let first = try! #require(data.projects.first)
+        ComposeLogic.selectCwd(&s, first.path, in: data)
+        #expect(s.cwd == first.path)
+        // 不在列表里的目录忽略
+        ComposeLogic.selectCwd(&s, "/nope/not-listed", in: data)
+        #expect(s.cwd == first.path)
+        s.draft = "看看这个目录"
+        #expect(ComposeLogic.request(s, in: data)?.cwd == first.path)
+        // 选已有对话时不再带 cwd；切到远程新开对话也不带本机 cwd
+        ComposeLogic.selectSession(&s, "s2", in: data)
+        #expect(ComposeLogic.request(s, in: data)?.cwd == "")
+        ComposeLogic.selectTarget(&s, chen, in: data)
+        #expect(ComposeLogic.request(s, in: data)?.cwd == "")
+    }
+
     @Test func 底下那句和能不能发() {
         var s = ComposeState()
         ComposeLogic.open(&s, target: chen, session: nil, in: data)

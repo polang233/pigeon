@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseArgs, clip, fingerprint, newBand, isBand } from '../scripts/lib/common.mjs';
 import { parseLines, readFrom, digest, localProgress, findRollout, toolResult } from '../scripts/lib/rollout.mjs';
 import { parseRelayReply, relayProgress, loftsProgress, remoteLofts, sendInstruction, newInstruction, fetchInstruction, toolFacts } from '../scripts/lib/relay.mjs';
-import { canMove, readJournal, addNote, patchNote, getNote, prune, recent, updateJournal, KEEP_MS } from '../scripts/lib/journal.mjs';
+import { canMove, readJournal, addNote, patchNote, getNote, prune, recent, updateJournal, pruneArtifacts, KEEP_MS } from '../scripts/lib/journal.mjs';
 import { chainFor, overHops, makeNote, eventOf, footer } from '../scripts/lib/post.mjs';
 import { fixture, T } from './helpers.mjs';
 
@@ -76,6 +76,25 @@ test('rollout：按 id 在 sessions 目录里找文件', () => {
   fs.writeFileSync(path.join(d, `rollout-2026-11-11T00-00-00-${T.local}.jsonl`), '');
   assert.equal(findRollout(T.local, root), path.join(d, `rollout-2026-11-11T00-00-00-${T.local}.jsonl`));
   assert.equal(findRollout('nope', root), '');
+});
+
+test('pruneArtifacts：清理 7 天前的正文、回信和 run 日志，保留新的', () => {
+  const dir = tmp();
+  const oldTs = Date.now() - KEEP_MS - 60000;
+  for (const sub of ['bodies', 'answers', 'runs']) {
+    fs.mkdirSync(path.join(dir, sub), { recursive: true });
+    const oldFile = path.join(dir, sub, 'old.md');
+    const newFile = path.join(dir, sub, 'new.md');
+    fs.writeFileSync(oldFile, 'old');
+    fs.writeFileSync(newFile, 'new');
+    fs.utimesSync(oldFile, new Date(oldTs), new Date(oldTs));
+  }
+  const removed = pruneArtifacts(dir, Date.now(), { force: true });
+  assert.equal(removed, 3);
+  for (const sub of ['bodies', 'answers', 'runs']) {
+    assert.equal(fs.existsSync(path.join(dir, sub, 'old.md')), false);
+    assert.equal(fs.existsSync(path.join(dir, sub, 'new.md')), true);
+  }
 });
 
 /* ---------- 中继站 ---------- */

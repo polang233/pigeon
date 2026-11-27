@@ -58,6 +58,8 @@ enum Paths {
     }()
     static var journalFile: URL { dataDir.appendingPathComponent("journal.json") }
     static var loftsFile: URL { dataDir.appendingPathComponent("lofts.json") }
+    static var runsDir: URL { dataDir.appendingPathComponent("runs", isDirectory: true) }
+    static var runningDir: URL { dataDir.appendingPathComponent("running", isDirectory: true) }
     /// 插件上次读到的 Antigravity 模型列表（pigeon models 写的）
     static var antigravityModelsFile: URL { dataDir.appendingPathComponent("models/antigravity.json") }
 

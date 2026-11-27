@@ -228,7 +228,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
       "model": "",
       "effort": "",
       "from": { "loft": "local", "agent": "claude", "session": "…", "title": "" },
-      "to":   { "loft": "remote-control:env_…", "loft_name": "CHEN-Y9000P2023", "agent": "codex", "session": "01a1c898-…", "title": "问候" },
+      "to":   { "loft": "remote-control:env_…", "loft_name": "WIN-WORKSTATION", "agent": "codex", "session": "01a1c898-…", "title": "问候" },
       "via": "relay",
       "state": "home",
       "created": 1794370024000,
@@ -259,7 +259,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
     { "id": "local", "name": "这台 Mac", "online": true,
       "sessions": [ { "id": "…", "agent": "codex", "title": "…", "cwd": "…", "updated": 1794370000000, "relay": false } ],
       "projects": [] },
-    { "id": "remote-control:env_…", "name": "CHEN-Y9000P2023", "online": true,
+    { "id": "remote-control:env_…", "name": "WIN-WORKSTATION", "online": true,
       "sessions": [ { "id": "…", "agent": "codex", "title": "问候", "cwd": "F:\\Code\\Projects", "updated": 1794366776000 } ],
       "projects": [ { "id": "477552e8-…", "name": "Mac", "path": "F:/Code/Projects" } ] }
   ]
@@ -292,7 +292,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
   "band": "b-3f9a02c1d7", "chain": "b-3f9a02c1d7", "count": 1, "kind": "send", "via": "relay",
   "state": "flying",
   "from": { "loft": "local", "agent": "claude", "session": "…", "title": "" },
-  "to":   { "loft": "remote-control:env_…", "loft_name": "CHEN-Y9000P2023", "agent": "codex", "session": "…", "title": "问候" },
+  "to":   { "loft": "remote-control:env_…", "loft_name": "WIN-WORKSTATION", "agent": "codex", "session": "…", "title": "问候" },
   "preview": "构建 main 分支，把报错带回来",
   "answer_preview": "",
   "error": "" }
@@ -302,7 +302,7 @@ Codex 原生 hook 也通过 `POST /ev` 和 SSE `hook` 发送，`payload.source` 
 - `preview` 只在第一条里带（最多 80 字）；`answer_preview` 只在 `home` 那条里带（最多 160 字）。
 - `new` 类型的消息，`to.session` 在对方对话建好之前是空串，建好后的事件里补上。
 - 应用端把超过 2 小时没有任何新消息的消息视为过期，不再计入"进行中"的数字。
-- 发件人 `from.agent`：环境变量 `CLAUDE_CODE_SESSION_ID` 存在时是 `claude`，否则是 `you`。
+- 发件人 `from.agent`：优先识别统一 MCP 等传来的 `PIGEON_FROM_AGENT`（`codex` / `antigravity` / `cursor` / `deepseek` / `claude` / `you`），其次环境变量 `CLAUDE_CODE_SESSION_ID` 存在时是 `claude`，否则是 `you`。
 
 ### 新增的 HTTP 接口
 
@@ -456,13 +456,12 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 
 ### 第一版真的能做的
 
-| 事情 | 第一版 |
+| 事情 | 当前实现 |
 |---|---|
-| 指挥 | 本机的 Claude Code，或者你自己 |
-| 接活 | 本机和远程电脑上的 Codex：给已有对话发消息、新开对话 |
-| 等你的一队 | 只有跨设备发送（`cross`）会排进来。`relay`、`split` 接口留着，等统一的 MCP |
-| 添加设备 | 只有"Codex 应用内"：经中继站重读一次远程电脑。SSH、经 magpie 置灰 |
-| Cursor、DeepSeek Harness | 检测得到就显示，标"还没接上"，不能选 |
+| 指挥 | 本机的 Claude Code 或你自己；开启统一 MCP 后，Codex / Antigravity / Cursor 也可读规则并主动派活 |
+| 接活 | 本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness、Antigravity；Cursor 暂不支持收活 |
+| 等你的一队 | 跨设备发送（`cross`）；经统一 MCP 来、又不是指挥的 agent 派活（`relay`，本机的也问，等待上限同 `crossTimeoutSec`）；`split` 接口留着，还不会产生 |
+| 添加设备 | "Codex 应用内"经中继站读取远程电脑；SSH、经 magpie 暂置灰 |
 
 ### 设置再新增
 
@@ -618,6 +617,19 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 - 不再回 `Access-Control-Allow-Origin`。以前给 `file://` 打开的页面开过 `*`，现在页面只从本服务加载，用不着了。
 
 不这样的话，你开着的任何一个网页都能读到等你确认的原文、替你点放行、以你的名义派活、改设置。
+
+### 桌面与全局快捷键（`perch` / `GET/POST /api/autostart`）
+
+- `perch.notch`：布尔值，是否在屏幕顶部显示原生刘海面板（默认 `true`）。
+- `perch.hotkey`：布尔值，是否开启全局快速派活热键（默认 `true`）。
+- `perch.hotkeySpec`：字符串，全局热键规格（默认 `"opt+space"`，支持 `ctrl` / `opt` / `shift` / `cmd` 搭配字母、数字、`space` / `return` / `tab` / `f1`–`f12`）。
+
+### 统一 Pigeon MCP 与配置接口
+
+| 请求 | 说明 |
+|---|---|
+| `GET /api/mcp` | 返回包装脚本路径 `~/.pigeon/pigeon-mcp`、`mcp.mjs` 路径、`nodeOk`，以及 `clients`（`codex`、`antigravity`、`cursor`）各自的 `{ installed, configPath, detail }` |
+| `POST /api/mcp` | 请求体 `{ "client": "codex" \| "antigravity" \| "cursor", "enable": true \| false }`。开启时生成/更新 `~/.pigeon/pigeon-mcp`（`0755`），保留其他已有配置安全写入对应客户端配置文件；关闭时仅移除 `pigeon` 条目。成功回 `200` 并通过 SSE 广播 `{"type":"mcp","mcp":{...}}`；JSON 格式损坏或参数非法回 `400` |
 
 ### 只起本机服务
 

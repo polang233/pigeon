@@ -234,4 +234,100 @@ extension Hub {
         respondStatus(conn, 200, Self.jsonData(["ok": true]), keepAlive: keepAlive)
         onNotch?(Self.jsonData(clean))
     }
+
+    // MARK: 新装检查与自动维护 dispatch.json
+
+    /// 返回新装检查清单需要的状态（Node 版本、Claude 插件、Codex hook、插件市场路径、本机对话数）。
+    func setupStatus() -> Data {
+        let node = Detector.nodeInfo(at: Detector.which("node"))
+        let claudeDir = Paths.home.appendingPathComponent(".claude", isDirectory: true)
+        let installedPlugins = (try? String(contentsOf: claudeDir.appendingPathComponent("plugins/installed_plugins.json"), encoding: .utf8)) ?? ""
+        let claudeSettings = (try? String(contentsOf: claudeDir.appendingPathComponent("settings.json"), encoding: .utf8)) ?? ""
+        let claudeLocal = (try? String(contentsOf: claudeDir.appendingPathComponent("settings.local.json"), encoding: .utf8)) ?? ""
+        let pluginInstalled = installedPlugins.contains("\"pigeon@") || installedPlugins.contains("\"pigeon\"")
+            || claudeSettings.contains("forward.sh") || claudeLocal.contains("forward.sh")
+
+        let codex = CodexHooks.status(lastEventAt: lastCodexHookAt)
+
+        var marketplacePath = ""
+        if Bundle.main.bundleIdentifier != nil,
+           let res = Bundle.main.resourceURL,
+           FileManager.default.fileExists(atPath: res.appendingPathComponent(".claude-plugin/marketplace.json").path) {
+            marketplacePath = res.path
+        } else {
+            let repoRoot = Paths.packageDir.appendingPathComponent("..").standardizedFileURL
+            if FileManager.default.fileExists(atPath: repoRoot.appendingPathComponent(".claude-plugin/marketplace.json").path) {
+                marketplacePath = repoRoot.path
+            }
+        }
+        let pigeonScript = (pluginScriptsOverride ?? PluginScripts.locate())?.appendingPathComponent("pigeon.mjs").path ?? ""
+
+        var localSessions = 0
+        if let loftsObj = (try? JSONSerialization.jsonObject(with: composeLofts())) as? [String: Any],
+           let list = loftsObj["lofts"] as? [[String: Any]],
+           let local = list.first(where: { ($0["id"] as? String) == "local" }),
+           let sessions = local["sessions"] as? [[String: Any]] {
+            localSessions = sessions.filter { ($0["relay"] as? Bool) != true }.count
+        }
+
+        let payload: [String: Any] = [
+            "node": ["ok": node.ok, "path": node.path, "version": node.version, "zstd": node.zstd],
+            "claudePlugin": ["installed": pluginInstalled, "hookReceived": lastHookAt != nil],
+            "codexHooks": ["installed": codex.installed, "working": codex.working, "detail": codex.detail],
+            "marketplacePath": marketplacePath,
+            "pigeonScript": pigeonScript,
+            "localSessions": localSessions,
+        ]
+        return Self.jsonData(payload)
+    }
+
+    /// 设置或本机 Agent 状态变化时同步更新 `~/.pigeon/dispatch.json`，不依赖主窗口是否打开。
+    func syncDispatchFileIfNeeded() {
+        let settings = Settings.object()
+        let d = settings["dispatch"] as? [String: Any] ?? [:]
+        let rules = d["rules"] as? [[String: Any]] ?? []
+        let seeded = (d["seeded"] as? NSNumber)?.intValue ?? 0
+        guard !rules.isEmpty || seeded != 0 else { return }
+
+        let devices = settings["devices"] as? [String: Any] ?? [:]
+        let hidden = Set(devices["hidden"] as? [String] ?? [])
+        let off = devices["off"] as? [String: [String]] ?? [:]
+        let localOff = Set(off["local"] ?? [])
+        var alive = Set<String>()
+        if let a = lastAgents {
+            if a.codex.installed && !localOff.contains("codex") { alive.insert("codex@local") }
+            if a.deepseek.installed && !localOff.contains("deepseek") { alive.insert("deepseek@local") }
+            if a.antigravity.installed && !localOff.contains("antigravity") { alive.insert("antigravity@local") }
+        } else {
+            if !localOff.contains("codex") { alive.insert("codex@local") }
+        }
+        var loftNames: [String: String] = [:]
+        if let data = try? Data(contentsOf: Paths.loftsFile),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let lofts = root["lofts"] as? [[String: Any]] {
+            for l in lofts {
+                guard let id = l["id"] as? String, !id.isEmpty, id != "local", !hidden.contains(id) else { continue }
+                if let name = l["name"] as? String, !name.isEmpty { loftNames[id] = name }
+                let devOff = Set(off[id] ?? [])
+                if !devOff.contains("codex") { alive.insert("codex@\(id)") }
+            }
+        }
+
+        let text = Dispatch.promptText(settings: settings, alive: alive, quota: dispatchInput.quota,
+                                       low: dispatchInput.low, loftNames: loftNames)
+        dispatchInput.text = text
+        dispatchInput.alive = alive
+
+        var out: [String: Any] = [
+            "text": text,
+            "quota": dispatchInput.quota,
+            "updated": Int64(Date().timeIntervalSince1970 * 1000),
+            "lead": settings["lead"] ?? ["kind": "agent", "agent": "claude", "loft": "local"],
+            "alive": alive.sorted(),
+        ]
+        if let low = dispatchInput.low { out["low"] = low }
+        let data = Self.jsonData(out)
+        try? FileManager.default.createDirectory(at: Paths.dataDir, withIntermediateDirectories: true)
+        try? data.write(to: Paths.dispatchFile, options: .atomic)
+    }
 }
