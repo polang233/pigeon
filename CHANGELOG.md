@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- 接入页改版：先讲接入 agent，再讲设备。最上面选指挥；每个 agent 一张卡片，写着它是怎么接进来的（Claude Code 的插件、Codex 的事件回调和统一 MCP、DeepSeek Harness 的命令行、Antigravity 走命令行还是应用、Cursor 的统一 MCP），下面每台设备一行管默认模型和开关，“设置”里是交给它的活怎么跑（模型、权限、超时、生图……），不用再到处找。设备卡片只列上面有哪些 agent，点一下跳到那家的卡片。
+- 添加设备的第一步把三种连法都列出来并各写一句说明；应用里还不能用的 SSH、经 magpie 置灰，写明“还没做”。
+- 用量改成占比：一条横条加每个 agent 一行，看今天或近 7 天 Claude、ChatGPT 各用了多少、占多少，能切“全部 token”和“只算输出”。页面上写明数据来自这台 Mac 上 Claude Code 和 Codex 自己的对话记录，别的 agent 还读不到；没有数据时有提示。演示模式里也能看到（示例数字）。
 - **正式分发与首装体验（P3）**：新增 `mac/scripts/build-dmg.sh` 一键生成可分发的 `build/Pigeon-<版本>.dmg` 安装包（带 `Applications` 拖入快捷方式）；设置面板「桌面与快捷方式」支持直接录制自定义全局快捷键（`perch.hotkeySpec`，默认 `⌥ 空格`）；连接检查清单内嵌「默认指挥」切换。
 - **统一 MCP 服务与多 Agent 一键接入**：新增零依赖 `pigeon mcp` 服务（8 个工具与 `pigeon://rules` / `pigeon://lofts` 资源），接入页新增「一键接入 Codex / Antigravity / Cursor」开关与检查清单快捷按钮，安全改写配置并保留原有设置，让 Codex、Antigravity、Cursor 都能读取分派规则、主动向其他 agent 派活并按真实发件身份可视化。
 - **桌面伴侣体验**：支持登录时自动启动（`SMAppService`，设置与菜单栏可开关）、全局快捷键 `⌥ 空格` 随时呼出刘海快速派活、刘海本机新开对话可选项目目录与自定义远程模型名，以及 `pigeon run` 持久化与重启孤儿恢复（`~/.pigeon/runs/*.meta.json`）。

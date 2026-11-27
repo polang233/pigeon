@@ -158,8 +158,19 @@ export function createMock(now = Date.now()) {
     { id: 'rl-2', title: '中转（轻量）', model: 'GPT-5.5 mini', effort: 'low', context: 18000, window: 400000, tokensUsed: 260000, updated: hrsAgo(30), shared: false, hosts: [], archived: false, missing: false },
     { id: 'rl-0', title: '中转（旧）', model: 'GPT-5.5', effort: 'high', context: 410000, window: 400000, tokensUsed: 61000000, updated: hrsAgo(240), shared: false, hosts: [], archived: true, missing: false },
   ] };
+  // 用量（契约里的 GET /api/usage）：今天和近 7 天，按 agent 记 token，model 是它最近用的那个
+  const USAGE = { day: '2026-11-13', agents: {
+    claude: { model: 'claude-opus-5-5', today: { input: 3100, output: 182000, cacheRead: 21400000, cacheWrite: 640000, messages: 164 }, week: { input: 15800, output: 912000, cacheRead: 98200000, cacheWrite: 3010000, messages: 811 } },
+    subagent: { model: 'claude-haiku-5-5', today: { input: 900, output: 26000, cacheRead: 2100000, cacheWrite: 90000, messages: 38 }, week: { input: 4200, output: 141000, cacheRead: 11600000, cacheWrite: 430000, messages: 205 } },
+    codex: { model: 'gpt-5.5', today: { input: 2240000, output: 61000, cacheRead: 9800000, cacheWrite: 0, messages: 21 }, week: { input: 9100000, output: 288000, cacheRead: 47300000, cacheWrite: 0, messages: 96 } },
+  } };
+  // 接入页 agent 卡片里的开关：Codex 的回调、统一 MCP 装没装
+  const HOOKS = { installed: true, working: true, detail: '已收到 Codex 的事件（示例）' };
+  const MCP = { nodeOk: true, wrapper: '~/.pigeon/pigeon-mcp', clients: { codex: { installed: true }, antigravity: { installed: false }, cursor: { installed: true } } };
+  // 经 pigeon run 交给 Codex 的活能选的模型
+  const CODEXM = [{ slug: 'gpt-5.5', name: 'GPT-5.5', efforts: ['low', 'medium', 'high', 'xhigh'] }, { slug: 'gpt-5.5-mini', name: 'GPT-5.5 mini', efforts: ['low', 'medium', 'high'] }];
   // 自己填的模型名：那台电脑上自定义的模型
   const CUSTOMM = { 'codex@win': ['local/qwen3-coder'] };
 
-  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, NOTES, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO, RELAY, CUSTOMM };
+  return { mode: 'demo', home, DEV, CONN, lead, SUB, DEF_MODEL, MODELS, S, T, RULES, LOW: 20, RULES2, Q, NOTES, FOUND, MP_FOUND, MAGPIE, PLAN, DEMO, RELAY, CUSTOMM, USAGE, HOOKS, MCP, CODEXM };
 }

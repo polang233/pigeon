@@ -6,6 +6,7 @@ import { by, keyOf, agOf, dvOf, levelsOf, midLevel, qInfo, qDevs, nameOf, tById,
 import { targets, routeOf } from '../core/route.js';
 import { kindsIn } from '../core/secrets.js';
 import { APP } from '../core/labels.js';
+import { setAt } from './adapt.js';
 
 export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m }) {
   let seq = 0;
@@ -173,6 +174,14 @@ export function createDemo({ state: st, ui, emit, clock, newId, defaultSel, m })
       emit('DEV'); return `去掉了 ${m}（示例）`;
     },
     openRelay() { return '演示里打不开 Codex'; },
+    // 接入页里各 agent 的设置（演示）：只记在页面上，形状和应用的设置文件一样
+    setServer(path, v) { st.SRV = st.SRV && typeof st.SRV === 'object' ? st.SRV : {}; setAt(st.SRV, path, v); emit('SRV'); return null; },
+    setMcp(client, enable) {
+      const M = st.MCP || (st.MCP = { clients: {} }); M.clients = { ...M.clients, [client]: { ...(M.clients?.[client] || {}), installed: !!enable } };
+      emit('DEV'); return `${enable ? '接上了' : '去掉了'} ${AG[client === 'deepseek' ? 'dsh' : client]?.name || client} 的统一 MCP（示例）`;
+    },
+    loadCodexHooks() { emit('HOOKS'); },
+    setCodexHooks(enable) { st.HOOKS = { ...(st.HOOKS || {}), installed: !!enable, working: !!enable, detail: enable ? '已收到 Codex 的事件（示例）' : '没装（示例）' }; emit('HOOKS'); return st.HOOKS; },
     // 中继站（演示）：示例数据在 mock 里，换、归档、删除只改页面上的
     loadRelay() { emit('RELAY'); },
     // 一件任务的全文：演示里正文就是要发的内容或标题，回信就是 reply

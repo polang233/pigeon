@@ -20,15 +20,15 @@
 //   Q          等你处理的一队
 //   paused     全部暂停、每台暂停
 //   settings.* 设置的每一项
-//   SRV        应用里的完整设置变了（只有应用模式：通知、交给 Codex 的活、中继对话这些）
-//   USAGE      用量统计（只有应用模式）
-//   HOOKS      Codex 回调的开关状态（只有应用模式）
+//   SRV        设置文件里的完整设置变了（通知、交给各 agent 的活怎么跑、中继对话这些；演示里只记在页面上）
+//   USAGE      用量统计（演示里是示例数字）
+//   HOOKS      Codex 回调的开关状态
 //   RELAY      中继站：在用的和用过的、各自的模型和上下文大小（接入页打开远程设备的设置时读）
 //   FULL       任务的全文：发出去的正文和完整回信（打开任务详情、频道里展开时读），state.FULL[编号]
 //   link       和应用的连接断了或者连上了（只有应用模式）
 //   NOTES      频道里的留言
 //   ui.*       界面状态：ui.view 当前页、ui.open 远程设备展开、ui.stage.page/sel、ui.tasks、ui.chan、ui.route.try/hit、
-//              ui.conn.plan/mp/cx/ap/dp/rdel/sheet/rm、ui.hud、ui.settingsOpen；
+//              ui.conn.plan/mp/ap/dp/rdel/sheet/rm/up/um（up、um 是用量看哪段时间、按什么算）、ui.hud、ui.settingsOpen；
 //              sheetText、draft 是输入框打字（不重画输入框本身），hudTarget 是打字时按规则自动换了派活对象；
 //              ui.chan.picks 是频道输入框里 @ 了谁（chanPicks），打字本身不发话题
 //   art        有图片加载失败，要退回像素标志
@@ -59,7 +59,7 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
       // picks 输入框里 @ 了谁，mode task 派活 / note 留言，draft 输入框里的字，seen 每个频道看过几封回信，extra 手动拉进来的对话，people 右栏开没开
       chan: { id: '', focus: '', picks: [], mode: 'task', draft: '', seen: {}, extra: {}, people: true },
       route: { try: '', hit: -1, hitTo: '', hitFb: false },
-      conn: { plan: false, mp: '', cx: false, ap: '', dp: '', rdel: '', sheet: null, fresh: '', rm: '' },
+      conn: { plan: false, mp: '', ap: '', dp: '', rdel: '', sheet: null, fresh: '', rm: '', up: 'week', um: 'all' },
       // 刘海：state 五种样子，pinned 鼠标移开也不收，target 派活对象，mode new 新开对话 / msg 发给 session 那个对话，
       // auto 打字时按规则自动选对象（手动点过对象就不自动了），suggest 规则建议的对象，pick 每个对象选过的模型，q 等你的一队选中第几件
       hud: { state: 'idle', pinned: false, target: data.DEMO.target, mode: 'new', session: '', auto: true, suggest: '', draft: '', pick: {}, q: 0 },
@@ -138,9 +138,7 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
   const conn = {
     togglePlan() { ui.conn.plan = !ui.conn.plan; emit('ui.conn.plan'); },
     toggleModelPanel(key) { ui.conn.mp = ui.conn.mp === key ? '' : key; emit('ui.conn.mp'); },
-    // 本机 Codex 那一行下面的“Codex 的设置”（只有应用模式）
-    toggleCodexPanel() { ui.conn.cx = !ui.conn.cx; emit('ui.conn.mp'); },
-    // 本机 DeepSeek Harness、Antigravity 那一行的“设置”，同时只开一个
+    // 接入页 agent 卡片上的“设置”（交给它的活怎么跑），同时只开一个
     toggleAgentPanel(a) { ui.conn.ap = ui.conn.ap === a ? '' : a; emit('ui.conn.mp'); },
     // 远程设备卡片上的“设置”（中继站）；同时只开一台的。rdel 是点了一次“删除”、等再点一次确认的那条
     toggleDevPanel(d) { ui.conn.dp = ui.conn.dp === d ? '' : d; ui.conn.rdel = ''; emit('ui.conn.mp'); },

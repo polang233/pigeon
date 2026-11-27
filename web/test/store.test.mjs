@@ -250,3 +250,18 @@ test('添加经 Codex 的设备：Codex 是入口，别的由它带起', () => {
   assert.equal(st.CONN[id][1].model, 'Sonnet 5.5');
   assert.equal(st.FOUND.find(f => f.name === 'LIN-MBP16').added, true);
 });
+
+test('演示里接入页的 agent 设置：改的是页面上的设置，统一 MCP、Codex 回调能开关', () => {
+  const s = fresh(), st = s.state;
+  s.setServer(['agents', 'deepseek', 'timeoutMin'], 15);
+  s.setServer(['codex', 'sandbox'], 'read-only');
+  assert.deepEqual(st.SRV, { agents: { deepseek: { timeoutMin: 15 } }, codex: { sandbox: 'read-only' } });
+  assert.equal(st.MCP.clients.antigravity.installed, false);
+  assert.match(s.setMcp('antigravity', true), /Antigravity/);
+  assert.equal(st.MCP.clients.antigravity.installed, true);
+  assert.equal(st.MCP.clients.codex.installed, true, '别家的不动');
+  assert.equal(s.setCodexHooks(false).installed, false);
+  assert.equal(st.HOOKS.installed, false);
+  assert.equal(st.ui.conn.up, 'week');
+  assert.equal(st.ui.conn.um, 'all');
+});

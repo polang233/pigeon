@@ -25,7 +25,7 @@ python3 tools/serve.py 5190      # 打开 http://127.0.0.1:5190
 node tools/fake-hub.mjs 47421    # 打开 http://127.0.0.1:47421
 ```
 
-`tools/fake-hub.mjs` 是一个假的应用服务（不依赖别的包），在内存里实现契约里网页要用的接口和 SSE，数据是编的（一台远程设备、几种状态的任务、一件带倒计时和密钥的等你确认……）。它还有几个调试地址：`/__fake/fail?path=/api/pause` 让下一次请求回错（看错误提示），`/__fake/magpie?on=0` 让 magpie 回 502，`/__fake/drop` 断开 SSE（看重连），`/__fake/ask` 来一件跨设备的事，`/__fake/run` 来一件 pigeon run，`/__fake/state` 看存下的设置和最近一次 `PUT /api/dispatch`。不要用 47321 端口，那是真应用的。
+`tools/fake-hub.mjs` 是一个假的应用服务（不依赖别的包），在内存里实现契约里网页要用的接口和 SSE，数据是编的（一台远程设备、几种状态的任务、一件带倒计时和密钥的等你确认……）。它还有几个调试地址：`/__fake/fail?path=/api/pause` 让下一次请求回错（看错误提示），`/__fake/magpie?on=0` 让 magpie 回 502，`/__fake/drop` 断开 SSE（看重连），`/__fake/usage?on=0` 让用量回空（看接入页用量的空状态），`/__fake/setup?plugin=none` 让检查清单里的 Claude Code 插件显示没装（刷新后看），`/__fake/ask` 来一件跨设备的事，`/__fake/run` 来一件 pigeon run，`/__fake/state` 看存下的设置和最近一次 `PUT /api/dispatch`。不要用 47321 端口，那是真应用的。
 
 页面用的是 ES 模块，要经 HTTP 打开，双击 `index.html`（file://）打不开。
 
@@ -35,7 +35,7 @@ node tools/fake-hub.mjs 47421    # 打开 http://127.0.0.1:47421
 node --test web/test
 ```
 
-纯逻辑的测试：规则匹配和共用用例（`tests/fixtures/` 里分派、查密钥两份，应用和插件跑同样的）、额度改派、排布、形象动作、额度卡映射、转义；store 里的等你的一队、暂停、重发、派活、换指挥、移除设备；应用模式的适配（接口的数据 → 界面的状态）、规则命中次数、设置的读改写（不认识的字段原样留着）。打包进应用时不带 `test/`。
+纯逻辑的测试：接入页用量的占比和数字写法、规则匹配和共用用例（`tests/fixtures/` 里分派、查密钥两份，应用和插件跑同样的）、额度改派、排布、形象动作、额度卡映射、转义；store 里的等你的一队、暂停、重发、派活、换指挥、移除设备；应用模式的适配（接口的数据 → 界面的状态）、规则命中次数、设置的读改写（不认识的字段原样留着）。打包进应用时不带 `test/`。
 
 ## 文件
 
@@ -55,8 +55,8 @@ node --test web/test
 | `src/icons.js` | 线条小图标 `IC`、`svg()`、`icon()`，各家像素标志 `brand()` |
 | `src/data/mock.js` | 演示模式的全部示例数据，`createMock()` 每次返回一份新的。只有这里有假数据 |
 | `src/data/magpie.js` | 经 `/api/magpie/quotas` 读本机额度，每分钟读一次；演示模式读不到退回示例，应用模式读不到就写读不到 |
-| `src/core/` | 纯函数，不碰 DOM：`labels.js` 固定说法，`names.js` 查找和起名，`route.js` 分派规则怎么判（含契约里 `suggest` 的样子）和写进提示的原文（没有一条开着、能交出去的规则时原文是空串，应用不往指挥的提示里写；指挥是你自己时没有提示可写），`pages.js` 指挥台一页有哪些节点，`layout.js` 排布和连线形状，`quota.js` 额度卡对上 agent，`time.js` 时间说法，`secrets.js` 查密钥和打码 |
-| `src/views/` | 各块界面：`stage.js` 指挥台，`faces.js` 头像，`tasks.js` 任务（列表自己滚，表头粘在顶上；展开的那件的详情一直留在列表下面看得到），`route.js` 分派规则，`conn.js` 接入、添加设备、本机 Codex 的设置、用量，`hud.js` 网页画的刘海（只在演示模式），`settings.js` 设置面板，`shared.js` 几页共用的动作和倒计时，`nav.js` 侧栏，`tooltip.js`、`toast.js`（含 `after()`）、`rename.js`、`parts.js` |
+| `src/core/` | 纯函数，不碰 DOM：`labels.js` 固定说法，`names.js` 查找和起名，`route.js` 分派规则怎么判（含契约里 `suggest` 的样子）和写进提示的原文（没有一条开着、能交出去的规则时原文是空串，应用不往指挥的提示里写；指挥是你自己时没有提示可写），`pages.js` 指挥台一页有哪些节点，`layout.js` 排布和连线形状，`quota.js` 额度卡对上 agent，`usage.js` 接入页用量的占比，`time.js` 时间说法，`secrets.js` 查密钥和打码 |
+| `src/views/` | 各块界面：`stage.js` 指挥台，`faces.js` 头像，`tasks.js` 任务（列表自己滚，表头粘在顶上；展开的那件的详情一直留在列表下面看得到），`route.js` 分派规则，`conn.js` 接入（指挥、每个 agent 的接入方式和设置、设备、添加设备、用量），`hud.js` 网页画的刘海（只在演示模式），`settings.js` 设置面板，`shared.js` 几页共用的动作和倒计时，`nav.js` 侧栏，`tooltip.js`、`toast.js`（含 `after()`）、`rename.js`、`parts.js` |
 | `src/skins/` | 指挥台的三种实验样式：`manor.js` 洋馆、`office.js` 办公室、`loft.js` 屋顶，`common.js` 它们共用的。选了才按需加载 |
 | `test/` | `node --test` 的测试，`helpers.mjs` 是测试用的状态；`index.js` 只是让 `node --test web/test` 能找到它们 |
 | `art/brand.js` | 各家 agent 真实标志的像素版和送信的鸽子：`pigeon(颜色, 样子)` 返回一张自己会动的 SVG |
