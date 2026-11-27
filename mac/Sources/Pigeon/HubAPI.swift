@@ -238,8 +238,8 @@ extension Hub {
     // MARK: 新装检查与自动维护 dispatch.json
 
     /// 返回新装检查清单需要的状态（Node 版本、Claude 插件、Codex hook、插件市场路径、本机对话数）。
-    func setupStatus() -> Data {
-        let node = Detector.nodeInfo(at: Detector.which("node"))
+    /// node 由调用方在 hub 队列外读好（`Detector.nodeInfo` 会起子进程）
+    func setupStatus(node: (ok: Bool, path: String, version: String, zstd: Bool)) -> Data {
         let claudeDir = Paths.home.appendingPathComponent(".claude", isDirectory: true)
         let installedPlugins = (try? String(contentsOf: claudeDir.appendingPathComponent("plugins/installed_plugins.json"), encoding: .utf8)) ?? ""
         let claudeSettings = (try? String(contentsOf: claudeDir.appendingPathComponent("settings.json"), encoding: .utf8)) ?? ""

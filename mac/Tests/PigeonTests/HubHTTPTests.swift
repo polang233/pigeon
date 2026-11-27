@@ -53,6 +53,26 @@ import Testing
         #expect(try await queueItems(c).isEmpty)
     }
 
+    @Test func brokenSettingsBackedUpBeforeOverwrite() throws {
+        TestEnv.prepare()
+        let fm = FileManager.default
+        let dir = Paths.settingsFile.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        for f in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where f.hasPrefix("settings.json.bad-") {
+            try? fm.removeItem(at: dir.appendingPathComponent(f))
+        }
+        try Data("{ \"post\": { 写坏了".utf8).write(to: Paths.settingsFile)
+        #expect(Settings.object().isEmpty)
+        try Settings.update { $0["perch"] = ["notch": true] }
+        let baks = try fm.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("settings.json.bad-") }
+        #expect(baks.count == 1)
+        let bak = try String(contentsOf: dir.appendingPathComponent(baks[0]), encoding: .utf8)
+        #expect(bak.contains("写坏了"))
+        #expect((Settings.object()["perch"] as? [String: Any])?["notch"] as? Bool == true)
+        try? fm.removeItem(at: Paths.settingsFile)
+        for f in baks { try? fm.removeItem(at: dir.appendingPathComponent(f)) }
+    }
+
     @Test func settingsDefaultTimeoutUsed() async throws {
         TestEnv.prepare()
         try FileManager.default.createDirectory(at: Paths.settingsFile.deletingLastPathComponent(), withIntermediateDirectories: true)

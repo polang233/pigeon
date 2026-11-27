@@ -281,7 +281,15 @@ final class Hub: @unchecked Sendable {
         case (_, "/api/lofts/local"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/setup"):
-            respondJSON(conn, setupStatus(), keepAlive: keepAlive)
+            // node -v 是子进程，最多等几秒：放到后台跑，不卡住本机服务的队列，读完再回到队列上拼结果
+            let nodePath = Detector.which("node"), q = queue
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let node = Detector.nodeInfo(at: nodePath)
+                q.async { [weak self] in
+                    guard let self else { return }
+                    self.respondJSON(conn, self.setupStatus(node: node), keepAlive: keepAlive)
+                }
+            }
         case (_, "/api/setup"):
             methodNotAllowed(conn, keepAlive: keepAlive)
         case ("GET", "/api/queue"):

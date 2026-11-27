@@ -104,7 +104,7 @@ export function mountSettings(store) {
     const res = keyEventToSpec(e);
     if (res.status === 'modifier') return;
     if (res.status === 'cancel') { recording = false; draw(); return; }
-    if (res.status === 'no_mod') { toast('请至少按住一个修饰键（⌥ / ⌘ / ⌃ / ⇧）'); return; }
+    if (res.status === 'no_mod') { toast('请至少按住 ⌥、⌘、⌃ 里的一个（只按 ⇧ 会挡住打大写字母）'); return; }
     if (res.status === 'unsupported') { toast('不支持这个按键，试试字母、数字、空格或 F1–F12'); return; }
     recording = false;
     after(store.setServer(['perch', 'hotkeySpec'], res.spec), () => toast(`快捷键已改为 ${formatHotkey(res.spec)}`));

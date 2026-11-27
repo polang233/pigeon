@@ -34,6 +34,9 @@ const MOD_ALIAS = {
   cmd: 'cmd', command: 'cmd', meta: 'cmd',
 };
 
+// 全局快捷键至少要带 ⌃、⌥、⌘ 里的一个：只按 ⇧ 加字母会把全系统的大写字母吃掉。F1–F12 例外
+const strongEnough = (mods, key) => mods.some(m => m !== 'shift') || /^f([1-9]|1[0-2])$/.test(key);
+
 export function normalizeHotkey(raw) {
   const parts = String(raw || '').split('+').map(s => s.trim().toLowerCase()).filter(Boolean);
   if (parts.length < 2) return '';
@@ -46,7 +49,7 @@ export function normalizeHotkey(raw) {
     if (!k) return '';
     mods.add(k);
   }
-  if (!mods.size) return '';
+  if (!mods.size || !strongEnough([...mods], key.canonical)) return '';
   return [...MOD_ORDER.filter(m => mods.has(m)), key.canonical].join('+');
 }
 
@@ -102,5 +105,6 @@ export function keyEventToSpec(e) {
     else if (KEY_INFO[lk]) keyTok = KEY_INFO[lk].canonical;
   }
   if (!keyTok || !KEY_INFO[keyTok]) return { status: 'unsupported' };
+  if (!strongEnough(mods, KEY_INFO[keyTok].canonical)) return { status: 'no_mod' };
   return { status: 'ok', spec: [...mods, KEY_INFO[keyTok].canonical].join('+') };
 }

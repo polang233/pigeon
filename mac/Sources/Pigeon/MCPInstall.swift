@@ -39,12 +39,30 @@ enum MCPInstall {
         return FileManager.default.fileExists(atPath: file.path) ? file : nil
     }
 
+    static let installedScript = URL(fileURLWithPath: "/Applications/Pigeon.app/Contents/Resources/plugin/scripts/mcp.mjs")
+
+    /// 临时位置：从 dmg 里直接打开（/Volumes/…），或者没拖进“应用程序”就打开、被系统挪到随机目录（AppTranslocation）。
+    /// 应用一关这些路径就没了，入口脚本不能指向这里
+    static func isTransient(_ url: URL) -> Bool {
+        let p = url.resolvingSymlinksInPath().path
+        return p.hasPrefix("/Volumes/") || p.contains("/AppTranslocation/")
+    }
+
+    /// 入口脚本该指向哪份 mcp.mjs：当前这份在临时位置时，改用装在“应用程序”里的那份（有的话）
+    static func stableScript(scriptsDir: URL?) -> (url: URL, transient: Bool)? {
+        guard let script = scriptURL(scriptsDir: scriptsDir) else { return nil }
+        guard isTransient(script) else { return (script, false) }
+        if FileManager.default.fileExists(atPath: installedScript.path) { return (installedScript, false) }
+        return (script, true)
+    }
+
+    /// 启动时把已有的入口脚本指到这份应用（应用挪过位置也跟着走）。在临时位置打开的不改，免得指向关掉就消失的路径
     static func refreshWrapperIfPresent(scriptsDir: URL?) {
         let fm = FileManager.default
         guard fm.fileExists(atPath: wrapperURL.path),
               let nodePath = Detector.which("node"),
-              let script = scriptURL(scriptsDir: scriptsDir) else { return }
-        try? writeWrapper(nodePath: nodePath, scriptPath: script.path)
+              let script = stableScript(scriptsDir: scriptsDir), !script.transient else { return }
+        try? writeWrapper(nodePath: nodePath, scriptPath: script.url.path)
     }
 
     static func statusObject(scriptsDir: URL?) -> [String: Any] {
@@ -110,10 +128,13 @@ enum MCPInstall {
         guard let nodePath = Detector.which("node"), !nodePath.isEmpty else {
             throw .io("没找到 node，无法写入 MCP 入口脚本")
         }
-        guard let script = scriptURL(scriptsDir: scriptsDir) else {
+        guard let script = stableScript(scriptsDir: scriptsDir) else {
             throw .io("没找到 mcp.mjs，无法写入 MCP 入口脚本")
         }
-        try writeWrapper(nodePath: nodePath, scriptPath: script.path)
+        if script.transient {
+            throw .io("Pigeon 现在是从安装包里或临时位置打开的，关掉后路径就没了。先把 Pigeon 拖进“应用程序”再开启")
+        }
+        try writeWrapper(nodePath: nodePath, scriptPath: script.url.path)
         let wp = wrapperURL.path
         switch client {
         case .codex:

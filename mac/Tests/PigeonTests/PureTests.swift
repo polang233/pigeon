@@ -307,6 +307,8 @@ import Testing
         #expect(b?.displayLabel == "⌃ ⌥ F5")
         #expect(HotKeySpec.parse("space") == nil)
         #expect(HotKeySpec.parse("opt+bogus") == nil)
+        #expect(HotKeySpec.parse("shift+a") == nil)
+        #expect(HotKeySpec.parse("shift+f5")?.raw == "shift+f5")
         #expect(HotKeySpec.parse("") == nil)
     }
 }

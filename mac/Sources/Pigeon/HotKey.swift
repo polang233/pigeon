@@ -58,7 +58,9 @@ struct HotKeySpec: Sendable, Equatable {
             default: return nil
             }
         }
-        guard mods != 0 else { return nil }
+        // 至少带 ⌃、⌥、⌘ 里的一个：只按 ⇧ 加字母会把全系统的大写字母吃掉。F1–F12 例外
+        let isFKey = keyInfo.canonical.count >= 2 && keyInfo.canonical.hasPrefix("f") && Int(keyInfo.canonical.dropFirst()) != nil
+        guard mods != 0, mods != UInt32(shiftKey) || isFKey else { return nil }
         var ordered: [String] = []
         if (mods & UInt32(controlKey)) != 0 { ordered.append("ctrl") }
         if (mods & UInt32(optionKey)) != 0 { ordered.append("opt") }

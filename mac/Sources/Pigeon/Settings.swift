@@ -18,6 +18,8 @@ enum Settings {
         var stamp: Stamp?
         var data: Data
         var object: [String: Any]
+        /// 文件在、有内容，但不是 JSON 对象（手改坏了、写到一半）。下次存之前先把它另存一份
+        var broken = false
     }
 
     private static let lock = NSLock()
@@ -36,10 +38,13 @@ enum Settings {
         let now = stamp()
         if let c = cache, c.stamp == now { return c }
         var c = Cache(stamp: now, data: Data("{}".utf8), object: [:])
-        if now != nil, let data = try? Data(contentsOf: Paths.settingsFile),
-           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            c.data = data
-            c.object = obj
+        if now != nil, let data = try? Data(contentsOf: Paths.settingsFile) {
+            if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                c.data = data
+                c.object = obj
+            } else if !String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                c.broken = true
+            }
         }
         cache = c
         return c
@@ -50,6 +55,7 @@ enum Settings {
     static func save(_ body: Data) throws(SaveError) {
         guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { throw .notObject }
         let url = Paths.settingsFile
+        if current().broken { backupBroken(url) }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             lock.lock()
@@ -59,6 +65,17 @@ enum Settings {
             cache = Cache(stamp: stamp(), data: body, object: obj)
         } catch {
             throw .io(error)
+        }
+    }
+
+    /// 坏了的设置文件在被新内容盖掉之前另存成 settings.json.bad-<时间>，原来写的东西还能找回来
+    static func backupBroken(_ url: URL) {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        let bak = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".bad-" + f.string(from: Date()))
+        if (try? FileManager.default.copyItem(at: url, to: bak)) != nil {
+            FileHandle.standardError.write(Data("设置文件不是有效的 JSON，改写前另存为 \(bak.lastPathComponent)\n".utf8))
         }
     }
 
