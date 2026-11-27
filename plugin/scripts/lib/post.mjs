@@ -53,8 +53,9 @@ function makeOut(args) {
 }
 
 /* ---------- 消息和事件 ---------- */
+const FOOTER_FROM = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor', deepseek: 'DeepSeek Harness', antigravity: 'Antigravity' };
 export function footer(band, from) {
-  const who = from.agent === 'claude' ? 'Claude Code' : '用户';
+  const who = FOOTER_FROM[from.agent] || '用户';
   return `\n\n（Pigeon 纸条 ${band}，来自${LOCAL_NAME}上的 ${who}。回信直接写在这一轮的最终回复里就行。）`;
 }
 
@@ -826,7 +827,8 @@ export function answerOf(note) {
   return { answer: '', progress: p };
 }
 
-const who = p => (p.agent === 'claude' ? 'Claude' : p.agent === 'you' ? '你' : p.agent || '?');
+const WHO_NAME = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', deepseek: 'DeepSeek Harness', antigravity: 'Antigravity', you: '你' };
+const who = p => WHO_NAME[p.agent] || p.agent || '?';
 const where = to => `${to.title || to.session || '（新对话）'}${to.agent && to.agent !== 'codex' ? `（${AGENT_NAME[to.agent] || to.agent}）` : ''}${to.loft === LOCAL ? '' : '@' + (to.loft_name || to.loft)}`;
 const elapsed = n => ago((TERMINAL.has(n.state) ? n.updated : Date.now()) - n.created);
 const modelLabel = n => [n.model, n.effort].filter(Boolean).join(' · ');

@@ -48,13 +48,13 @@ Pigeon 会在消息末尾自动加一行编号和发件人，不用自己写。
 给已有对话（本机写对话 id 或标题；远程写成 `<对话>@<设备名或id>`）：
 
 ```bash
-node "PG" send --to "构建@CHEN-Y9000P2023" "在 F:\Code\Projects\app 里跑 npm run build，把报错原文带回来。只读，不要改文件。"
+node "PG" send --to "构建@WIN-DEV" "在 D:\Projects\app 里跑 npm run build，把报错原文带回来。只读，不要改文件。"
 ```
 
 新开一个对话（远程必须指定项目，项目名见 `lofts` 的输出）：
 
 ```bash
-node "PG" new --loft CHEN-Y9000P2023 --project Mac --title "检查构建" "……消息内容……"
+node "PG" new --loft WIN-DEV --project my-app --title "检查构建" "……消息内容……"
 ```
 
 消息长的话写进临时文件，用 `--file <文件>` 代替正文。

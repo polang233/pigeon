@@ -140,13 +140,29 @@ export async function loadSettings() {
   return { codex: { ...CODEX_DEFAULTS, ...((raw && raw.codex) || {}) }, post, secrets, raw: raw || {}, source, appOnline: !!r };
 }
 
-// 改一处设置。应用开着时走 PUT（应用负责写文件和广播）；没开时直接改设置文件。
+const isPlainObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+export function diffObj(a, b) {
+  if (isPlainObj(a) && isPlainObj(b)) {
+    const p = {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (!(k in b)) { p[k] = null; continue; }
+      const d = diffObj(a[k], b[k]);
+      if (d !== undefined) p[k] = d;
+    }
+    return Object.keys(p).length ? p : undefined;
+  }
+  return JSON.stringify(a) === JSON.stringify(b) ? undefined : b;
+}
+
+// 改一处设置。应用开着时算差异走 PATCH（应用负责合并、写文件和广播，避免盖掉并发改动）；没开时直接改设置文件。
 export async function patchSettings(mutate) {
   const r = await request('GET', '/api/settings');
   if (r && r.status === 200 && r.json && typeof r.json === 'object') {
-    const next = structuredClone(r.json);
+    const cur = r.json, next = structuredClone(cur);
     mutate(next);
-    const w = await request('PUT', '/api/settings', next, 2000);
+    const patch = diffObj(cur, next);
+    if (!patch) return { ok: true, where: 'Pigeon 应用' };
+    const w = await request('PATCH', '/api/settings', patch, 2000);
     if (w && w.status === 200) return { ok: true, where: 'Pigeon 应用' };
     return { ok: false, where: 'Pigeon 应用', error: '应用拒绝保存设置' };
   }
@@ -176,7 +192,9 @@ export function codexBin() {
   const cands = [
     process.env.PIGEON_CODEX_BIN,
     '/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex',
+    path.join(HOME, 'Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex'),
     '/Applications/Codex.app/Contents/Resources/codex-cli/bin/codex',
+    path.join(HOME, 'Applications/Codex.app/Contents/Resources/codex-cli/bin/codex'),
     '/opt/homebrew/bin/codex', '/usr/local/bin/codex', path.join(HOME, '.local/bin/codex'),
   ].filter(Boolean);
   for (const c of cands) { try { fs.accessSync(c, fs.constants.X_OK); return c; } catch {} }
@@ -202,8 +220,34 @@ export function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-// 发件人：在 Claude Code 里跑时是 claude，否则当成用户自己。cwd 是发件那个对话的项目目录，应用按它把消息归进频道
+const SENDER_AGENTS = {
+  claude: 'claude',
+  codex: 'codex',
+  cursor: 'cursor',
+  deepseek: 'deepseek',
+  dsh: 'deepseek',
+  antigravity: 'antigravity',
+  agy: 'antigravity',
+  you: 'you',
+};
+export function normalizeAgentName(v) {
+  return SENDER_AGENTS[String(v || '').trim().toLowerCase()] || '';
+}
+
+// 发件人：优先认 PIGEON_FROM_AGENT（统一 MCP 等渠道），其次在 Claude Code 里跑时是 claude，否则当成用户自己。
+// cwd 是发件那个对话的项目目录，应用按它把消息归进频道。
 export function sender() {
+  const fromEnv = normalizeAgentName(process.env.PIGEON_FROM_AGENT);
+  const cwd = process.env.PIGEON_FROM_CWD || process.cwd();
+  if (fromEnv) {
+    return {
+      loft: LOCAL,
+      agent: fromEnv,
+      session: process.env.PIGEON_FROM_SESSION || '',
+      title: process.env.PIGEON_FROM_TITLE || '',
+      cwd,
+    };
+  }
   const sid = process.env.CLAUDE_CODE_SESSION_ID || '';
-  return sid ? { loft: LOCAL, agent: 'claude', session: sid, title: '', cwd: process.cwd() } : { loft: LOCAL, agent: 'you', session: '', title: '' };
+  return sid ? { loft: LOCAL, agent: 'claude', session: sid, title: '', cwd } : { loft: LOCAL, agent: 'you', session: '', title: '' };
 }
