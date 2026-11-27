@@ -57,13 +57,20 @@ function lastJsonLine(text) {
   return null;
 }
 
-function runPigeonCli(args, { stdinText = null, client = '', cwd = '', timeoutMs = 60000 } = {}) {
+// 命令行的 --json 输出：有的是一行，有的（lofts）是排好版的多行，先整段读，读不了再找最后一行
+export function cliJson(text) {
+  const t = String(text || '').trim();
+  if (t) { try { const v = JSON.parse(t); if (v && typeof v === 'object') return v; } catch {} }
+  return lastJsonLine(t);
+}
+
+function runPigeonCli(args, { stdinText = null, client = '', cwd = '', timeoutMs = 60000, signal } = {}) {
   return new Promise(resolve => {
-    const env = { ...process.env };
-    if (client) {
-      env.PIGEON_FROM_AGENT = client;
-      if (client !== 'claude') delete env.CLAUDE_CODE_SESSION_ID;
-    }
+    // 经 MCP 来的都标上 PIGEON_VIA_MCP：认不出是哪家 agent 时不能当成你自己发的（见 common.mjs 的 isRelayFrom）
+    const env = { ...process.env, PIGEON_VIA_MCP: '1' };
+    if (client) env.PIGEON_FROM_AGENT = client;
+    else delete env.PIGEON_FROM_AGENT;
+    if (client !== 'claude') delete env.CLAUDE_CODE_SESSION_ID;
     if (cwd) env.PIGEON_FROM_CWD = cwd;
     const child = execFile(process.execPath, [PIGEON_SCRIPT, ...args], {
       env,
@@ -71,12 +78,14 @@ function runPigeonCli(args, { stdinText = null, client = '', cwd = '', timeoutMs
       timeout: timeoutMs,
       maxBuffer: 8 * 1024 * 1024,
       encoding: 'utf8',
+      ...(signal ? { signal } : {}),
     }, (err, stdout, stderr) => {
       resolve({
         code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
         stdout: stdout || '',
         stderr: stderr || '',
-        timedOut: !!(err && err.killed),
+        timedOut: !!(err && err.killed && !(signal && signal.aborted)),
+        cancelled: !!(signal && signal.aborted),
       });
     });
     if (stdinText != null) child.stdin.end(String(stdinText));
@@ -246,13 +255,13 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
     };
   }
 
-  async function loftsData({ refresh = false, limit = 15 } = {}) {
+  async function loftsData({ refresh = false, limit = 15, signal } = {}) {
     const cap = Math.max(1, Math.min(100, Number(limit) || 15));
     let data = null;
     let error = '';
     if (refresh) {
-      const r = await cliRunner(['lofts', '--refresh', '--json', `--n=${cap}`], { client: activeClient, timeoutMs: 320000 });
-      const parsed = lastJsonLine(r.stdout);
+      const r = await cliRunner(['lofts', '--refresh', '--json', `--n=${cap}`], { client: activeClient, timeoutMs: 320000, signal });
+      const parsed = cliJson(r.stdout);
       if (r.code !== 0 || !parsed || !Array.isArray(parsed.lofts)) {
         return { ok: false, error: parsed?.error || r.stdout.trim() || r.stderr.trim() || '刷新远程设备失败' };
       }
@@ -279,13 +288,18 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
     };
   }
 
-  async function callTool(name, args = {}) {
+  // 每次调用自己的 signal：客户端发 notifications/cancelled 时停掉正在跑的子进程，后面的等回信、读回信也不再做
+  async function callTool(name, args = {}, signal) {
+    const run = async (a, o = {}) => {
+      if (signal && signal.aborted) throw new Error('已取消');
+      return cliRunner(a, { ...o, signal });
+    };
     switch (name) {
       case 'pigeon_rules':
         return toolText(await rulesData(typeof args.prompt === 'string' ? args.prompt : ''));
 
       case 'pigeon_lofts': {
-        const res = await loftsData({ refresh: !!args.refresh, limit: args.limit });
+        const res = await loftsData({ refresh: !!args.refresh, limit: args.limit, signal });
         return toolText(res, !res.ok);
       }
 
@@ -297,14 +311,14 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
         if (typeof args.reason === 'string' && args.reason.trim()) cliArgs.push(`--reason=${args.reason.trim()}`);
         if (typeof args.reply_to === 'string' && args.reply_to.trim()) cliArgs.push(`--reply-to=${args.reply_to.trim()}`);
         const timeoutMs = args.wait ? Math.max(60000, ((Number(args.timeout_min) || 10) + 4) * 60000) : 180000;
-        const r = await cliRunner(cliArgs, { stdinText: message, client: activeClient, cwd: typeof args.cwd === 'string' ? args.cwd : '', timeoutMs });
-        const res = lastJsonLine(r.stdout) || { ok: false, error: r.stderr.trim() || r.stdout.trim() || `发送失败（退出码 ${r.code}）` };
+        const r = await run(cliArgs, { stdinText: message, client: activeClient, cwd: typeof args.cwd === 'string' ? args.cwd : '', timeoutMs });
+        const res = cliJson(r.stdout) || { ok: false, error: r.stderr.trim() || r.stdout.trim() || `发送失败（退出码 ${r.code}）` };
         if (res.ok && args.wait && res.band && !res.paused) {
           const wArgs = ['wait', res.band];
           if (Number(args.timeout_min) > 0) wArgs.push(`--timeout=${Number(args.timeout_min)}`);
-          await cliRunner(wArgs, { client: activeClient, timeoutMs });
-          const rr = await cliRunner(['read', res.band, '--json'], { client: activeClient, timeoutMs: 30000 });
-          const readRes = lastJsonLine(rr.stdout);
+          await run(wArgs, { client: activeClient, timeoutMs });
+          const rr = await run(['read', res.band, '--json'], { client: activeClient, timeoutMs: 30000 });
+          const readRes = cliJson(rr.stdout);
           if (readRes) return toolText({ ...res, ...readRes });
         }
         return toolText(res, !res.ok);
@@ -325,14 +339,14 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
         if (typeof args.reason === 'string' && args.reason.trim()) cliArgs.push(`--reason=${args.reason.trim()}`);
         if (typeof args.reply_to === 'string' && args.reply_to.trim()) cliArgs.push(`--reply-to=${args.reply_to.trim()}`);
         const timeoutMs = args.wait ? Math.max(60000, ((Number(args.timeout_min) || 10) + 4) * 60000) : 180000;
-        const r = await cliRunner(cliArgs, { stdinText: message, client: activeClient, cwd: typeof args.cwd === 'string' ? args.cwd : '', timeoutMs });
-        const res = lastJsonLine(r.stdout) || { ok: false, error: r.stderr.trim() || r.stdout.trim() || `新开对话失败（退出码 ${r.code}）` };
+        const r = await run(cliArgs, { stdinText: message, client: activeClient, cwd: typeof args.cwd === 'string' ? args.cwd : '', timeoutMs });
+        const res = cliJson(r.stdout) || { ok: false, error: r.stderr.trim() || r.stdout.trim() || `新开对话失败（退出码 ${r.code}）` };
         if (res.ok && args.wait && res.band && !res.paused) {
           const wArgs = ['wait', res.band];
           if (Number(args.timeout_min) > 0) wArgs.push(`--timeout=${Number(args.timeout_min)}`);
-          await cliRunner(wArgs, { client: activeClient, timeoutMs });
-          const rr = await cliRunner(['read', res.band, '--json'], { client: activeClient, timeoutMs: 30000 });
-          const readRes = lastJsonLine(rr.stdout);
+          await run(wArgs, { client: activeClient, timeoutMs });
+          const rr = await run(['read', res.band, '--json'], { client: activeClient, timeoutMs: 30000 });
+          const readRes = cliJson(rr.stdout);
           if (readRes) return toolText({ ...res, ...readRes });
         }
         return toolText(res, !res.ok);
@@ -344,17 +358,17 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
         const wArgs = ['wait', band];
         if (Number(args.timeout_min) > 0) wArgs.push(`--timeout=${Number(args.timeout_min)}`);
         const timeoutMs = Math.max(60000, ((Number(args.timeout_min) || 10) + 4) * 60000);
-        await cliRunner(wArgs, { client: activeClient, timeoutMs });
-        const rr = await cliRunner(['read', band, '--json'], { client: activeClient, timeoutMs: 30000 });
-        const res = lastJsonLine(rr.stdout) || { ok: false, band, error: rr.stderr.trim() || rr.stdout.trim() || '读取失败' };
+        await run(wArgs, { client: activeClient, timeoutMs });
+        const rr = await run(['read', band, '--json'], { client: activeClient, timeoutMs: 30000 });
+        const res = cliJson(rr.stdout) || { ok: false, band, error: rr.stderr.trim() || rr.stdout.trim() || '读取失败' };
         return toolText(res, !res.ok);
       }
 
       case 'pigeon_read': {
         const band = String(args.band || '').trim();
         if (!isBand(band)) return toolText({ ok: false, error: 'band 格式不对（形如 b-3f9a02c1d7）' }, true);
-        const rr = await cliRunner(['read', band, '--json'], { client: activeClient, timeoutMs: 30000 });
-        const res = lastJsonLine(rr.stdout) || { ok: false, band, error: rr.stderr.trim() || rr.stdout.trim() || '读取失败' };
+        const rr = await run(['read', band, '--json'], { client: activeClient, timeoutMs: 30000 });
+        const res = cliJson(rr.stdout) || { ok: false, band, error: rr.stderr.trim() || rr.stdout.trim() || '读取失败' };
         return toolText(res, !res.ok);
       }
 
@@ -388,7 +402,7 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
     }
   }
 
-  return async function handle(req) {
+  return async function handle(req, { signal } = {}) {
     if (!req || typeof req !== 'object' || req.jsonrpc !== '2.0' || typeof req.method !== 'string') {
       if (req && req.id !== undefined) {
         return { jsonrpc: '2.0', id: req.id, error: { code: -32600, message: 'Invalid Request' } };
@@ -424,7 +438,7 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
         const params = req.params && typeof req.params === 'object' ? req.params : {};
         if (!params.name) return fail(-32602, 'Missing tool name');
         try {
-          return reply(await callTool(String(params.name), params.arguments || {}));
+          return reply(await callTool(String(params.name), params.arguments || {}, signal));
         } catch (e) {
           return reply(toolText({ ok: false, error: e?.message || String(e) }, true));
         }
@@ -461,7 +475,10 @@ export async function startStdioServer(argv = []) {
   const client = typeof args.client === 'string' ? args.client : '';
   const handle = createMcpHandler({ client });
   let buf = '';
-  let chain = Promise.resolve();
+  // 请求各跑各的：等回信可能要十几分钟，这期间 ping、tools/list、取消都要能马上回。
+  // inflight 记着还在跑的请求，客户端发 notifications/cancelled 就停掉那一个，按协议不再回它
+  const inflight = new Map();
+  const running = new Set();
 
   const writeLine = obj => {
     if (!obj) return;
@@ -471,19 +488,27 @@ export async function startStdioServer(argv = []) {
   const processLine = line => {
     const trimmed = line.trim();
     if (!trimmed) return;
-    chain = chain.then(async () => {
-      let req;
-      try {
-        req = JSON.parse(trimmed);
-      } catch {
-        writeLine({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
-        return;
-      }
-      const res = await handle(req);
-      writeLine(res);
-    }).catch(e => {
-      process.stderr.write(`pigeon mcp error: ${e?.stack || e}\n`);
-    });
+    let req;
+    try {
+      req = JSON.parse(trimmed);
+    } catch {
+      writeLine({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
+      return;
+    }
+    if (req && req.method === 'notifications/cancelled') {
+      const ac = inflight.get(req.params?.requestId);
+      if (ac) ac.abort();
+      return;
+    }
+    const id = req && (typeof req.id === 'string' || typeof req.id === 'number') ? req.id : undefined;
+    const ac = new AbortController();
+    if (id !== undefined) inflight.set(id, ac);
+    const job = Promise.resolve()
+      .then(() => handle(req, { signal: ac.signal }))
+      .then(res => { if (!ac.signal.aborted) writeLine(res); })
+      .catch(e => { process.stderr.write(`pigeon mcp error: ${e?.stack || e}\n`); })
+      .finally(() => { if (id !== undefined && inflight.get(id) === ac) inflight.delete(id); running.delete(job); });
+    running.add(job);
   };
 
   process.stdin.setEncoding('utf8');
@@ -500,7 +525,7 @@ export async function startStdioServer(argv = []) {
   await new Promise(resolve => {
     process.stdin.on('end', async () => {
       if (buf.trim()) processLine(buf);
-      await chain;
+      await Promise.allSettled([...running]);
       resolve();
     });
     process.stdin.resume();
@@ -508,6 +533,11 @@ export async function startStdioServer(argv = []) {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// 直接运行时才起服务（被测试 import 时不起）。路径里有链接（/tmp、链接过去的仓库）时 argv[1] 和 import.meta.url 对不上，按真实路径比
+const isMain = () => {
+  if (!process.argv[1]) return false;
+  try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); } catch { return import.meta.url === pathToFileURL(process.argv[1]).href; }
+};
+if (isMain()) {
   startStdioServer(process.argv.slice(2)).then(code => process.exit(code));
 }

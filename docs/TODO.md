@@ -31,7 +31,7 @@
 ### 更多 agent 能发、能收
 
 - **统一的 MCP**（已实现 `pigeon mcp` 零依赖 stdio 服务与 `GET/POST /api/mcp` 一键接入，Codex / Antigravity / Cursor 均可读取分派规则并向其他 agent 派活、读回信）：后续还可扩展这几件：
-  - 等你处理的一队里的"转派前问我"（relay）和"拆活前问我"（split），现在接口留着，没有来源；
+  - 等你处理的一队里的"拆活前问我"（split），现在接口留着，没有来源（"转派前问我"已接上统一 MCP）；
   - 接活 agent 收到工具结果后可继续往下转派，形成多跳协作；
 - **Claude Code 能接收。** 现在 Claude Code 只能发出。要在它空闲时把消息送进去：可以经插件的 hook，或者开新对话。
 - **Cursor 接收能力。** 通过统一 MCP，Cursor 已能作为发件方（指挥）派活；向 Cursor 已有会话自动投递任务并取回信尚未实现。

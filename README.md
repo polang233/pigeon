@@ -58,7 +58,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 - 指挥：主要是本机的 Claude Code（或你自己）；开启各家应用的**统一 Pigeon MCP** 后，Codex、Antigravity、Cursor 也能在自己对话里读取分派规则并向其他 agent 派活，成为多入口协同。
 - 接活：本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness 和 Antigravity。
-- 跨设备发送前，在 Pigeon 自己的面板里确认；等你处理的一队里目前以跨设备发送为主（`relay`、`split` 仍待进一步扩展）。
+- 跨设备发送前，在 Pigeon 自己的面板里确认。经统一 MCP 接入、又不是指挥的 agent 往下派活（本机的也算）时，也先排进这一队等你放行（"转派"）；"拆活前问你"还没做。
 - 添加设备只有"Codex 应用内"（经中继站重读远程电脑）；经 SSH、经 magpie 添加设备还处于预览置灰状态。
 - Cursor 目前通过统一 MCP 可作为发件方（指挥）接入，直接向 Cursor 对话投递任务尚未实现。
 
@@ -93,7 +93,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 <img src="docs/images/demo/notch-compose.png" width="420" alt="刘海演示：快速派活，选 agent、模型和思考强度">
 </p>
 
-现在真的能做到：原生刘海面板已经做了，可用全局快捷键 `⌥ 空格`（可在设置中自定义录制）随时呼出或收起，本机新开对话时能直接选项目目录，也支持选择在接入页自己填的远程自定义模型名；等你处理的一队里目前以跨设备发送为主，`relay`（转派）和 `split`（拆活）审批将在后续接入统一 MCP 调用链。
+现在真的能做到：原生刘海面板已经做了，可用全局快捷键 `⌥ 空格`（可在设置中自定义录制）随时呼出或收起，本机新开对话时能直接选项目目录，也支持选择在接入页自己填的远程自定义模型名；等你处理的一队里有跨设备发送和转派两类，拆活还没做。
 
 **分派规则和接入。** 规则页把"哪类活交给谁"画成一张图，额度不够时改派给谁、发之前要不要问你，都能按条设；下面能试一句话看它走哪条规则。接入页按设备列出每个 agent 的模型、接法、额度和开关，下面是协作的规矩。
 
@@ -387,7 +387,7 @@ pigeon run --kind image --title "登录页插图" --cwd <项目目录> --brief-f
 
 除了 Claude Code 插件外，`pigeon mcp` 提供零外部依赖的统一 MCP（stdio JSON-RPC 2.0）服务，让任何支持 MCP 的 agent 都能自然读取分派规则、查看可用设备与对话、向其他 agent 发消息或新开对话、等待并读取回信。
 
-在 Pigeon **接入页** 的检查清单、或 Codex / Antigravity / Cursor 的设置展开面板里一键开启「Pigeon MCP」即可自动写入对应配置（不覆盖你已有的其他 MCP 配置）：
+在 Pigeon **接入页** 的检查清单、或 Codex / Antigravity / Cursor 的设置展开面板里一键开启「Pigeon MCP」即可自动写入对应配置。只增删 `pigeon` 这一项，别的配置都在；写之前把原文件备份成 `<文件名>.pigeon-bak`，配置文件是链接的话写到它指向的文件。Codex 的 TOML 只改 pigeon 那张表，注释和顺序不动；Cursor、Antigravity 的 JSON 是整份重写，键会按字母排。
 
 - Codex：`~/.codex/config.toml`（`[mcp_servers.pigeon]`）
 - Antigravity：`~/.gemini/config/mcp_config.json`（`mcpServers.pigeon`）
@@ -410,7 +410,7 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 - 看不到 Codex 内部做了什么，只能从它的对话记录里读到每一轮的结果。
 - Cursor 目前通过统一 MCP 可作为发件方（指挥）接入并派活，直接向 Cursor 对话投递任务并取回信尚未实现。
 - 这一轮端到端自动化测试覆盖了本机与远程发送、中继解析、统一 MCP 握手与各端接口，但没有拿真实的远程 Windows Codex 做一轮人工全链路回归。
-- 等你处理的一队里的 `relay`（接活 agent 往下转派前问你）与 `split`（一次拆多件前问你）、会话失败后自动重试、以及经 SSH / magpie 添加远程设备仍在后续阶段规划中（见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
+- 等你处理的一队里的 `split`（一次拆多件前问你）、会话失败后自动重试、以及经 SSH / magpie 添加远程设备仍在后续阶段规划中（见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
 - `mac/scripts/build-app.sh` 与 `mac/scripts/build-dmg.sh` 会将完整 `web/`、`plugin/`（含 `mcp.mjs`）和 `.claude-plugin/marketplace.json` 一起打进 `build/Pigeon.app` 与 `.dmg` 安装包，可脱离源码仓库独立运行；对外正式发布若需免 Gatekeeper 提示，需补充开发者账号正式签名与公证。
 - 中继站的指令和消息末尾那一行说明（`（Pigeon 纸条 b-…，来自…）`）还是旧词，因为 Codex 读它、命令行也解析它，要先拿真的 Codex 试过才能改。
 

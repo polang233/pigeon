@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   LOCAL, LOCAL_NAME, sleep, clip, oneLine, fmtDur, fingerprint, newBand, isBand, emit, loadSettings, patchSettings,
-  codexBin, codexAppRunning, pidAlive, sender, isPaused, POST_DEFAULTS, pigeonDir, HOME,
+  codexBin, codexAppRunning, pidAlive, sender, isRelayFrom, isPaused, POST_DEFAULTS, pigeonDir, HOME,
 } from './common.mjs';
 import { addNote, getNote, patchNote, recent, TERMINAL, STATE_ZH } from './journal.mjs';
 import { readFrom, fileSize, findRollout, localProgress, digest, turnForBand } from './rollout.mjs';
@@ -194,11 +194,12 @@ export function screenText(text, mode) {
 // 问用户。先问 Pigeon 应用（它的面板里排队等用户决定），问不通才退回系统对话框。
 // 返回 { ok: true, text } 可以发（text 是最终要发的正文）；或 { ok: false, reason, error }。
 // 说明：弹不出系统框（不是 macOS、osascript 出错）时没人能确认，按"没人理"算，reason 记 timeout。
-async function askUser(note, post, sc, text, project, o) {
+// kind：cross 跨设备发送；relay 接活的 agent 往下转派（本机的也问），两种共用同一个等待时间
+async function askUser(note, post, sc, text, project, o, kind = 'cross') {
   const preview = clip(sc.text, 80);
   o.err(`等用户在 Pigeon 里确认（最多 ${post.crossTimeoutSec} 秒）……`);
   const act = await askApp({
-    band: note.band, from: note.from, to: note.to, preview, text: sc.text, files: (note.ctx && note.ctx.files) || [],
+    kind, band: note.band, from: note.from, to: note.to, preview, text: sc.text, files: (note.ctx && note.ctx.files) || [],
     project, rule: (note.why && note.why.rule) || '', secrets: sc.kinds, timeoutSec: post.crossTimeoutSec,
   });
   if (act === 'release') return { ok: true, text: sc.text };
@@ -206,9 +207,15 @@ async function askUser(note, post, sc, text, project, o) {
   if (act === 'block') return { ok: false, reason: 'blocked', error: deniedError() };
   if (act === 'timeout') return { ok: false, reason: 'timeout', error: timeoutError(post.crossTimeoutSec, 'Pigeon 里') };
   // 应用没开、请求失败或连接断了：退回系统对话框
-  const c = confirmRemote({ band: note.band, from: note.from, kind: note.kind, to: note.to, project, text: sc.text, secrets: sc.kinds }, post.crossTimeoutSec);
+  const c = confirmRemote({ band: note.band, from: note.from, kind: note.kind, ask: kind, to: note.to, project, text: sc.text, secrets: sc.kinds }, post.crossTimeoutSec);
   if (c.ok) return { ok: true, text: sc.text };
   return { ok: false, reason: c.reason === 'denied' ? 'blocked' : 'timeout', error: c.error };
+}
+
+// 发之前要不要问你、问哪一种：跨设备（cross）按“跨电脑发送前问我”；本机的按“接活的 agent 往下转派前问我”
+function askKindOf(via, from, raw, post) {
+  if (via === 'relay') return post.confirmRemote ? 'cross' : (post.askRelay && isRelayFrom(from, raw) ? 'relay' : '');
+  return post.askRelay && isRelayFrom(from, raw) ? 'relay' : '';
 }
 
 /* ---------- 真正送出 ---------- */
@@ -274,7 +281,7 @@ export async function sendCmd(args) {
   if (typeof text !== 'string') return o.usage(64, text.error);
   if (!text.trim()) return o.usage(64, '消息是空的：pigeon send --to <对话> "要说的话"（或 --file <文件>、--stdin）');
   if (args.model || args.effort) return o.usage(64, '已有对话换不了模型和思考强度。要指定，请用 pigeon new 新开一条对话。');
-  const { post, secrets } = await loadSettings();
+  const { post, secrets, raw } = await loadSettings();
   const from = sender();
   const { chain, count, warn } = chainFor(args['reply-to']);
   const band = newBand();
@@ -313,7 +320,8 @@ export async function sendCmd(args) {
   note.why = await whyOf(args.reason, text, toKeyOf(to));
   note.track.deadline = deadlineOf(note, post);
   if (via === 'relay') Object.assign(note.track, { host: to.loft });
-  const needAsk = via === 'relay' && post.confirmRemote;
+  const askKind = askKindOf(via, from, raw, post);
+  const needAsk = !!askKind;
   note.state = needAsk ? 'asking' : 'queued';
   await addNote(note);
   saveBody(note.band, sc.text);
@@ -322,7 +330,7 @@ export async function sendCmd(args) {
 
   let sendText = sc.text;
   if (needAsk) {
-    const a = await askUser(note, post, sc, text, '', o);
+    const a = await askUser(note, post, sc, text, '', o, askKind);
     if (!a.ok) { await move(band, { state: 'refused', reason: a.reason, error: a.error }); return o.refused(note, a.error, a.reason); }
     sendText = a.text;
     await move(band, { state: 'queued' });
@@ -404,7 +412,8 @@ export async function newCmd(args) {
   note.track.deadline = deadlineOf(note, post);
   if (via === 'queue') Object.assign(note.track, { method: 'exec', cwd, offset: 0 });
   else Object.assign(note.track, { host: loft.id, project: pr.project.id });
-  const needAsk = via === 'relay' && post.confirmRemote;
+  const askKind = askKindOf(via, from, raw, post);
+  const needAsk = !!askKind;
   note.state = needAsk ? 'asking' : 'queued';
   await addNote(note);
   saveBody(note.band, sc.text);
@@ -413,7 +422,7 @@ export async function newCmd(args) {
 
   let sendText = sc.text;
   if (needAsk) {
-    const a = await askUser(note, post, sc, text, pr.project.name, o);
+    const a = await askUser(note, post, sc, text, pr.project.name, o, askKind);
     if (!a.ok) { await move(band, { state: 'refused', reason: a.reason, error: a.error }); return o.refused(note, a.error, a.reason); }
     sendText = a.text;
     await move(band, { state: 'queued' });
@@ -632,10 +641,18 @@ async function launchOther(o, note, d, post, args, text) {
   note.track.limit = tmin;
   Object.assign(note.track, { method: d.agent === DSH ? 'dsh' : d.via === 'cli' ? 'agycli' : 'agy', cwd: d.cwd || '' });
   if (d.agent === AGY && d.via === 'cli') { const m = String(cfg.mode || ''); if (AGY_CLI_MODES.includes(m)) d.mode = m; }
-  note.state = 'queued';
+  // DSH、agy 是 Pigeon 自己起的、能改文件的进程：接活的 agent 往下转派时，先问你
+  const askKind = askKindOf('queue', note.from, raw, post);
+  note.state = askKind ? 'asking' : 'queued';
   await addNote(note);
   saveBody(note.band, text);
   await report(note, { preview: clip(text, 80) });
+  if (askKind) {
+    const a = await askUser(note, post, { text, kinds: [], masked: [] }, text, d.cwd ? path.basename(d.cwd) : '', o, askKind);
+    if (!a.ok) { await move(band, { state: 'refused', reason: a.reason, error: a.error }); return o.refused(note, a.error, a.reason); }
+    text = a.text;
+    await move(band, { state: 'queued' });
+  }
   const message = text.trimEnd() + footer(band, note.from);
   const r = await launch(note, { ...d, type: note.track.method, message }, post);
   if (!r.ok) return o.refused(note, r.error, r.reason);

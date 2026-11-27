@@ -104,7 +104,7 @@ export const CODEX_DEFAULTS = {
   summaryChars: 300,
 };
 // crossTimeoutSec：跨设备发送等用户确认多少秒；pauseMaxMin：暂停时一条消息最多排多久（插件自己的约定，见 post.mjs）
-export const POST_DEFAULTS = { relayThread: '', relayByHost: {}, relayUsed: [], maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, crossTimeoutSec: 90, pauseMaxMin: 120 };
+export const POST_DEFAULTS = { relayThread: '', relayByHost: {}, relayUsed: [], maxHops: 10, waitTimeoutMin: 10, confirmRemote: true, askRelay: true, crossTimeoutSec: 90, pauseMaxMin: 120 };
 export const SECRETS_MODES = ['warn', 'mask', 'off'];
 
 export function readSettingsFile() {
@@ -132,6 +132,7 @@ export async function loadSettings() {
   post.maxHops = Math.max(1, Number(post.maxHops) || POST_DEFAULTS.maxHops);
   post.waitTimeoutMin = Math.max(0.05, Number(post.waitTimeoutMin) || POST_DEFAULTS.waitTimeoutMin);
   post.confirmRemote = post.confirmRemote !== false; // 只有明确写 false 才关
+  post.askRelay = post.askRelay !== false;
   post.crossTimeoutSec = Math.max(1, Number(post.crossTimeoutSec) || POST_DEFAULTS.crossTimeoutSec);
   post.pauseMaxMin = Math.max(0.02, Number(post.pauseMaxMin) || POST_DEFAULTS.pauseMaxMin);
   normRelay(post);
@@ -236,6 +237,18 @@ export function normalizeAgentName(v) {
 
 // 发件人：优先认 PIGEON_FROM_AGENT（统一 MCP 等渠道），其次在 Claude Code 里跑时是 claude，否则当成用户自己。
 // cwd 是发件那个对话的项目目录，应用按它把消息归进频道。
+// 这条算不算“接活的 agent 往下转派”：发件人是 Claude Code、你自己以外的 agent，又不是设置里的指挥。
+// 经统一 MCP 来的（PIGEON_VIA_MCP）一律不当成你自己：认不出是哪家 agent 时发件人记成 you，也要先问。
+export function isRelayFrom(from, raw) {
+  const a = from && from.agent;
+  if (!a) return false;
+  if (a === 'claude') return false;
+  if (a === 'you') return process.env.PIGEON_VIA_MCP === '1';
+  const lead = raw && raw.lead;
+  if (lead && lead.kind === 'agent' && normalizeAgentName(lead.agent) === a && (!lead.loft || lead.loft === LOCAL)) return false;
+  return true;
+}
+
 export function sender() {
   const fromEnv = normalizeAgentName(process.env.PIGEON_FROM_AGENT);
   const cwd = process.env.PIGEON_FROM_CWD || process.cwd();

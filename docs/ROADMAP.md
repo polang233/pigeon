@@ -42,7 +42,7 @@
 
 - **零依赖统一 MCP 服务（`pigeon mcp`）**：暴露 8 个标准 MCP 工具（`pigeon_rules`、`pigeon_lofts`、`pigeon_send`、`pigeon_new`、`pigeon_wait`、`pigeon_read`、`pigeon_log`、`pigeon_models`）及 2 个资源（`pigeon://rules`、`pigeon://lofts`），并在握手 `instructions` 自动注入当前分派规则与在线对象。
 - **精确发件身份与可视化**：引入 `PIGEON_FROM_AGENT` / `PIGEON_FROM_CWD`，从 Codex / Antigravity / Cursor / DSH 发出的任务均按真实发件人归类进指挥台、频道和任务记录。
-- **一键安全配置写入**：新增 `MCPInstall` 与 `GET / POST /api/mcp`，自动维护稳定的 `~/.pigeon/pigeon-mcp` 入口脚本，保留原有注释与已有服务条目，一键接入/移除 Codex（`~/.codex/config.toml`）、Antigravity（`~/.gemini/config/mcp_config.json`）与 Cursor（`~/.cursor/mcp.json`）。
+- **一键安全配置写入**：新增 `MCPInstall` 与 `GET / POST /api/mcp`，自动维护稳定的 `~/.pigeon/pigeon-mcp` 入口脚本，只增删 pigeon 这一项（Codex 的 TOML 注释和顺序不动，JSON 整份重写；写前备份成 `.pigeon-bak`），一键接入/移除 Codex（`~/.codex/config.toml`）、Antigravity（`~/.gemini/config/mcp_config.json`）与 Cursor（`~/.cursor/mcp.json`）。
 - **接入清单打磨**：区分待激活（琥珀黄 `#f0b44a`）与缺失报错状态灯，新增「多 Agent MCP 互联」快捷操作。
 
 ### ✅ P3：正式分发与首装引导（已完成核心项）
@@ -57,7 +57,7 @@
 
 ### 📋 P4：进阶协同与生态拓展（中期规划）
 
-- **多跳协同安全阀**：将界面和接口预留的 `relay`（接活 agent 往下转派前问我）与 `split`（一次拆多件前问我）接入统一 MCP 调用链。
+- **多跳协同安全阀**：`relay`（接活 agent 往下转派前问我）已接上：经 MCP 来、又不是指挥的 agent 派活先进等你处理的一队；`split`（一次拆多件前问我）还没有来源。
 - **更多 Agent 双向接收**：调研并补全 Claude Code 空闲投递与 Cursor 回合结束投递接收能力，以及真机 Codex / 跨设备链路端到端实测验证。
 - **magpie 与远程扩展**：把 `quota` 轮询迁入原生端，逐步推进 `via magpie` 与 SSH 远程设备接入方案。
 

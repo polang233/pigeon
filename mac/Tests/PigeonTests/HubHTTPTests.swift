@@ -47,6 +47,10 @@ import Testing
         let (_, data) = try await c.post("/api/ask", ["kind": "cross", "band": "b-t", "preview": "x", "timeoutSec": 1])
         #expect(json(data)["action"] as? String == "timeout")
         #expect(try await queueItems(c).isEmpty)
+        // 转派也有等待上限，不会一直挂着
+        let (_, d2) = try await c.post("/api/ask", ["kind": "relay", "band": "b-r", "preview": "x", "timeoutSec": 1])
+        #expect(json(d2)["action"] as? String == "timeout")
+        #expect(try await queueItems(c).isEmpty)
     }
 
     @Test func settingsDefaultTimeoutUsed() async throws {

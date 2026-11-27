@@ -211,7 +211,7 @@ function headHTML() {
     <button class="btn" type="button" data-action="adddev">${icon('plus')}添加设备</button></div>`;
 }
 const rules2HTML = () => {
-  const list = live() ? st.RULES2.filter(r => r.id !== 'relay' && r.id !== 'split') : st.RULES2;
+  const list = live() ? st.RULES2.filter(r => r.id !== 'split') : st.RULES2;
   return html`<div class="panel rules2" data-part="rules2">${list.map(r => html`<div class="trow"><span data-tip="${r.tip}">${r.t}</span>${r.kind === 'sw'
     ? html`<button class="sw" type="button" role="switch" aria-checked="${bool(r.on)}" data-action="rule2" data-id="${r.id}" aria-label="${r.t}"></button>`
     : r.kind === 'pick' ? html`<span class="pickunit"><select class="pick" data-action="rule2-pick" data-id="${r.id}" aria-label="${r.t}">${r.opts.map(v => html`<option value="${v}" ${v === r.v ? raw('selected') : ''}>${v}</option>`)}</select>${r.unit ? html` <span class="mut">${r.unit}</span>` : ''}</span>`

@@ -127,7 +127,7 @@ export function rules2Of(settings) {
   return [
     { id: 'cross', t: '跨设备发送前先问我', tip: `往别的电脑发消息或新开对话前，排进刘海里等你的一队，点“放行”才发。关掉后 agent 可以不经你同意往别的电脑发`, kind: 'sw', on: p.confirmRemote !== false },
     { id: 'xto', t: '跨设备发送等多久没人点就不发', tip: '到点没人点，就记成“没人理，没发出”，和你点“拦下”分开记。最多 100 秒：Claude Code 跑一条命令默认只等 120 秒', kind: 'pick', v: xto, opts: withV([30, 60, 90, 100], xto), unit: '秒' },
-    { id: 'relay', t: '接活的 agent 往下转派前问我', tip: '接活的 agent 想把活再交给别人时，先排进刘海里等你放行。第一版里接活的 agent 还不能往下转派，这条先记着', kind: 'sw', on: p.askRelay !== false },
+    { id: 'relay', t: '接活的 agent 往下转派前问我', tip: '经 Pigeon MCP 接入的 agent（不是指挥）想把活再交给别人时，先排进刘海里等你放行，本机的也问', kind: 'sw', on: p.askRelay !== false },
     { id: 'split', t: '指挥一次拆给 3 件以上时问我', tip: '指挥想同时派出好几件时，先排进刘海里等你看一眼。第一版里还不会这样问，这条先记着', kind: 'sw', on: p.askSplit !== false },
     { id: 'hops', t: '连续来回上限', tip: '同一件事在 agent 之间最多传几次，到了就不再发，免得来回没完', kind: 'pick', v: hops, opts: withV([3, 5, 10, 20, 50], hops), unit: '次' },
     { id: 'wait', t: '等回信多久算没回音', tip: '发出去这么久还没有结果，就记成“没回音”，不会自动重发', kind: 'pick', v: wait, opts: withV([5, 10, 20, 30, 60, 120], wait), unit: '分钟' },

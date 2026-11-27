@@ -460,7 +460,7 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 |---|---|
 | 指挥 | 本机的 Claude Code 或你自己；开启统一 MCP 后，Codex / Antigravity / Cursor 也可读规则并主动派活 |
 | 接活 | 本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness、Antigravity；Cursor 暂不支持收活 |
-| 等你的一队 | 跨设备发送（`cross`）排入队列审批；`relay`、`split` 接口保留待后续接入统一 MCP |
+| 等你的一队 | 跨设备发送（`cross`）；经统一 MCP 来、又不是指挥的 agent 派活（`relay`，本机的也问，等待上限同 `crossTimeoutSec`）；`split` 接口留着，还不会产生 |
 | 添加设备 | "Codex 应用内"经中继站读取远程电脑；SSH、经 magpie 暂置灰 |
 
 ### 设置再新增

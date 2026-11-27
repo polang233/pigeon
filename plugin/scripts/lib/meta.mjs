@@ -48,9 +48,9 @@ const chars = (s, n) => Array.from(String(s || '')).slice(0, n).join('');
 
 // 连接一直挂着，直到用户决定。客户端的等待上限是 timeoutSec + 15 秒。
 // 返回 'release' | 'release_masked' | 'block' | 'timeout'；应用没开、请求失败、连接断了、回的东西看不懂，都返回 null（调用方退回系统对话框）。
-export async function askApp({ band, from, to, preview, text, files, project, rule, secrets, timeoutSec }) {
+export async function askApp({ kind = 'cross', band, from, to, preview, text, files, project, rule, secrets, timeoutSec }) {
   const body = {
-    kind: 'cross', band, from,
+    kind, band, from,
     to: { loft: to.loft, loft_name: to.loft_name, agent: to.agent || 'codex', session: to.session || '', title: to.title || '' },
     preview, text: chars(text, 4000), chars: Array.from(String(text || '')).length,
     files: files || [], project: project || '', rule: rule || '', secrets: secrets || [], timeoutSec,

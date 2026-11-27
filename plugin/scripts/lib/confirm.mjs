@@ -19,16 +19,23 @@ const SCRIPT = [
 ];
 
 // 确认框里的文字。正文只在这里显示，不写进任何文件。
-export function confirmText({ band, from, kind, to, project, text, secrets }, waitS = CONFIRM_WAIT_S) {
-  const who = from && from.agent === 'claude' ? `Claude Code（对话 ${String(from.session || '').slice(0, 8) || '未知'}）` : '终端里的命令';
+const WHO = { codex: 'Codex', cursor: 'Cursor', deepseek: 'DeepSeek Harness', antigravity: 'Antigravity' };
+const TO_AGENT = { codex: 'Codex', deepseek: 'DeepSeek Harness', antigravity: 'Antigravity' };
+
+// ask：cross 往另一台电脑发；relay 接活的 agent 想把活再交给别人（本机的也问）
+export function confirmText({ band, from, kind, ask = 'cross', to, project, text, secrets }, waitS = CONFIRM_WAIT_S) {
+  const who = from && from.agent === 'claude' ? `Claude Code（对话 ${String(from.session || '').slice(0, 8) || '未知'}）`
+    : WHO[from && from.agent] || (ask === 'relay' ? '一个经 Pigeon MCP 接入的 agent' : '终端里的命令');
   const body = String(text || '').trim();
   const shown = body.length > SHOW_CHARS ? body.slice(0, SHOW_CHARS) + '…' : body;
   const more = body.length > SHOW_CHARS ? `\n（共 ${body.length} 字，这里只显示前 ${SHOW_CHARS} 字）` : '';
+  // 跨设备的收件人都是 Codex，不写；转派要写清交给哪家
+  const agentName = ask === 'relay' ? ` ${TO_AGENT[to.agent] || 'Codex'} ` : '';
   const dest = kind === 'new'
-    ? `在 ${to.loft_name} 的项目「${project || '未命名'}」里新开对话「${to.title}」`
-    : `${to.loft_name} 上的对话「${to.title || to.session}」`;
+    ? `在 ${to.loft_name} 的项目「${project || '未命名'}」里新开${agentName}对话「${to.title}」`
+    : `${to.loft_name} 上的${agentName}对话「${to.title || to.session}」`;
   return [
-    `${who}想往另一台电脑发一条消息。`,
+    ask === 'relay' ? `${who}想把活转给别的 agent。` : `${who}想往另一台电脑发一条消息。`,
     '',
     `送到：${dest}`,
     `编号：${band}`,
