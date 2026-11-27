@@ -12,5 +12,13 @@ xcuserdata/
 # 临时文件和草稿，不提交
 /.local/
 
+# 本机私有说明、环境变量与分发安装包，公开仓库不提交
+CLAUDE.local.md
+*.local.md
+.env
+.env.*
+*.dmg
+*.pkg
+
 # 没有授权的图（从本机 Codex 应用里取的宠物），不提交，也不打进应用
 web/art/local/

@@ -8,6 +8,7 @@
 | --- | --- |
 | `pigeon-logo.svg` | 源文件，鸽子占满画布的八成 |
 | `pigeon-app-icon.svg` | 白底满版，鸽子缩到约七成、按重心往右上挪了一点，应用图标、头像用 |
+| `pigeon-app-icon-rounded.png` | 512×512 圆角矩形应用图标预览图（含透明圆角与极淡内描边，由 `make-icon.swift` 矢量渲染），README 等暗/浅混合页面使用 |
 | `pigeon-logo-dark.svg` | 深色满版，摆法同上 |
 | `pigeon-glyph.svg` | 透明底，放在浅色背景上 |
 | `pigeon-glyph-dark.svg` | 透明底，放在深色背景上，鸽子换成浅色 |

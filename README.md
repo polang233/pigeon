@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/pigeon-app-icon.svg" width="128" height="128" alt="Pigeon 标志">
+  <img src="assets/brand/pigeon-app-icon-rounded.png" width="128" height="128" alt="Pigeon 标志">
 </p>
 
 <h1 align="center">Pigeon（信鸽）</h1>
@@ -21,7 +21,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 应用的窗口有四页：指挥台（谁在给谁派活）、频道（按项目看每一件事的状态和回信）、分派规则（哪类活交给谁）、接入（有哪些设备和 agent）。你不盯着窗口也行：刘海下沿（没有刘海的屏幕在菜单栏下沿居中）有一个原生的小面板，鼠标移上去就展开，显示几件事在做、几件事等你；跨设备发送前的确认，也在这个面板里点。
 
-> **现在的状态：** 0.3.0，早期版本，只有 Mac 版，没有发布安装包，需要自己构建（见下面"运行"）。更新记录见 [CHANGELOG.md](CHANGELOG.md)，还没做的事见 [docs/TODO.md](docs/TODO.md)，界面方案见 [docs/DESIGN.md](docs/DESIGN.md)。
+> **现在的状态：** 0.3.0，早期版本，只有 Mac 版，没有发布安装包，需要自己构建（见下面"运行"）。产品路线图见 [docs/ROADMAP.md](docs/ROADMAP.md)，更新记录见 [CHANGELOG.md](CHANGELOG.md)，细节待办见 [docs/TODO.md](docs/TODO.md)，界面方案见 [docs/DESIGN.md](docs/DESIGN.md)。
 
 ## 能做什么
 
@@ -55,10 +55,11 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 第一版做到的范围（细节见 [docs/CONTRACT.md](docs/CONTRACT.md) 的"第一版真的能做的"）：
 
-- 指挥是本机的 Claude Code，或者你自己；接活的是本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness 和 Antigravity。
-- 跨设备发送前，在 Pigeon 自己的面板里确认；等你处理的一队里现在只有这一类事。
-- 添加设备只有"Codex 应用内"（经中继站重读远程电脑）；经 SSH、经 magpie 添加设备、Cursor 的接入都还没做，界面上标"还没接上"或置灰。
-- 接活的 agent 往下转派前问你、指挥一次拆活前问你、会话失败后重试、把回信转给指挥，都还没做。
+- 指挥：主要是本机的 Claude Code（或你自己）；开启各家应用的**统一 Pigeon MCP** 后，Codex、Antigravity、Cursor 也能在自己对话里读取分派规则并向其他 agent 派活，成为多入口协同。
+- 接活：本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness 和 Antigravity。
+- 跨设备发送前，在 Pigeon 自己的面板里确认；等你处理的一队里目前以跨设备发送为主（`relay`、`split` 仍待进一步扩展）。
+- 添加设备只有"Codex 应用内"（经中继站重读远程电脑）；经 SSH、经 magpie 添加设备还处于预览置灰状态。
+- Cursor 目前通过统一 MCP 可作为发件方（指挥）接入，直接向 Cursor 对话投递任务尚未实现。
 
 ## 演示里的样子：打算做成什么样
 
@@ -68,11 +69,11 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 <img src="docs/images/demo/stage-lead.png" width="800" alt="指挥台演示：Claude Code 当指挥，本机的 Codex、Cursor、DeepSeek Harness 挂在它下面，信鸽在连线上送信">
 
-现在真的能做到：指挥是本机的 Claude Code（或你自己），接活的是本机和远程电脑上的 Codex，对话状态、子代理、来往记录是真数据。Cursor 和 DeepSeek Harness 还没接上，图里它们干活的样子是示例。
+现在真的能做到：指挥是本机的 Claude Code（或你自己），接活的是本机和远程电脑上的 Codex，以及本机的 DeepSeek Harness 和 Antigravity；对话状态、子代理、来往记录是真数据。Cursor 还没接上，图里它干活的样子是示例。
 
 **展开另一台电脑，以及那台自己的一页。** 远程设备默认收成一张卡片，展开后能看到那台上的几个 agent；那台的 Claude Code、Cursor 是经那台的 Codex 带起来的。翻到那台自己的一页，指挥那台收成卡片放在最左边，等你确认的跨设备消息停在那一段线上。
 
-<img src="docs/images/demo/stage-expanded.png" width="800" alt="指挥台演示：展开 CHEN-Y9000P2023，里面有 Codex、Claude Code、Cursor">
+<img src="docs/images/demo/stage-expanded.png" width="800" alt="指挥台演示：展开远程 Windows 设备，里面有 Codex、Claude Code、Cursor">
 
 <img src="docs/images/demo/stage-remote.png" width="800" alt="指挥台演示：远程电脑自己的一页，左边是收起的这台 Mac">
 
@@ -82,7 +83,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 <img src="docs/images/demo/channels.png" width="800" alt="频道页演示：pigeon 频道里的消息流、等你确认的跨设备消息、右边的成员栏">
 
-现在真的能做到：频道页能看真数据，按发件对话的项目目录归频道。从频道里直接派活、存消息正文、让 agent 自己 @ 别人还没做，分三步走，见 [docs/CHANNELS.md](docs/CHANNELS.md)。
+现在真的能做到：频道页能看真数据，按发件对话的项目目录归频道，并支持在频道输入框里 `@` 能收活的 agent（Codex、DeepSeek Harness、Antigravity）直接派活（本机新开对话自动带上项目目录）；跨对话留存长上下文与让 agent 自己 `@` 别人将随后续频道演进补全，设计见 [docs/CHANNELS.md](docs/CHANNELS.md)。
 
 **刘海：等你处理的一队、快速派活。** 等你处理的事按到来的先后排着，方向键选、回车放行、删除键拦下：除了跨设备发送，还有"接活的 agent 想往下转派""指挥想一次拆成好几件"。快速派活能选本机或远程的 agent、模型和思考强度。
 
@@ -91,21 +92,21 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 <img src="docs/images/demo/notch-compose.png" width="420" alt="刘海演示：快速派活，选 agent、模型和思考强度">
 </p>
 
-现在真的能做到：原生刘海面板已经做了，等你处理的一队里只有跨设备发送一类；转派和拆活要等统一的 MCP。远程设备派活时的模型列表拿的是本机 Codex 的，不一定准；⌥ 空格呼出还没做。
+现在真的能做到：原生刘海面板已经做了，可用全局快捷键 `⌥ 空格` 随时呼出或收起，本机新开对话时能直接选项目目录，也支持选择在接入页自己填的远程自定义模型名；等你处理的一队里目前以跨设备发送为主，`relay`（转派）和 `split`（拆活）审批将在后续接入统一 MCP 调用链。
 
 **分派规则和接入。** 规则页把"哪类活交给谁"画成一张图，额度不够时改派给谁、发之前要不要问你，都能按条设；下面能试一句话看它走哪条规则。接入页按设备列出每个 agent 的模型、接法、额度和开关，下面是协作的规矩。
 
 <img src="docs/images/demo/route.png" width="800" alt="分派规则演示：指挥连到五条规则，再连到各个 agent，旁边是额度">
 
-<img src="docs/images/demo/conn.png" width="800" alt="接入页演示：这台 Mac 和 CHEN-Y9000P2023 两张卡片，下面是协作的规矩">
+<img src="docs/images/demo/conn.png" width="800" alt="接入页演示：这台 Mac 和远程设备两张卡片，下面是协作的规矩">
 
-现在真的能做到：规则按关键词匹配，写进 Claude Code 每一轮的提示；额度只读得到本机 magpie 的。接入页上的 Cursor、DeepSeek Harness 是"还没接上"，经 SSH、经 magpie 添加设备置灰。
+现在真的能做到：规则按关键词匹配，写进 Claude Code 每一轮的提示与 `~/.pigeon/dispatch.json`（应用也会自动维护，不依赖主窗口开着；接入统一 MCP 的其他 agent 也能读到）；额度只读得到本机 magpie 的。
 
 **远程设备的设置。** 远程设备卡片右上角的设置按钮里：往这台发经过哪条中继对话、它用什么模型、上一轮读了多少上下文，太长了提醒你换；用过的中继对话能换回去、归档、删除。下面那台 Codex 的模型面板里能自己填那台上自定义的模型名。
 
-<img src="docs/images/demo/conn-device.png" width="800" alt="接入页演示：CHEN-Y9000P2023 的设置，中继对话太长的提醒、用过的两条，下面是自己填的模型名">
+<img src="docs/images/demo/conn-device.png" width="800" alt="接入页演示：远程设备的设置，中继对话太长的提醒、用过的两条，下面是自己填的模型名">
 
-现在真的能做到：上面这些都接上了真数据。中继对话的模型和思考强度只能在 Codex 里改，要换新的也得你在 Codex 里建（Pigeon 自己建的对话拿不到往别的电脑发消息的工具）。刘海上给远程派活时，还列不出自己填的模型名。
+现在真的能做到：上面这些都接上了真数据。中继对话的模型和思考强度只能在 Codex 里改，要换新的也得你在 Codex 里建（Pigeon 自己建的对话拿不到往别的电脑发消息的工具）。接入页填过的远程自定义模型名也已同步到刘海快速派活。
 
 ## 消息的状态
 
@@ -123,7 +124,7 @@ Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（�
 
 ## 运行
 
-需要 Xcode 命令行工具（Swift 6）和 Node.js（插件的命令是 Node 脚本）。
+需要 Xcode 命令行工具（Swift 6）和 Node.js（建议 22.15+；读取 DeepSeek Harness 的 zstd 对话记录需要 22.15+）。
 
 在仓库目录下构建应用，产物是 `build/Pigeon.app`：
 
@@ -165,7 +166,7 @@ node --test tests/e2e         # 真的本机服务加真的命令行加假的 co
 
 ## 接入 Claude Code
 
-**推荐：装插件。** 插件会自动接好 hook（Claude Code 在工具调用等时刻执行的脚本），并带上两个 skill：`pigeon-post`（教 Claude 什么时候发消息、怎么写消息）和 `codex-delegation`（把活交给 Codex）。装一次，所有项目都生效。marketplace 和插件都叫 `pigeon`。在 Claude Code 里（路径换成你自己的仓库目录）：
+**推荐：装插件。** 插件会自动接好 hook（Claude Code 在工具调用等时刻执行的脚本），并带上两个 skill：`pigeon-post`（教 Claude 什么时候发消息、怎么写消息）和 `codex-delegation`（把活交给 Codex）。装一次，所有项目都生效。marketplace 和插件都叫 `pigeon`。打包后的 `Pigeon.app/Contents/Resources` 也内置了完整插件市场（应用内接入页的检查清单会直接给出可复制的安装命令）；也可以在 Claude Code 里直接指向应用包或仓库目录：
 
 ```
 /plugin marketplace add <仓库目录>
@@ -245,7 +246,7 @@ pigeon log -n 20
 - **防循环。** 每条消息属于一条"链"，并记着这是链上的第几次传递。回信时用 `--reply-to <编号>` 沿用同一条链；传递次数超过设置里的往返上限（`post.maxHops`，默认 10）就拒发，状态是"没发出"。
 - **不盲目重发。** 任何拿不准的情况都标成"没回音"，由你决定要不要再送一次。
 - **哪些情况会记一条消息。** 对方不存在、超过往返上限、对话已归档、排队失败，会记一条"没发出"。环境问题（Codex 应用没开、中继站没设置或审批策略是 `never`、找不到 `codex` 命令）只给出提示，命令以退出码 3 结束，不记任务记录。本机发送时 Codex 应用没开不会拒发：消息排着队，等到超时标成"没回音"。
-- **日志不存正文。** 任务记录里只有编号、双方、状态和最多 80 字的预览。
+- **日志与正文存储。** `journal.json` 只记编号、双方、状态和最多 80 字的预览；为了在应用里看全文，发出去的正文（如选了打码则为打码后的文本）和回信会以仅本机可读权限（`0600`）存在 `~/.pigeon/bodies/` 与 `answers/` 下，7 天后自动清理。
 - **发件人。** 在 Claude Code 里运行时发件人记为 `claude`，否则是 `you`（应用里你自己派活也是 `you`）。
 - **记理由。** `pigeon send`、`new`、`run` 可以加 `--reason "<一句理由>"`，记下为什么交给它；消息的 `why.kind` 会标成按规则、额度改派、指挥改判或指挥判断。
 
@@ -353,7 +354,7 @@ pigeon lofts --refresh
 
 刘海面板是一个不抢键盘焦点的原生小面板：有刘海的屏幕贴在刘海下沿，没有刘海的贴在菜单栏下沿居中。收起时是一条胶囊，显示几件事在做、几件事等你；悬停会展开总览；有事等你时展开成队列，每一条可以放行、拦下（有密钥时可选打码后放行）、跳回对话；有回信时显示"回信到了"；还有一个快速派活的面板，选对象、模型和思考强度，写一句话发出去（发件人记为"你"）。刘海开关在设置里；关掉后同样的面板从菜单栏的鸽子图标展开。超过 2 小时没有任何动静的消息，应用会当作过期，不再计入进行中。
 
-这个面板的代码在 `mac/Notch/`（单独的 Swift 包 `PigeonNotch`），应用经 `mac/Sources/Pigeon/NotchBridge.swift` 把本机服务的数据交给它。**没检查过的：** 没有人在真的刘海上用鼠标键盘操作过（悬停、点击、Tab、按键、在里面打字都没试），没在没有刘海的外接显示器、全屏应用下试过，没试"减少动态效果"和 VoiceOver；面板大小变化是直接跳变；没有全局快捷键。
+这个面板的代码在 `mac/Notch/`（单独的 Swift 包 `PigeonNotch`），应用经 `mac/Sources/Pigeon/NotchBridge.swift` 把本机服务的数据交给它。支持 `⌥ 空格` 全局快捷键呼出快速派活与本机目录选择；**有待真机实操补充验证的：** 仍缺少多屏 / 无刘海显示器 / 全屏应用 / VoiceOver 下的人手操作验证，以及接入页自定义快捷键录制与更丝滑的刘海弹性参数微调。
 
 ## 派活：`pigeon run`
 
@@ -371,9 +372,21 @@ pigeon doctor
 pigeon run --kind image --title "登录页插图" --cwd <项目目录> --brief-file brief.md
 ```
 
-- 并发中的任务在 `~/.pigeon/running` 里各占一个槽位文件。
+- 并发中的任务在 `~/.pigeon/running` 里各占一个槽位文件；每次运行的摘要与状态会写入 `~/.pigeon/runs/<taskId>.meta.json`（7 天后自动清理），应用重开后会经 `GET /api/runs` 恢复历史与中断状态。
 - 单次任务可以加 `--temp`（临时任务，不在 Codex 应用里留对话）或 `--keep`；默认按设置里的"对话记录"。
 - 设置里开着"统一走包装层"时，Claude 直接跑 `codex exec`、`codex queue` 或调用 Codex 的 MCP 派活工具会被插件拦下，提示它改用 `pigeon run` 或 `pigeon send`（关掉这个设置就不拦），这样所有派给 Codex 的活都能看到进度、按设置执行。
+
+## 统一 MCP（让 Codex / Antigravity / Cursor 也能主动派活）
+
+除了 Claude Code 插件外，`pigeon mcp` 提供零外部依赖的统一 MCP（stdio JSON-RPC 2.0）服务，让任何支持 MCP 的 agent 都能自然读取分派规则、查看可用设备与对话、向其他 agent 发消息或新开对话、等待并读取回信。
+
+在 Pigeon **接入页** 的检查清单、或 Codex / Antigravity / Cursor 的设置展开面板里一键开启「Pigeon MCP」即可自动写入对应配置（不覆盖你已有的其他 MCP 配置）：
+
+- Codex：`~/.codex/config.toml`（`[mcp_servers.pigeon]`）
+- Antigravity：`~/.gemini/config/mcp_config.json`（`mcpServers.pigeon`）
+- Cursor：`~/.cursor/mcp.json`（`mcpServers.pigeon`）
+
+也可以直接手动把入口脚本 `~/.pigeon/pigeon-mcp --client <codex|antigravity|cursor|dsh>` 或 `node <路径>/mcp.mjs --client <agent>` 配进其他工具。通过统一 MCP 派出的任务会记清真实的 `from.agent`，并实时在指挥台和频道页可视化。
 
 ## 接收 Codex 自己的事件
 
@@ -388,10 +401,10 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 - **跨电脑要经过中继站**，所以要手动建中继站对话、每次要你在确认框里点放行、有 token 成本，并且依赖 Codex 桌面应用开着。
 - 消息超时只会标成"没回音"，不会自动重发。只有应用自己发出的消息可以在界面上重发（原文只留在应用的内存里，应用退出就没了）。
 - 看不到 Codex 内部做了什么，只能从它的对话记录里读到每一轮的结果。
-- Cursor 和 DeepSeek 目前只检测在不在线，界面上标"还没接上"，不能收发消息。
-- 这一轮没有对真的 Codex 应用试过：没有真的发送、真的中继、真的取回回信，没试真的"跳回对话"。自动测试用的是假的 codex。远程新开对话指定模型和思考强度、`pigeon fetch` 补取回信是在旧界面那一版上对真的 Codex 应用试过的，合进这一版后没有再试。
-- 接活的 agent 往下转派前问你、指挥一次拆活前问你、统一的 MCP、会话失败后重试、把回信转给指挥，都没做。添加设备只有"Codex 应用内"，经 SSH、经 magpie 的置灰。
-- `mac/scripts/build-app.sh` 现在会把 `plugin/scripts/` 一起打进应用。脚本从头跑过，打包后的程序不开界面起过一次，能放出自带的网页、能跑自带的命令行；带界面的打包应用没有打开用过。
+- Cursor 目前通过统一 MCP 可作为发件方（指挥）接入并派活，直接向 Cursor 对话投递任务并取回信尚未实现。
+- 这一轮端到端自动化测试覆盖了本机与远程发送、中继解析、统一 MCP 握手与各端接口，但没有拿真实的远程 Windows Codex 做一轮人工全链路回归。
+- 等你处理的一队里的 `relay`（接活 agent 往下转派前问你）与 `split`（一次拆多件前问你）、会话失败后自动重试、以及经 SSH / magpie 添加远程设备仍在后续阶段规划中（见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
+- `mac/scripts/build-app.sh` 会将完整 `web/`、`plugin/`（含 `mcp.mjs`）和 `.claude-plugin/marketplace.json` 一起打进 `build/Pigeon.app`，可脱离源码仓库独立运行；对外发布所需的 `.dmg` 安装包与签名公证流水线在 P3 规划中。
 - 中继站的指令和消息末尾那一行说明（`（Pigeon 纸条 b-…，来自…）`）还是旧词，因为 Codex 读它、命令行也解析它，要先拿真的 Codex 试过才能改。
 - 官网（`site/`）这一版没有更新，内容还是旧版的。
 
