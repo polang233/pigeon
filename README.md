@@ -11,6 +11,7 @@
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-242426">
   <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-f05138">
   <img alt="Claude Code 插件" src="https://img.shields.io/badge/Claude%20Code-插件-d97757">
+  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-347d39">
 </p>
 
 Pigeon 是一个 Mac 小应用，加一个 Claude Code 插件。它让 agent（能自己干活的 AI 程序，比如 Claude Code、Codex）互相传话：一个 agent 写一条消息，发给另一个 agent，等对方做完，再把回信取回来。消息可以发给本机的 Codex 对话，也可以经过 Codex 已连接的远程设备，发到另一台电脑上。
@@ -410,25 +411,28 @@ hook 配置在会话打开时读取，所以改完后要**在那个项目里新�
 - Cursor 目前通过统一 MCP 可作为发件方（指挥）接入并派活，直接向 Cursor 对话投递任务并取回信尚未实现。
 - 这一轮端到端自动化测试覆盖了本机与远程发送、中继解析、统一 MCP 握手与各端接口，但没有拿真实的远程 Windows Codex 做一轮人工全链路回归。
 - 等你处理的一队里的 `relay`（接活 agent 往下转派前问你）与 `split`（一次拆多件前问你）、会话失败后自动重试、以及经 SSH / magpie 添加远程设备仍在后续阶段规划中（见 [docs/ROADMAP.md](docs/ROADMAP.md)）。
-- `mac/scripts/build-app.sh` 会将完整 `web/`、`plugin/`（含 `mcp.mjs`）和 `.claude-plugin/marketplace.json` 一起打进 `build/Pigeon.app`，可脱离源码仓库独立运行；对外发布所需的 `.dmg` 安装包与签名公证流水线在 P3 规划中。
+- `mac/scripts/build-app.sh` 与 `mac/scripts/build-dmg.sh` 会将完整 `web/`、`plugin/`（含 `mcp.mjs`）和 `.claude-plugin/marketplace.json` 一起打进 `build/Pigeon.app` 与 `.dmg` 安装包，可脱离源码仓库独立运行；对外正式发布若需免 Gatekeeper 提示，需补充开发者账号正式签名与公证。
 - 中继站的指令和消息末尾那一行说明（`（Pigeon 纸条 b-…，来自…）`）还是旧词，因为 Codex 读它、命令行也解析它，要先拿真的 Codex 试过才能改。
-- 官网（`site/`）这一版没有更新，内容还是旧版的。
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `mac/` | Mac 应用：窗口、内置本机服务（`127.0.0.1:47321`）、菜单栏、连接检测、等你处理的一队、把消息交给自带的 `pigeon.mjs` 发出、读 magpie |
+| `mac/` | Mac 应用：窗口、内置本机服务（`127.0.0.1:47321`）、菜单栏、连接检测、等你处理的一队、把消息交给自带的 `pigeon.mjs` 发出、读 magpie、打包脚本 |
 | `mac/Notch/` | 原生刘海面板，单独的 Swift 包 `PigeonNotch`：库、演示程序 `PigeonNotchDemo`、测试 |
-| `web/` | 应用窗口里的界面（指挥台、任务、分派规则、接入、设置）：`index.html`、`app.css`、`src/`、`art/`、`test/`；同一套代码在没有应用时进演示模式。说明见 `web/README.md` |
-| `plugin/` | Claude Code 插件：hook、`pigeon-post` 和 `codex-delegation` 两个 skill、命令入口 `pigeon.mjs`、转发脚本；也会被打进应用，应用派活时用 |
+| `web/` | 应用窗口里的界面（指挥台、频道、分派规则、接入、设置）：`index.html`、`app.css`、`src/`、`art/`、`test/`；同一套代码在没有应用时进演示模式。说明见 `web/README.md` |
+| `plugin/` | Claude Code 插件与统一 CLI / MCP：`hook`、`pigeon-post` 和 `codex-delegation` 两个 skill、命令入口 `pigeon.mjs`、`mcp.mjs`、转发脚本；也会被打进应用 |
 | `tools/` | 开发工具：`serve.py`（演示服务）、`fake-hub.mjs`（假的本机服务，开发网页用）、`crew_svg.py`、`slice_sheet.py`（生成和切分美术图） |
 | `tests/` | 跨模块的测试：`fixtures/` 里是几处实现共用的用例（分派规则、查密钥），`e2e/` 是真的本机服务加真的命令行加假的 codex |
-| `site/` | 官网落地页（这一版没有更新） |
-| `assets/brand/` | 现在的应用图标原图（`pigeon-mark.png`，`mac/scripts/make-icon.swift` 用它生成 `AppIcon.icns`）和官网用的插画 |
-| `assets/manor/` | 洋馆样式的原图（Codex 画的动作表和大厅），切好的在 `web/art/manor/` |
+| `assets/brand/` | 矢量品牌标志（`pigeon-logo.svg`）、圆角应用图标与 `make-brand.swift` / `make-icon.swift` 生成产物 |
+| `assets/manor/` | 洋馆样式的原图（动作表和大厅），切好的在 `web/art/manor/` |
+| `docs/ROADMAP.md` | 产品定位、P0–P4 阶段路线图与工程验收基准 |
 | `docs/DESIGN.md` | 界面方案：页面、层级、样式、刘海交互、接入打算、做到哪了、检查过什么 |
-| `docs/CONTRACT.md` | 应用、网页、刘海、插件之间的接口 |
-| `docs/TODO.md` | 待办：大方向和小改进 |
-| `docs/archive/` | 历史记录：最早的需求、实施记录、改名方案、Codex 接入实验。用词和界面都是旧的 |
+| `docs/CONTRACT.md` | 应用、网页、刘海、插件之间的接口约定 |
+| `docs/TODO.md` | 细项待办清单与后续小改进 |
 | `CHANGELOG.md` | 每个版本改了什么 |
+| `LICENSE` | MIT 开源协议 |
+
+## 开源协议
+
+本项目基于 [MIT License](LICENSE) 开源。第三方与演示形象说明见设置面板底部及 `docs/TODO.md`。

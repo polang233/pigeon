@@ -23,5 +23,3 @@
 - 应用图标：`mac/Resources/Pigeon.icon`（macOS 26 起，分层，深色、着色、透明外观由系统生成）和 `mac/Resources/AppIcon.icns`（macOS 14、15，`swift mac/scripts/make-icon.swift` 生成）；
 - 菜单栏：`mac/Resources/MenuBarIcon.svg`，小尺寸专用的单色模板图。照原样缩到 18 点，翅膀的缝只有半个像素宽，看着发虚，所以整体描粗、缝加宽、眼睛放大，去掉翅斑、鼻瘤和信筒；
 - 网页：`web/assets/mark.png`（侧栏标志的遮罩）、`web/assets/favicon.png`。
-
-`pigeon-mark.png`、`pigeon-stamp.png` 是 0.2 之前的旧标志，留着对照。

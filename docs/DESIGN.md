@@ -17,7 +17,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
 
 界面里不再用鸽舍、纸条、脚环、栖木这套比喻词，直接叫设备、任务、消息、对话。产品名仍然是 Pigeon。办公室和鸽舍两套像素画面保留，降级成指挥台的可选样式。
 
-现在人能读到的地方（应用菜单和通知、网页、原生刘海、命令行输出、两个 skill、`README.md`、`CONTRACT.md`）都已经换成新词。`archive/PRD.md`、`archive/IMPLEMENTATION.md`、`archive/PIGEON-PLAN.md`、`archive/CODEX-FEASIBILITY.md` 是历史记录，仍然是旧词，各自开头有一句说明。接口里的字段名和命令（`band`、`lofts.json`、`pigeon lofts`、`--loft`）没有改。
+现在人能读到的地方（应用菜单和通知、网页、原生刘海、命令行输出、两个 skill、`README.md`、`CONTRACT.md`）都已经换成新词。早期历史设计文档保留在本地归档中，接口里的字段名和命令（`band`、`lofts.json`、`pigeon lofts`、`--loft`）保持向后兼容没有改。
 
 有两处故意没换：中继站的指令（`plugin/scripts/lib/relay.mjs`）和消息末尾那一行说明（`plugin/scripts/lib/post.mjs`，形如 `（Pigeon 纸条 b-…，来自…）`）。它们是 Codex 读的、命令行也要解析，改词可能让 Codex 或解析出错，要先拿真的 Codex 试过再换。
 
@@ -197,7 +197,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
 | Codex（本机） | 一个 MCP | 排进它的队列，不打断当前一轮 | 加一个 MCP 和两条回调 | 接收已实测（`codex queue` 加唤醒）；MCP 还没做 |
 | Cursor（本机） | 一个 MCP | 只在它一轮结束时收 | 加一个 MCP 和一条回调 | 没做，没验证 |
 | DeepSeek Harness（本机） | 一个 MCP | 排进它自己的队列 | Harness 插件 | 没做，没验证 |
-| Codex（远程） | 暂时只能回信 | 发消息、新开对话 | 经本机 Codex 中转，那台电脑不用装东西 | 已实测，见 `archive/IMPLEMENTATION.md` |
+| Codex（远程） | 暂时只能回信 | 发消息、新开对话 | 经本机 Codex 中转，那台电脑不用装东西 | 已实测 |
 | 其他 agent（远程） | 暂时只能回信 | 由远程的 Codex 启动并转交 | 走 Codex 这条连接 | 只是设想，没验证 |
 
 ## 接 magpie 能拿到什么
@@ -373,7 +373,7 @@ Pigeon 让一个 agent 指挥别的 agent 干活，包括别的电脑上的 agen
 
 - 2026-11-13 经 magpie 添加设备：选 nas（没装小助手）时第三条标红、"添加"点不了；选 office 后三条都过，DeepSeek Harness 灰掉，勾上 Codex 后添加，接入页多了 STUDIO-PC 卡片，三个 agent 都标"经 magpie"，指挥台多了一页，那页最左边是"这台 Mac"卡片。控制台没有报错。预览窗口当时在后台，最后两步是读页面结构确认的，没有截到图。
 
-- 2026-11-13 别的设备那页收起指挥那台：CHEN 那页最左边是"这台 Mac"卡片（Claude Code 挂指挥小标、Codex、Cursor、DeepSeek），线连到 CHEN 的 Codex，线上的信鸽停着等确认；办公室和简洁两种样式都看过，悬停写"指挥在这台 · 经它的 Codex 连到 CHEN-Y9000P2023 · 点一下翻回去"，点卡片翻回本机页；控制台没有报错。没看：浅色、窄舞台、洋馆和鸽舍样式。
+- 2026-11-13 别的设备那页收起指挥那台：远程设备那页最左边是"这台 Mac"卡片（Claude Code 挂指挥小标、Codex、Cursor、DeepSeek），线连到远程的 Codex，线上的信鸽停着等确认；办公室和简洁两种样式都看过，悬停写"指挥在这台 · 经它的 Codex 连到 WIN-WORKSTATION · 点一下翻回去"，点卡片翻回本机页；控制台没有报错。没看：浅色、窄舞台、洋馆和鸽舍样式。
 
 - 2026-11-13 额度读 magpie：本机 magpie 0.1.3929 在跑，经 `tools/serve.py` 读到 6 张额度卡，转出来的数据里没有邮箱。Codex 两个 ChatGPT 账号取最近用的那个（Pro Lite），7 天额度剩 22%；Cursor Premium 本周剩 83%；DeepSeek 是 magpie 里的 key，余额 ¥0.00，标红；magpie 里没有 Claude 的额度，写"magpie 里没有 Claude 的额度"，规则页写"没读到"。指挥台悬停、分派规则的额度小条、接入页的圆盘都换成了真数字，悬停里写"来自本机 magpie · 20:30 读的"，别的电脑上的写"示例数字"。在页面里把 magpie 的回答换成 502 试过：页头变成"magpie 没开"，额度全回到示例。控制台没有报错。没试：真把 magpie 关掉、magpie 用了别的端口、读到远程 magpie 的卡。
 
