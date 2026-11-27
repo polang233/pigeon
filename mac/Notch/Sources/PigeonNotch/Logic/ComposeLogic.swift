@@ -14,6 +14,8 @@ struct ComposeState: Equatable {
     var manualTarget = false
     /// 空串是新开对话；否则发到这个已有对话
     var session = ""
+    /// 本机新开对话时选的工作目录；空串用默认
+    var cwd = ""
     var draft = ""
     var picks: [TargetKey: ComposePick] = [:]
     /// 应用按分派规则建议的对象
@@ -127,6 +129,11 @@ enum ComposeLogic {
         s.session = id
     }
 
+    static func selectCwd(_ s: inout ComposeState, _ path: String, in data: ComposeData) {
+        guard path.isEmpty || data.projects.contains(where: { $0.path == path }) else { return }
+        s.cwd = path
+    }
+
     /// 应用给了建议：记下来；没手动选过对象、也不是发给某个对话时，直接换过去
     static func applySuggestion(_ s: inout ComposeState, _ key: TargetKey?, in data: ComposeData) {
         let k = key.flatMap { isSelectable($0, in: data) ? $0 : nil }
@@ -161,9 +168,10 @@ enum ComposeLogic {
     }
 
     static func request(_ s: ComposeState, in data: ComposeData) -> SendRequest? {
-        guard blockReason(s, in: data) == nil, let t = s.target, let p = pick(s, for: t, in: data) else { return nil }
+        guard blockReason(s, in: data) == nil, let t = s.target, let found = lookup(t, in: data), let p = pick(s, for: t, in: data) else { return nil }
+        let cwd = (s.session.isEmpty && found.device.isLocal) ? s.cwd : ""
         return SendRequest(to: t, session: s.session, text: s.draft.trimmingCharacters(in: .whitespacesAndNewlines),
-                           model: p.model, effort: p.effort)
+                           model: p.model, effort: p.effort, cwd: cwd)
     }
 
     /// 发出的对象在别的电脑上

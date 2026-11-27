@@ -299,6 +299,18 @@ public struct SessionRef: Sendable, Hashable, Identifiable, Codable {
     }
 }
 
+/// 本机已知的工作目录（新开对话时可选）
+public struct ProjectRef: Sendable, Hashable, Identifiable, Codable {
+    public var id: String { path }
+    public var name: String
+    public var path: String
+
+    public init(name: String, path: String) {
+        self.name = name
+        self.path = path
+    }
+}
+
 /// 派活对象里的一家 agent
 public struct ComposeAgent: Sendable, Hashable, Codable {
     public var agent: AgentKind
@@ -342,13 +354,16 @@ public struct ComposeDevice: Sendable, Hashable, Identifiable, Codable {
 
 public struct ComposeData: Sendable, Hashable, Codable {
     public var devices: [ComposeDevice]
+    /// 本机新开对话时可选的工作目录
+    public var projects: [ProjectRef]
     /// 没指定对象时先选它；为 nil 时选第一个能选的
     public var defaultTarget: TargetKey?
     /// 跨设备发送要不要再确认一次（契约 post.confirmRemote），只影响底下那句说明
     public var crossNeedsConfirm: Bool
 
-    public init(devices: [ComposeDevice] = [], defaultTarget: TargetKey? = nil, crossNeedsConfirm: Bool = true) {
+    public init(devices: [ComposeDevice] = [], projects: [ProjectRef] = [], defaultTarget: TargetKey? = nil, crossNeedsConfirm: Bool = true) {
         self.devices = devices
+        self.projects = projects
         self.defaultTarget = defaultTarget
         self.crossNeedsConfirm = crossNeedsConfirm
     }
@@ -363,13 +378,16 @@ public struct SendRequest: Sendable, Hashable, Codable {
     /// 空串表示用它自己的默认
     public var model: String
     public var effort: Effort?
+    /// 本机新开对话时选的工作目录（空串用默认）
+    public var cwd: String
 
-    public init(to: TargetKey, session: String, text: String, model: String, effort: Effort?) {
+    public init(to: TargetKey, session: String, text: String, model: String, effort: Effort?, cwd: String = "") {
         self.to = to
         self.session = session
         self.text = text
         self.model = model
         self.effort = effort
+        self.cwd = cwd
     }
 }
 

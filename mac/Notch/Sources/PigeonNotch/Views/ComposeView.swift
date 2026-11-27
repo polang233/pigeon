@@ -40,6 +40,20 @@ struct ComposeView: View {
                             .accessibilityLabel("发到新对话还是已有对话")
                         }
                     }
+                    if s.session.isEmpty, found.device.isLocal, !data.projects.isEmpty {
+                        GridRow {
+                            label("目录")
+                            Picker("目录", selection: Binding(get: { vm.compose.cwd },
+                                                            set: { ComposeLogic.selectCwd(&vm.compose, $0, in: data) })) {
+                                Text("默认目录").tag("")
+                                ForEach(data.projects) { p in
+                                    Text(p.name.count > 26 ? String(p.name.prefix(26)) + "…" : p.name).tag(p.path)
+                                }
+                            }
+                            .labelsHidden().pickerStyle(.menu).controlSize(.small).fixedSize().frame(maxWidth: 310, alignment: .leading)
+                            .accessibilityLabel("新开对话的工作目录")
+                        }
+                    }
                     let pick = ComposeLogic.pick(s, for: t, in: data)
                     GridRow {
                         label("模型")

@@ -102,6 +102,10 @@ extension NotchModel {
                                      models: cursorModels, defaultModel: "Composer 2"),
                     ]),
                 ],
+                projects: [
+                    ProjectRef(name: "pigeon", path: "/Users/demo/Projects/pigeon"),
+                    ProjectRef(name: "notes", path: "/Users/demo/Projects/notes"),
+                ],
                 defaultTarget: TargetKey(agent: .codex, device: "local")),
             settings: NotchSettings(secrets: .warn, crossTimeoutSec: 90)
         )
