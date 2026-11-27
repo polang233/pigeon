@@ -146,7 +146,8 @@ final class StatusBar: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "打开 Pigeon 窗口", action: #selector(openWindow(_:)), keyEquivalent: "").target = self
-        let composeItem = NSMenuItem(title: "快速派活（⌥ 空格）", action: #selector(openCompose(_:)), keyEquivalent: "")
+        let composeTitle = Settings.hotkeyEnabled() ? "快速派活（\(Settings.hotkeySpec().displayLabel)）" : "快速派活"
+        let composeItem = NSMenuItem(title: composeTitle, action: #selector(openCompose(_:)), keyEquivalent: "")
         composeItem.target = self
         menu.addItem(composeItem)
         let notch = NSMenuItem(title: "在刘海上显示", action: #selector(toggleNotch(_:)), keyEquivalent: "")

@@ -4,6 +4,7 @@
 
 ## 未发布
 
+- **正式分发与首装体验（P3）**：新增 `mac/scripts/build-dmg.sh` 一键生成可分发的 `build/Pigeon-<版本>.dmg` 安装包（带 `Applications` 拖入快捷方式）；设置面板「桌面与快捷方式」支持直接录制自定义全局快捷键（`perch.hotkeySpec`，默认 `⌥ 空格`）；连接检查清单内嵌「默认指挥」切换。
 - **统一 MCP 服务与多 Agent 一键接入**：新增零依赖 `pigeon mcp` 服务（8 个工具与 `pigeon://rules` / `pigeon://lofts` 资源），接入页新增「一键接入 Codex / Antigravity / Cursor」开关与检查清单快捷按钮，安全改写配置并保留原有设置，让 Codex、Antigravity、Cursor 都能读取分派规则、主动向其他 agent 派活并按真实发件身份可视化。
 - **桌面伴侣体验**：支持登录时自动启动（`SMAppService`，设置与菜单栏可开关）、全局快捷键 `⌥ 空格` 随时呼出刘海快速派活、刘海本机新开对话可选项目目录与自定义远程模型名，以及 `pigeon run` 持久化与重启孤儿恢复（`~/.pigeon/runs/*.meta.json`）。
 - **全新安装检查清单与频道直接派活**：`Pigeon.app` 内置完整插件市场并新增开机检查清单（Node 版本含 v22.15+ zstd 检测、Claude 插件、Codex hook、多 Agent MCP 与本机对话数）；支持 `nvm` / `fnm` / `mise` / `asdf` / `nodenv` 与 `~/Applications/` 路径发现；频道页支持 `@` 直接派活，7 天自动清理历史正文/回信/run 产物。

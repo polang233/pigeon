@@ -1320,3 +1320,9 @@ main:has(> .chan) { container-type: inline-size; overflow: hidden; }
 .cmdlist { width: 100%; display: grid; gap: 6px; margin-top: 6px; padding-left: 18px; }
 .cmdbox { display: flex; align-items: center; gap: 8px; background: var(--card2); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
 .cmdbox code { flex: 1; min-width: 0; font: 11.5px/1.4 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); overflow-wrap: anywhere; color: var(--text); }
+
+/* 设置面板：全局快捷键录制 */
+.hk-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.hk-btn { border: 1px solid var(--line2); background: var(--win); color: var(--text); border-radius: 7px; padding: 3px 9px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; cursor: pointer; transition: border-color .15s, background-color .15s, box-shadow .15s; }
+.hk-btn:hover { border-color: var(--text); }
+.hk-btn.rec { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--win)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }

@@ -618,6 +618,12 @@ SSE 新增 `{ "type": "queue", "items": [...] }`，队列一变就推一次。
 
 不这样的话，你开着的任何一个网页都能读到等你确认的原文、替你点放行、以你的名义派活、改设置。
 
+### 桌面与全局快捷键（`perch` / `GET/POST /api/autostart`）
+
+- `perch.notch`：布尔值，是否在屏幕顶部显示原生刘海面板（默认 `true`）。
+- `perch.hotkey`：布尔值，是否开启全局快速派活热键（默认 `true`）。
+- `perch.hotkeySpec`：字符串，全局热键规格（默认 `"opt+space"`，支持 `ctrl` / `opt` / `shift` / `cmd` 搭配字母、数字、`space` / `return` / `tab` / `f1`–`f12`）。
+
 ### 统一 Pigeon MCP 与配置接口
 
 | 请求 | 说明 |

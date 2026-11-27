@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 guard let self else { return }
                 self.notch.toggleCompose(anchor: self.statusBar.panelAnchor())
             }
-            hk.setEnabled(Settings.hotkeyEnabled())
+            hk.configure(enabled: Settings.hotkeyEnabled(), spec: Settings.hotkeySpec())
             hotkey = hk
         }
 
@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             Task { @MainActor in
                 self?.notch.reloadSettings()
                 self?.statusBar.refresh()
-                self?.hotkey?.setEnabled(Settings.hotkeyEnabled())
+                self?.hotkey?.configure(enabled: Settings.hotkeyEnabled(), spec: Settings.hotkeySpec())
             }
         }
         hub.onQueue = { [weak self] data in Task { @MainActor in self?.notch.update(queue: data) } }

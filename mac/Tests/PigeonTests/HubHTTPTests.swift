@@ -510,9 +510,12 @@ extension HubHTTPTests {
         TestEnv.prepare()
         #expect(Settings.object().isEmpty)
         #expect(Settings.hotkeyEnabled())
-        try Settings.save(Data(#"{"perch":{"notch":false,"hotkey":false}}"#.utf8))
+        #expect(Settings.hotkeySpec() == .defaultSpec)
+        try Settings.save(Data(#"{"perch":{"notch":false,"hotkey":false,"hotkeySpec":"cmd+shift+p"}}"#.utf8))
         #expect(!Settings.notchEnabled())
         #expect(!Settings.hotkeyEnabled())
+        #expect(Settings.hotkeySpec().raw == "shift+cmd+p")
+        #expect(Settings.hotkeySpec().displayLabel == "⇧ ⌘ P")
         // 绕过 Settings 直接改文件
         try Data(#"{"perch":{"notch":true},"lead":"x"}"#.utf8).write(to: Paths.settingsFile, options: .atomic)
         #expect(Settings.notchEnabled())

@@ -5,6 +5,7 @@ import { html, bool } from '../html.js';
 import { $, patch } from '../dom.js';
 import { PALETTES, SKINS } from '../core/labels.js';
 import { online, shortDev } from '../core/names.js';
+import { DEFAULT_HOTKEY, normalizeHotkey, formatHotkey, keyEventToSpec } from '../core/hotkey.js';
 import { registerAll } from '../actions.js';
 import { toast, after } from './toast.js';
 
@@ -25,6 +26,7 @@ export const srv = (st, path, def) => { let v = st.SRV; for (const k of path) v 
 
 export function mountSettings(store) {
   const pop = $('#setpop'), btn = $('#settings'), st = store.state, S = st.settings, live = st.mode === 'live';
+  let recording = false;
   const seg = (key, opts) => html`<div class="seg" role="group">${opts.map(([v, l]) => html`<button type="button" data-action="set" data-k="${key}" data-v="${v}" aria-pressed="${bool(S[key] === v)}">${l}</button>`)}</div>`;
   const notifyHTML = () => html`<h3><span data-tip="Pigeon 应用发的系统通知">通知</span></h3><div class="srows">${NOTIFY.map(([k, l, tip]) => html`<div class="srow"><span ${tip ? html`data-tip="${tip}"` : ''}>${l}</span><button class="sw" type="button" role="switch" aria-checked="${bool(srv(st, ['notify', k], NOTIFY0[k]) !== false)}" data-action="srv-sw" data-path="notify.${k}" aria-label="${l}"></button></div>`)}
     <div class="srow"><span data-tip="说完一轮的通知只在超过这么久时才发，10–3600 秒">较长一轮</span><span><input class="numin" type="number" min="10" max="3600" step="1" data-action="srv-num" data-path="notify.turnMinSec" data-min="10" data-max="3600" value="${srv(st, ['notify', 'turnMinSec'], NOTIFY0.turnMinSec)}" aria-label="较长一轮是多少秒"> 秒</span></div></div>`;
@@ -35,8 +37,12 @@ export function mountSettings(store) {
       : auto?.requiresApproval
         ? '请在“系统设置 → 通用 → 登录项与扩展”里允许 Pigeon'
         : '登录 Mac 后自动在后台运行 Pigeon';
+    const hkOn = srv(st, ['perch', 'hotkey'], true) !== false;
+    const hkSpec = normalizeHotkey(srv(st, ['perch', 'hotkeySpec'], DEFAULT_HOTKEY)) || DEFAULT_HOTKEY;
+    const hkLabel = formatHotkey(hkSpec);
     return html`<h3><span>桌面与快捷方式</span></h3><div class="srows">
-      <div class="srow"><span data-tip="在任何应用里按 Option + 空格，直接弹出或收起刘海快速派活">快捷键（⌥ 空格）</span><button class="sw" type="button" role="switch" aria-checked="${bool(srv(st, ['perch', 'hotkey'], true) !== false)}" data-action="srv-sw" data-path="perch.hotkey" aria-label="快捷键 ⌥ 空格"></button></div>
+      <div class="srow"><span data-tip="在任何应用里按快捷键，直接弹出或收起刘海快速派活">全局快捷派活</span><button class="sw" type="button" role="switch" aria-checked="${bool(hkOn)}" data-action="srv-sw" data-path="perch.hotkey" aria-label="全局快捷派活"></button></div>
+      <div class="srow"><span data-tip="点一下右侧按钮后直接按组合键（如 ⌥ 空格 或 ⌘ ⇧ P）即可改键，按 Esc 取消">呼出快捷键</span><span class="hk-wrap"><button type="button" class="hk-btn ${recording ? 'rec' : ''}" data-action="hk-rec" aria-pressed="${bool(recording)}">${recording ? '请按组合键…' : hkLabel}</button>${hkSpec !== DEFAULT_HOTKEY ? html`<button type="button" class="ghost sm" data-action="hk-reset" title="恢复默认 ⌥ 空格">恢复默认</button>` : ''}</span></div>
       ${auto ? html`<div class="srow"><span data-tip="${autoTip}">${auto.requiresApproval ? '登录时自动启动（需系统允许）' : '登录时自动启动'}</span><button class="sw" type="button" role="switch" aria-checked="${bool(!!auto.enabled)}" data-action="autostart-sw" aria-label="登录时自动启动" ${auto.supported ? '' : 'disabled'}></button></div>` : ''}
     </div>`;
   };
@@ -57,6 +63,7 @@ export function mountSettings(store) {
 
   const sync = () => {
     const on = st.ui.settingsOpen;
+    if (!on) recording = false;
     if (on) draw();
     pop.classList.toggle('on', on); btn.setAttribute('aria-expanded', on);
   };
@@ -68,6 +75,12 @@ export function mountSettings(store) {
     set: ({ d }) => after(store.setSetting(d.k, d.v)),
     'hud-demo': ({ d }) => after(store.notchDemo(d.state), msg => { if (msg) toast(msg); }),
     'autostart-sw': ({ el }) => after(store.setAutostart(el.getAttribute('aria-checked') !== 'true'), msg => { if (msg) toast(msg); }),
+    'hk-rec': () => { recording = !recording; draw(); },
+    'hk-reset': () => {
+      recording = false;
+      after(store.setServer(['perch', 'hotkeySpec'], DEFAULT_HOTKEY), () => toast('已恢复默认快捷键 ⌥ 空格'));
+      draw();
+    },
     // 演示：那台断开 / 连上
     'demo-offline': ({ d }) => store.setOnline(d.dev, !online(st, d.dev)),
     // 应用设置里的开关、数字、下拉（通知、交给 Codex 的活、中继对话……）：data-path 是“notify.done”这样的路径
@@ -84,4 +97,17 @@ export function mountSettings(store) {
   document.addEventListener('click', e => {
     if (st.ui.settingsOpen && !e.composedPath().some(n => n.id === 'setpop' || n.id === 'settings')) store.toggleSettings(false);
   });
+  document.addEventListener('keydown', e => {
+    if (!recording || !st.ui.settingsOpen) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const res = keyEventToSpec(e);
+    if (res.status === 'modifier') return;
+    if (res.status === 'cancel') { recording = false; draw(); return; }
+    if (res.status === 'no_mod') { toast('请至少按住一个修饰键（⌥ / ⌘ / ⌃ / ⇧）'); return; }
+    if (res.status === 'unsupported') { toast('不支持这个按键，试试字母、数字、空格或 F1–F12'); return; }
+    recording = false;
+    after(store.setServer(['perch', 'hotkeySpec'], res.spec), () => toast(`快捷键已改为 ${formatHotkey(res.spec)}`));
+    draw();
+  }, { capture: true });
 }

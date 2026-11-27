@@ -239,6 +239,8 @@ function setupHTML() {
   const mcpClients = ['codex', 'antigravity', 'cursor'].filter(a => (st.CONN[st.home] || []).some(c => c.a === a));
   const mcpInstalledN = mcpClients.filter(a => !!st.MCP?.clients?.[a]?.installed).length;
   const mcpPending = mcpClients.filter(a => !st.MCP?.clients?.[a]?.installed);
+  const lk = leadKey(st), opts = leadOptions(st);
+  const leadPick = html`<select class="pick" data-action="set-lead" aria-label="默认指挥">${opts.map(k => html`<option value="${k}" ${k === lk ? raw('selected') : ''}>${AG[agOf(k)].name} · ${shortDev(st, dvOf(k))}</option>`)}${lk !== 'you' && !opts.includes(lk) ? html`<option value="${lk}" selected>${nameOf(st, lk)}（现在不能发出）</option>` : ''}<option value="you" ${lk === 'you' ? raw('selected') : ''}>你自己</option></select>`;
   const row = (kind, title, desc, act = '') => html`<div class="setup-row"><span class="sdot ${kind}"></span><div class="smeta"><b>${title}</b><small class="mut">${desc}</small></div><span class="sp"></span>${act}</div>`;
   return html`<div data-part="setup"><section class="panel setup-card">
     <header><div><b>连接检查清单</b><small class="mut">装好后按这几步接上各家 agent，就能在对话时自然协作</small></div><span class="sp"></span><button class="ghost sm" type="button" data-action="setup-toggle">收起</button></header>
@@ -262,6 +264,9 @@ function setupHTML() {
         ? `已接入全部 ${mcpInstalledN} 个支持的应用，在里面聊天时都能读分派规则并互相派活`
         : `已接入 ${mcpInstalledN}/${mcpClients.length}：开启后，在 Codex / Antigravity / Cursor 里对话时也能直接派活与读回信`,
       mcpPending.length ? html`<div class="mcp-acts">${mcpPending.map(a => html`<button class="ghost sm" type="button" data-action="mcp-toggle" data-client="${a}">接入 ${AG[a].name}</button>`)}</div>` : '') : ''}
+    ${row('ok', '默认指挥',
+      '决定由哪个 agent 读取分派规则并负责拆活；也可以选「你自己」直接在刘海或频道派活',
+      leadPick)}
     ${row(sessN > 0 ? 'ok' : 'warn', '本机已有对话',
       sessN > 0 ? `已扫描到 ${sessN} 个本机对话（Codex / DSH / Antigravity）` : '还没扫描到本机对话；在各工具里新建过对话后点右侧刷新',
       html`<button class="ghost sm" type="button" data-action="refresh-local">${icon('undo')}刷新本机对话</button>`)}
@@ -377,7 +382,7 @@ export function mountConn(main) {
     // 确认框打开时把焦点放到主按钮上
     store.on(['ui.conn.rm', 'DEV', 'S', 'T', 'Q', 'lead'], ch => { part(main, 'rm', rmHTML()); if (store.touched(ch, 'ui.conn.rm')) $('[data-focus="rm-ok"]', main)?.focus(); }),
     store.on(['DEV', 'paused', 'SUB', 'ui.conn.plan', 'ui.conn.mp', 'SRV', 'HOOKS', 'RELAY'], cards),
-    store.on(['SETUP', 'HOOKS', 'S', 'DEV'], () => { if (live()) setup(); }),
+    store.on(['SETUP', 'HOOKS', 'S', 'DEV', 'lead'], () => { if (live()) setup(); }),
     store.on(['RULES2'], () => part(main, 'rules2', rules2HTML())),
     store.on(['ui.conn.sheet', 'SUB', 'DEV', 'SRV', 'RELAY'], () => part(main, 'sheet', sheetHTML())),
     store.on(['USAGE'], () => { if (live()) part(main, 'usage', usageHTML()); }),

@@ -294,3 +294,19 @@ import Testing
         #expect(!Hub.forwardsHook([:]))
     }
 }
+
+@Suite struct HotKeySpecTests {
+    @Test func parsesCanonicalSpecsAndLabels() {
+        #expect(HotKeySpec.defaultSpec.raw == "opt+space")
+        #expect(HotKeySpec.defaultSpec.displayLabel == "⌥ 空格")
+        let a = HotKeySpec.parse("Cmd+Shift+P")
+        #expect(a?.raw == "shift+cmd+p")
+        #expect(a?.displayLabel == "⇧ ⌘ P")
+        let b = HotKeySpec.parse("alt + control + F5")
+        #expect(b?.raw == "ctrl+opt+f5")
+        #expect(b?.displayLabel == "⌃ ⌥ F5")
+        #expect(HotKeySpec.parse("space") == nil)
+        #expect(HotKeySpec.parse("opt+bogus") == nil)
+        #expect(HotKeySpec.parse("") == nil)
+    }
+}
