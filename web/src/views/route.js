@@ -1,11 +1,12 @@
 // 分派规则：哪类活交给谁。上面是流向图和“试一句”，下面是能直接改的规则表，再下面是额度阈值和写进指挥提示里的样子。
 // 判断逻辑都在 core/route.js。几块：flow 流向图、tryout 试算结果（输入框本身不重画）、rules 规则表、cols 阈值和提示原文。
+// 左边是当前指挥（设置里的 lead）。交给的正好是指挥时，这条的意思是“指挥自己做”：右边那一家标成“指挥自己做”，提示里写成“你自己做”。
 import { html, raw, bool } from '../html.js';
 import { icon } from '../icons.js';
 import { $, $$, part, patch } from '../dom.js';
 import { AG } from '../core/labels.js';
-import { agOf, dvOf, leadSession, isYou, shortDev, nameOf } from '../core/names.js';
-import { qLeft, lowQ, alive, targets, routeOf, promptText, asks } from '../core/route.js';
+import { agOf, dvOf, leadSession, isYou, shortDev, nameOf, leadKey } from '../core/names.js';
+import { qLeft, lowQ, alive, isSelf, targets, routeOf, promptText, asks } from '../core/route.js';
 import { qc, qTip } from '../core/quota.js';
 import { g } from './parts.js';
 import { registerAll } from '../actions.js';
@@ -20,27 +21,44 @@ const qmini = k => {
     : html`<span class="qmini none" data-tip="${q ? qTip(q) : '按量付费，没有订阅额度'}">${q && q.none ? '没读到' : '按量'}</span>`;
 };
 
+// 规则里交给的那家为什么不算数：设备移除了、没接上、在接入里关着、或者它还不能接活
+function goneWhy(k) {
+  const d = dvOf(k), c = (st.CONN[d] || []).find(x => x.a === agOf(k)), name = AG[agOf(k)]?.name || agOf(k);
+  if (!st.DEV[d]) return '交给的那台设备已经移除了';
+  if (!c) return `${shortDev(st, d, true)}上没接 ${name}`;
+  if (!c.on) return `${name} 在接入里关着`;
+  return `${name} 现在还不能接活（只能发出），它不是指挥时这条先跳过`;
+}
+// 规则表下拉里的一项怎么写：指挥自己的标出来
+const optName = k => `${AG[agOf(k)].name} · ${shortDev(st, dvOf(k))}${isSelf(st, k) ? '（指挥自己做）' : ''}`;
+
 function flowHTML() {
   const L = leadSession(st), you = isYou(st), dst = [...new Set(st.RULES.flatMap(r => [r.to, r.fb]).filter(k => alive(st, k)))];
   const la = you ? 'you' : st.lead.agent;
   return html`<div class="flow2" data-part="flow">
     <div class="f-col f-src"><div class="box" data-src>${g(la)}<div><b>${AG[la].name}</b><small>${you ? '指挥 · 自己派活' : `指挥 · ${L ? L.title : shortDev(st, st.lead.dev, true)}`}</small></div></div></div>
-    <div class="f-col f-rules">${st.RULES.map((r, i) => html`<div class="box f-rule ${r.on ? '' : 'off'}" data-r="${i}"><span class="rn">${i + 1}</span><b class="ell">${r.when || html`<span class="mut">还没写</span>`}</b>${r.ask ? html`<i class="askm" data-tip="发之前问你">问</i>` : ''}</div>`)}
+    <div class="f-col f-rules">${st.RULES.map((r, i) => {
+      const gone = r.on && r.to && !alive(st, r.to);
+      return html`<div class="box f-rule ${r.on ? '' : 'off'} ${gone ? 'gone' : ''}" data-r="${i}" ${gone ? html`data-tip="${goneWhy(r.to)}"` : ''}><span class="rn">${i + 1}</span><b class="ell">${r.when || html`<span class="mut">还没写</span>`}</b>${gone ? html`<i class="askm gonem">跳过</i>` : r.ask && !isSelf(st, r.to) ? html`<i class="askm" data-tip="发之前问你">问</i>` : ''}</div>`;
+    })}
       <div class="box f-rule other" data-r="-2"><span class="rn">·</span><span class="mut ell">其他的，指挥自己判断</span></div></div>
-    <div class="f-col f-dsts">${dst.map(k => html`<div class="box f-dst" data-k="${k}">${g(agOf(k), 'sm')}<span class="ell"><b>${AG[agOf(k)].name}</b><small>${shortDev(st, dvOf(k), true)}</small></span>${qmini(k)}</div>`)}</div>
+    <div class="f-col f-dsts">${dst.map(k => html`<div class="box f-dst ${isSelf(st, k) ? 'self' : ''}" data-k="${k}" ${isSelf(st, k) ? html`data-tip="就是左边的指挥：交给它的活写成“你自己做”，不派出去，也不问你"` : ''}>${g(agOf(k), 'sm')}<span class="ell"><b>${AG[agOf(k)].name}</b><small>${isSelf(st, k) ? '指挥自己做' : shortDev(st, dvOf(k), true)}</small></span>${qmini(k)}</div>`)}</div>
     <svg class="f-lines" aria-hidden="true"></svg>
   </div>`;
 }
 
 function ruleRow(r, i) {
-  const opts = (cur, none) => html`${none ? html`<option value="" ${cur ? '' : raw('selected')}>不改派</option>` : ''}${targets(st).map(k => html`<option value="${k}" ${k === cur ? raw('selected') : ''}>${AG[agOf(k)].name} · ${shortDev(st, dvOf(k))}</option>`)}${cur && !alive(st, cur) ? html`<option value="${cur}" selected>（已经不在了）</option>` : ''}`;
+  // 能选的：能接活的各家，加上指挥自己（自己做）
+  const ks = [...new Set([...targets(st), ...(isYou(st) ? [] : [leadKey(st)])])].filter(k => alive(st, k));
+  const opts = (cur, none) => html`${none ? html`<option value="" ${cur ? '' : raw('selected')}>不改派</option>` : ''}${ks.map(k => html`<option value="${k}" ${k === cur ? raw('selected') : ''}>${optName(k)}</option>`)}${cur && !alive(st, cur) ? html`<option value="${cur}" selected>${AG[agOf(cur)]?.name || agOf(cur)}（${st.DEV[dvOf(cur)] ? '现在接不了活' : '已经不在了'}）</option>` : ''}`;
+  const gone = r.on && r.to && !alive(st, r.to);
   const live = lowQ(st, r.to) && alive(st, r.fb);
   return html`<div class="trow ${r.on ? '' : 'off'}" data-r="${i}">
     <button class="sw" type="button" role="switch" aria-checked="${bool(r.on)}" data-action="rule-on" data-id="${r.id}" aria-label="启用这条规则"></button>
     <span class="grip" draggable="true" data-tip="拖动调整先后">${icon('grip')}</span>
     <span class="rwhen"><input class="cell" data-action="rule-text" data-id="${r.id}" data-f="when" data-focus="rule-when:${r.id}" value="${r.when}" placeholder="当任务是…" aria-label="当任务是" autocomplete="off"><input class="cell kw" data-action="rule-text" data-id="${r.id}" data-f="kw" data-focus="rule-kw:${r.id}" value="${r.kw}" placeholder="关键词，空格隔开" aria-label="关键词" autocomplete="off"></span>
     <span class="arrowto">→</span>
-    <span class="who2">${g(agOf(r.to), 'sm')}<select class="pick" data-action="rule-field" data-id="${r.id}" data-f="to" aria-label="交给">${opts(r.to)}</select>${lowQ(st, r.to) ? html`<i class="qlow" data-tip="它的额度只剩 ${qLeft(st, r.to)}%">${qLeft(st, r.to)}%</i>` : ''}</span>
+    <span class="who2">${g(agOf(r.to), 'sm')}<select class="pick" data-action="rule-field" data-id="${r.id}" data-f="to" aria-label="交给">${opts(r.to)}</select>${lowQ(st, r.to) ? html`<i class="qlow" data-tip="它的额度只剩 ${qLeft(st, r.to)}%">${qLeft(st, r.to)}%</i>` : ''}${gone ? html`<i class="qlow" data-tip="${goneWhy(r.to)}">跳过</i>` : ''}</span>
     <span class="who2 fbc ${live ? 'live' : ''}" ${live ? html`data-tip="交给的那家额度低于 ${st.LOW}%，现在按这一栏派"` : ''}>${r.fb ? g(agOf(r.fb), 'sm') : ''}<select class="pick" data-action="rule-field" data-id="${r.id}" data-f="fb" aria-label="额度不够时改派给">${opts(r.fb, true)}</select></span>
     <select class="pick" data-action="rule-field" data-id="${r.id}" data-f="must" aria-label="指挥怎么用这条" data-tip="建议：写进提示，由指挥自己判断交不交。照做：这句话里出现关键词时，提示里写成必须交给它，除非你在那句话里明说不要"><option value="0" ${r.must ? '' : raw('selected')}>建议</option><option value="1" ${r.must ? raw('selected') : ''}>照做</option></select>
     <select class="pick" data-action="rule-field" data-id="${r.id}" data-f="ask" aria-label="发之前要不要问我"><option value="0" ${r.ask ? '' : raw('selected')}>直接发</option><option value="1" ${r.ask ? raw('selected') : ''}>每次问我</option></select>
@@ -55,7 +73,7 @@ const colsHTML = () => html`<div class="cols" data-part="cols">
       <p class="note">按量付费的没有额度，不受这条影响。跨设备的任务不管规则怎么写，默认都要你点一次确认，这条在“接入”里能关。</p></div></div>
     <div><h2>写进指挥提示里的样子</h2><div class="panel pad">${isYou(st)
       ? html`<p class="note" style="margin-top:0">指挥是你自己，没有提示可写。你在刘海上派活时，会按这些规则先把建议的对象选好，你可以改。</p><button class="ghost" type="button" data-action="nav" data-v="conn">换指挥</button>`
-      : html`<pre class="prompt" id="prompt">${promptText(st) || '现在没有开着的规则，不往指挥的提示里写。'}</pre><p class="note">指挥每开新一轮时更新一次，额度变了、协作的规矩改了也跟着变。</p>`}</div></div>
+      : html`<pre class="prompt" id="prompt">${promptText(st) || '现在没有开着的规则，不往指挥的提示里写。'}</pre><p class="note">指挥每开新一轮时更新一次，额度变了、协作的规矩改了也跟着变。指挥是 ${nameOf(st, leadKey(st))}：交给它自己的规则写成“你自己做”，不派出去，也不问你。换了指挥，这几条照常算：交给它；它接不了活就跳过。</p>`}</div></div>
   </div>`;
 
 // 流向图的线：量好三列方框的位置再画
@@ -91,10 +109,13 @@ function tryRoute(root) {
   const out = $('#try-out', root); if (!out) return;
   const v = ui.route.try.trim();
   if (!v) { patch(out, html`<span class="mut">输入一句任务，看它会走哪条规则、交给谁</span>`); store.setHit(-1); return; }
-  const res = routeOf(st, v), lab = { off: '关着', gone: '交给的那家不在了，跳过', miss: '没命中', hit: '命中', fb: '命中，额度不够，改派' };
-  const steps = res.steps.map(x => html`<li class="s-${x.st}"><span class="rn">${st.RULES.indexOf(x.r) + 1}</span><span class="ell">${x.r.when || '还没写'}</span><em>${lab[x.st]}</em></li>`);
+  const res = routeOf(st, v), lab = { off: '关着', gone: '交给的那家接不了活，跳过', miss: '没命中', hit: '命中', fb: '命中，额度不够，改派' };
+  const steps = res.steps.map(x => html`<li class="s-${x.st}" ${x.st === 'gone' ? html`data-tip="${goneWhy(x.r.to)}"` : ''}><span class="rn">${st.RULES.indexOf(x.r) + 1}</span><span class="ell">${x.r.when || '还没写'}</span><em>${x.st === 'hit' && isSelf(st, x.r.to) ? '命中，指挥自己做' : lab[x.st]}</em></li>`);
   let end = html`没有规则命中，留给指挥自己判断`;
-  if (res.r) { const k = res.to; end = html`建议交给 <b>${nameOf(st, k)}</b>${res.fb ? `（${nameOf(st, res.r.to)} 的额度只剩 ${qLeft(st, res.r.to)}%）` : res.low ? `（它的额度只剩 ${qLeft(st, k)}%，没写改派，照常派）` : ''}${asks(st, res.r, k) ? '，发之前问你' : ''}`; }
+  if (res.r) {
+    const k = res.to, why = res.fb ? `（${nameOf(st, res.r.to)} 的额度只剩 ${qLeft(st, res.r.to)}%）` : res.low ? `（它的额度只剩 ${qLeft(st, k)}%，没写改派，照常${isSelf(st, k) ? '自己做' : '派'}）` : '';
+    end = isSelf(st, k) ? html`建议指挥 <b>${nameOf(st, k)}</b> 自己做，不用交出去${why}` : html`建议交给 <b>${nameOf(st, k)}</b>${why}${asks(st, res.r, k) ? '，发之前问你' : ''}`;
+  }
   patch(out, html`<ol class="trace">${steps}</ol><p class="res">${end}</p>`);
   store.setHit(res.r ? st.RULES.indexOf(res.r) : -2, res.to || '', !!res.fb);
 }

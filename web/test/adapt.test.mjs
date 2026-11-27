@@ -259,20 +259,36 @@ test('中继站操作完成后的提示', async () => {
   assert.equal(relayMsg('delete', {}), '删掉了');
 });
 
-test('默认规则：第一次加上四条（生图照做，其余建议）；旧的生图开关关着时那条也关着；已有同类的不重复加；加过一次不再加', async () => {
-  const { seedRules } = await import('../src/backend/adapt.js');
+test('默认规则：第一次加上七条（生图、做声音照做，其余建议）；旧的生图开关关着时那条也关着；已有同类的不重复加；加过一次不再加', async () => {
+  const { seedRules, SEED_VERSION } = await import('../src/backend/adapt.js');
   let s = { codex: { preferForImages: false }, dispatch: { rules: [{ id: 'mine', when: '', kw: '', to: 'codex@local' }] } };
   assert.equal(seedRules(s), true);
-  assert.deepEqual(s.dispatch.rules.map(r => [r.id, r.to, r.mode, r.on]), [['mine', 'codex@local', undefined, undefined],
-    ['seed-image', 'codex@local', 'must', false], ['seed-audio-make', 'antigravity@local', 'must', true], ['seed-audio', 'antigravity@local', 'suggest', true],
-    ['seed-review', 'deepseek@local', 'suggest', true], ['seed-quick', 'deepseek@local', 'suggest', true]]);
-  assert.equal(s.dispatch.seeded, 1);
+  assert.deepEqual(s.dispatch.rules.map(r => [r.id, r.to, r.fb, r.mode, r.on]), [['mine', 'codex@local', undefined, undefined, undefined],
+    ['seed-image', 'codex@local', '', 'must', false], ['seed-audio-make', 'antigravity@local', '', 'must', true], ['seed-audio', 'antigravity@local', '', 'suggest', true],
+    ['seed-create', 'antigravity@local', 'claude@local', 'suggest', true],
+    ['seed-review', 'deepseek@local', '', 'suggest', true], ['seed-quick', 'deepseek@local', '', 'suggest', true], ['seed-plan', 'claude@local', '', 'suggest', true]]);
+  assert.equal(s.dispatch.seeded, SEED_VERSION);
   assert.equal(seedRules(s), false, '加过一次不再加');
   s = { dispatch: { rules: [{ id: 'r1', when: '生图、改图', kw: '图 画', to: 'codex@local' }, { id: 'r2', when: '代码审查', kw: 'review', to: 'codex@local' }] } };
   seedRules(s);
-  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['r1', 'r2', 'seed-audio-make', 'seed-audio', 'seed-quick']);
+  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['r1', 'r2', 'seed-audio-make', 'seed-audio', 'seed-create', 'seed-quick', 'seed-plan']);
   s = {}; seedRules(s);
   assert.equal(s.dispatch.rules[0].on, true, '没写过开关的当成开着');
+});
+
+test('默认规则升级：加过第一版的只补创作和规划两条，删掉过的旧规则不回来，改过的不动', async () => {
+  const { seedRules, SEED_VERSION } = await import('../src/backend/adapt.js');
+  const mine = { id: 'seed-review', when: '复审', kw: '复审', to: 'codex@local', on: false, mode: 'suggest' };
+  let s = { dispatch: { seeded: 1, rules: [mine, { id: 'seed-quick', when: '简单、要快的小活', kw: '小改', to: 'deepseek@local' }] } };
+  assert.equal(seedRules(s), true);
+  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['seed-review', 'seed-quick', 'seed-create', 'seed-plan'], '删掉过的 seed-image 等不回来');
+  assert.deepEqual(s.dispatch.rules[0], mine);
+  assert.equal(s.dispatch.seeded, SEED_VERSION);
+  assert.equal(seedRules(s), false);
+  // 自己写过规划的规则：不再加 seed-plan
+  s = { dispatch: { seeded: 1, rules: [{ id: 'p', when: '规划和拆活', kw: '规划', to: 'codex@local' }] } };
+  seedRules(s);
+  assert.deepEqual(s.dispatch.rules.map(r => r.id), ['p', 'seed-create']);
 });
 
 test('Antigravity 的模型：从应用给的列表来，系列 + 几档思考强度；不是 New 的标签写在名字后面', async () => {
@@ -294,6 +310,15 @@ test('默认规则关键词不误伤普通句子，仍能命中真实意图', as
   assert.equal(suggest(st, '帮我画流程图并简单解释一下').rule, '');
   assert.equal(suggest(st, '画一张登录页插图').rule, 'seed-image');
   assert.equal(suggest(st, '顺手改一下这个按钮').rule, 'seed-quick');
+  assert.equal(suggest(st, '帮我设计一款新的桌游玩法').rule, 'seed-create');
+  assert.equal(suggest(st, '给这个工具起名').rule, 'seed-create');
+  assert.equal(suggest(st, '设计一个图标').rule, 'seed-image', '生图排在创作前面');
+  assert.equal(suggest(st, '解释一下这段代码的设计').rule, '', '只说“设计”不算创作');
+  // 规划交给 Claude Code：它是指挥时算自己做；不是指挥、又接不了活时跳过
+  assert.equal(suggest(st, '把这个需求拆解成几步').rule, '', '没有指挥、Claude Code 也接不了活');
+  const lead = { ...st, lead: { kind: 'agent', agent: 'claude', dev: 'local' } };
+  assert.deepEqual(suggest(lead, '把这个需求拆解成几步'), { rule: 'seed-plan', suggested: 'claude@local', fb: false, ask: false });
+  assert.equal(suggest(lead, '解释一下这个函数').rule, '');
 });
 
 test('统一 MCP 已接入时：codex、antigravity 双向可发可收，cursor 标为已接上且可当指挥', () => {

@@ -181,7 +181,9 @@ async function suggestOf(text, to) {
   const alive = lastDispatch ? lastDispatch.alive.map(key) : null, quota = lastDispatch ? lastDispatch.quota : {};
   const devs = new Set((alive || []).map(k => k.slice(k.indexOf('@') + 1)));
   const st = { home: 'local', DEV: Object.fromEntries([...devs, 'local'].map(d => [d, {}])), CONN: {}, SUB: Object.fromEntries(Object.entries(quota).map(([k, v]) => [key(k), { left: v }])), LOW: lastDispatch?.low ?? settings.quota?.low ?? 20,
-    RULES: (settings.dispatch?.rules || []).map(r => ({ ...r, to: key(r.to), fb: key(r.fb) })), RULES2: [{ id: 'cross', on: settings.post?.confirmRemote !== false }], lead: { kind: 'agent', agent: 'claude', dev: 'local' }, settings: {} };
+    RULES: (settings.dispatch?.rules || []).map(r => ({ ...r, to: key(r.to), fb: key(r.fb) })), RULES2: [{ id: 'cross', on: settings.post?.confirmRemote !== false }], settings: {},
+    // 指挥照设置里的 lead：交给指挥自己的规则算“自己做”
+    lead: settings.lead?.kind === 'you' ? { kind: 'you' } : { kind: 'agent', agent: fw(settings.lead?.agent || 'claude'), dev: settings.lead?.loft || 'local' } };
   for (const k of alive || []) { const d = k.slice(k.indexOf('@') + 1); (st.CONN[d] ??= []).push({ a: k.split('@')[0], on: true, inn: 'yes' }); }
   if (!alive) for (const r of st.RULES) for (const k of [r.to, r.fb]) if (k) { const d = k.slice(k.indexOf('@') + 1); st.DEV[d] ??= {}; (st.CONN[d] ??= []).push({ a: k.split('@')[0], on: true, inn: 'yes' }); }
   const r = routeMod.suggest(st, text, to ? key(to) : undefined);

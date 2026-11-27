@@ -890,11 +890,11 @@ input.rename { font: inherit; color: var(--text); background: var(--win); border
 .cols .panel.pad p:first-child { line-height: 1.9; }
 @media (max-width: 1100px) {
   .t-rules .trow { grid-template-columns: 34px 14px minmax(140px, 1.4fr) 14px minmax(130px, 1fr) minmax(130px, 1fr) 26px; }
-  .t-rules .trow > :nth-child(7), .t-rules .trow > :nth-child(8) { display: none; }
+  .t-rules .trow > :nth-child(7), .t-rules .trow > :nth-child(8), .t-rules .trow > :nth-child(9) { display: none; }
 }
 @media (max-width: 760px) {
   .t-rules .trow { grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr); }
-  .t-rules .trow > :nth-child(2), .t-rules .trow > :nth-child(4), .t-rules .trow > :nth-child(6), .t-rules .trow > :nth-child(7), .t-rules .trow > :nth-child(8), .t-rules .trow > :nth-child(9) { display: none; }
+  .t-rules .trow > :nth-child(2), .t-rules .trow > :nth-child(4), .t-rules .trow > :nth-child(6), .t-rules .trow > :nth-child(7), .t-rules .trow > :nth-child(8), .t-rules .trow > :nth-child(9), .t-rules .trow > :nth-child(10) { display: none; }
 }
 
 /* 接入：默认模型、magpie */
@@ -1326,3 +1326,8 @@ main:has(> .chan) { container-type: inline-size; overflow: hidden; }
 .hk-btn { border: 1px solid var(--line2); background: var(--win); color: var(--text); border-radius: 7px; padding: 3px 9px; font: 12px ui-monospace, "SF Mono", Menlo, monospace; cursor: pointer; transition: border-color .15s, background-color .15s, box-shadow .15s; }
 .hk-btn:hover { border-color: var(--text); }
 .hk-btn.rec { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--win)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+
+/* 分派规则：交给的正好是指挥（自己做），交给的那家接不了活（跳过） */
+.flow2 .f-dst.self { border-style: dashed; }
+.flow2 .f-rule.gone b { color: var(--mut); }
+.askm.gonem { color: var(--faint); border-color: var(--line2); }

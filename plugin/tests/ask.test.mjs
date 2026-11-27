@@ -625,3 +625,25 @@ test('prompt-hint：加过默认规则后，这句话命中规则的关键词就
   const h2 = hintEnv({ dispatch: { text: '' }, settings: { lead: { kind: 'you' }, dispatch: { seeded: 1, rules } } });
   try { assert.doesNotMatch(h2.run('听一下这段音频'), /分派规则/); } finally { fs.rmSync(h2.root, { recursive: true, force: true }); }
 });
+
+test('prompt-hint：交给指挥自己（Claude Code）的规则是自己做，不点名；排在后面交给别人的照常点名', () => {
+  const rules = [
+    { id: 'seed-plan', when: '规划、拆解', kw: '规划 拆解', to: 'claude@local', on: true, mode: 'suggest' },
+    { id: 'seed-create', when: '创作', kw: '创作 文案', to: 'antigravity@local', fb: 'claude@local', on: true, mode: 'suggest' },
+  ];
+  // alive 里写了 claude@local 也不点名它自己
+  const h = hintEnv({ dispatch: { text: '', alive: ['claude@local', 'antigravity@local'] }, settings: { dispatch: { seeded: 2, rules } } });
+  try {
+    assert.equal(h.run('帮我规划一下下周的活'), '');
+    assert.match(h.run('规划一下，再写一段宣传文案'), /像是「创作」（分派规则第 2 条）。建议交给本机的 Antigravity/);
+  } finally { fs.rmSync(h.root, { recursive: true, force: true }); }
+});
+
+test('ruleHits：self 是当前指挥，交给它的规则不算命中；leadKeyOf 把设置里的 lead 换成 agent@设备', async () => {
+  const { ruleHits, leadKeyOf } = await import('../scripts/lib/hint.mjs');
+  const rules = [{ id: 'a', kw: '规划', to: 'codex@local' }, { id: 'b', kw: '规划', to: 'deepseek@local' }];
+  assert.deepEqual(ruleHits(rules, '规划', { self: 'codex@local' }).map(h => h.r.id), ['b']);
+  assert.equal(leadKeyOf(undefined), 'claude@local');
+  assert.equal(leadKeyOf({ kind: 'agent', agent: 'codex', loft: 'local' }), 'codex@local');
+  assert.equal(leadKeyOf({ kind: 'you' }), '');
+});

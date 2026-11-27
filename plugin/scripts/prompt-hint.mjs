@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ruleHits, hitLine } from './lib/hint.mjs';
+import { ruleHits, hitLine, leadKeyOf } from './lib/hint.mjs';
 
 let input = '';
 try { input = fs.readFileSync(0, 'utf8'); } catch {}
@@ -62,7 +62,7 @@ function keywordHints() {
     const names = (settings.devices && settings.devices.names) || {};
     // 同一个对象只点名一次（比如“做个提示音”做声音、听音频两条都命中，取排在前面的那条）
     const seen = new Set();
-    for (const h of ruleHits(dset.rules, prompt, { alive }).filter(h => !seen.has(h.r.to) && seen.add(h.r.to)).slice(0, 2)) { lines.push(hitLine(h, { names, text: prompt, agyCli })); ruleHit = true; }
+    for (const h of ruleHits(dset.rules, prompt, { alive, self: leadKeyOf(settings.lead) }).filter(h => !seen.has(h.r.to) && seen.add(h.r.to)).slice(0, 2)) { lines.push(hitLine(h, { names, text: prompt, agyCli })); ruleHit = true; }
   }
   const wantsImage = /(画|生成|做|出|来|设计|绘制).{0,12}(图|插画|插图|配图|头图|海报|图标|头像|背景|贴图|素材|logo|壁纸|封面)|(插画|插图|配图|头图|像素图|像素画|贴图|抠图|去背景|透明背景)|\b(image|illustration|icon|sprite|logo|wallpaper|banner)s?\b/i.test(prompt);
   const wantsPost = /(发|送|传|捎|带)(个|一?[条句张段])?(话|消息|纸条|信)|(告诉|转告|通知|问问|问一下)(一下)?.{0,8}(codex|那边|另一台|远程|那台|对话)|(让|叫|请|给).{0,6}(另一台|那台|远程)(电脑|机器|设备|windows|mac)/i.test(prompt);

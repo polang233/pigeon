@@ -13,7 +13,7 @@ import { recent, STATE_ZH } from './lib/journal.mjs';
 import { relayIds } from './lib/relays.mjs';
 import { saveLofts, readLofts } from './lib/lofts.mjs';
 import { agyModelsCached, agyCliBin } from './lib/agents.mjs';
-import { ruleHits, hitLine } from './lib/hint.mjs';
+import { ruleHits, hitLine, leadKeyOf } from './lib/hint.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PIGEON_SCRIPT = path.join(HERE, 'pigeon.mjs');
@@ -235,7 +235,8 @@ export function createMcpHandler({ client = '', cliRunner = runPigeonCli } = {})
     let hits = [];
     if (prompt && dset.seeded) {
       const seen = new Set();
-      hits = ruleHits(dset.rules, prompt, { alive })
+      // 交给指挥自己的规则是“自己做”，不点名
+      hits = ruleHits(dset.rules, prompt, { alive, self: leadKeyOf(dfile.lead || raw.lead) })
         .filter(h => !seen.has(h.r.to) && seen.add(h.r.to))
         .slice(0, 2)
         .map(h => ({

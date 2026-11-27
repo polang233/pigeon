@@ -34,7 +34,7 @@
 //   art        有图片加载失败，要退回像素标志
 import { SETTINGS0 } from './core/labels.js';
 import { by, keyOf, agOf, levelsOf, midLevel, leadSession, isYou, validLead } from './core/names.js';
-import { routeOf, alive } from './core/route.js';
+import { routeOf, takes } from './core/route.js';
 import { taskChan, seqNow } from './core/channels.js';
 import { createDemo } from './backend/demo.js';
 
@@ -203,7 +203,7 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
     // 派活对象：不在了（设备移除或关了）就换回本机的 Codex
     target() {
       const k = ui.hud.target;
-      if (!alive(st, k)) ui.hud.target = `codex@${st.home}`;
+      if (!takes(st, k)) ui.hud.target = `codex@${st.home}`;
       return ui.hud.target;
     },
     // 手动选了对象：不再按规则自动换；换到别的对象就不是发给原来那个对话了
@@ -222,10 +222,10 @@ export function createStore(data, saved = {}, { clock = () => Date.now(), backen
     },
     pickModel(m) { const k = hud.target(), p = hud.pickOf(k), lv = levelsOf(st, agOf(k), m); p.m = m; if (!lv.includes(p.t)) p.t = midLevel(lv); emit('ui.hud'); },
     pickThink(t) { hud.pickOf(hud.target()).t = t; emit('ui.hud'); },
-    // 打字：记下来；按规则算出建议的对象，没手动选过对象（也不是发给某个对话）时直接换过去
+    // 打字：记下来；按规则算出建议的对象，没手动选过对象（也不是发给某个对话）时直接换过去。建议是指挥自己做、它又接不了活时不换
     setDraft(v) {
       ui.hud.draft = v;
-      const res = v.trim() ? routeOf(st, v) : { r: null }, k = res.r && alive(st, res.to) ? res.to : '';
+      const res = v.trim() ? routeOf(st, v) : { r: null }, k = res.r && takes(st, res.to) ? res.to : '';
       ui.hud.suggest = k;
       if (k && ui.hud.auto && ui.hud.mode === 'new' && k !== ui.hud.target) { ui.hud.target = k; emit('hudTarget'); }
       emit('draft');

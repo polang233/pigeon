@@ -53,7 +53,7 @@ test('关着的规则跳过；交给的设备移除了也跳过', () => {
 test('没有规则命中：留给指挥', () => {
   const res = routeOf(freshState(), '今天吃什么');
   assert.equal(res.r, null);
-  assert.equal(res.steps.length, 5);
+  assert.equal(res.steps.length, freshState().RULES.length);
 });
 
 test('关键词里的正则符号按字面算，不分大小写；空关键词不命中', () => {
@@ -89,6 +89,38 @@ test('协作的规矩关掉“跨设备先问我”：没写 ask 的跨设备规
   st.RULES2.find(r => r.id === 'split').on = false;
   assert.doesNotMatch(promptText(st), /拆成 3 件以上/);
   assert.match(promptText(st), /接活的 agent 再往下转派时/);
+});
+
+test('交给的正好是指挥：算指挥自己做，提示里写“你自己做”，不问用户', () => {
+  const st = freshState(); // 指挥是本机 Claude Code，r7 规划交给 claude@mac
+  st.RULES.find(r => r.id === 'r7').ask = true;
+  const res = routeOf(st, '把这个需求拆解一下');
+  assert.equal(res.r.id, 'r7');
+  assert.equal(res.to, 'claude@mac');
+  const text = promptText(st);
+  assert.match(text, /- 规划、统筹、拆解任务 → 你自己做，不用交出去\n/);
+  assert.doesNotMatch(text, /拆解任务 → 你自己做，不用交出去。发之前/);
+  // 改派写的是指挥自己：额度够时写明“它额度不够时你自己做”，不够时写“先你自己做”
+  assert.match(text, /- 创作内容、设计新东西 → Antigravity（本机）。它额度不够时你自己做\n/);
+  st.SUB['antigravity@mac'] = { left: 8 };
+  assert.match(promptText(st), /创作内容、设计新东西 → Antigravity（本机）。它的额度现在只剩 8%，先你自己做/);
+  assert.equal(routeOf(st, '写段文案').to, 'claude@mac');
+});
+
+test('换了指挥：原来“自己做”的规则照常交给 Claude Code；它接不了活就跳过，不写进提示', () => {
+  const st = freshState(); st.lead = { kind: 'agent', agent: 'codex', dev: 'mac' };
+  assert.match(promptText(st), /- 规划、统筹、拆解任务 → Claude Code（本机）\n/);
+  assert.match(promptText(st), /- 生图、改图 → 你自己做，不用交出去\n/);
+  st.CONN.mac.find(c => c.a === 'claude').inn = 'nope';
+  assert.ok(!alive(st, 'claude@mac'));
+  assert.doesNotMatch(promptText(st), /规划/);
+  assert.match(routeOf(st, '规划一下').steps.at(-1).st, /gone/);
+  assert.doesNotMatch(promptText(st), /它额度不够时你自己做/);
+  // 指挥是 Claude Code、它又接不了活：自己做照样算数
+  st.lead = { kind: 'agent', agent: 'claude', dev: 'mac' };
+  assert.ok(alive(st, 'claude@mac'));
+  assert.ok(!targets(st).includes('claude@mac'), '能接活的对象里没有它');
+  assert.match(promptText(st), /规划、统筹、拆解任务 → 你自己做/);
 });
 
 test('你自己当指挥：没有提示可写', () => {

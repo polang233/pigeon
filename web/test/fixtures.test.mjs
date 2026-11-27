@@ -9,14 +9,14 @@ import { rulesFromWire, keyFromWire, keyToWire } from '../src/backend/adapt.js';
 const load = f => JSON.parse(readFileSync(new URL(`../../tests/fixtures/${f}`, import.meta.url), 'utf8'));
 const D = load('dispatch-cases.json'), SEC = load('secrets-cases.json');
 
-// 用例里的 alive、quota、confirmRemote → 界面的状态：alive 里的每一家都开着、能接收
+// 用例里的 alive、quota、confirmRemote、lead → 界面的状态：alive 里的每一家都开着、能接收；没写 lead 就是用户自己当指挥
 function stateOf(c) {
-  const alive = c.alive.map(keyFromWire), DEV = { local: {} }, CONN = {};
+  const alive = c.alive.map(keyFromWire), DEV = { local: {} }, CONN = {}, L = c.lead && keyFromWire(c.lead);
   for (const k of alive) { const d = k.slice(k.indexOf('@') + 1); DEV[d] = {}; (CONN[d] ??= []).push({ a: k.split('@')[0], on: true, inn: 'yes' }); }
   return {
     home: 'local', DEV, CONN, LOW: D.low, RULES: rulesFromWire(D.rules),
     SUB: Object.fromEntries(Object.entries(c.quota).map(([k, v]) => [keyFromWire(k), { left: v }])),
-    RULES2: [{ id: 'cross', on: c.confirmRemote }], lead: { kind: 'agent', agent: 'claude', dev: 'local' }, settings: {},
+    RULES2: [{ id: 'cross', on: c.confirmRemote }], lead: L ? { kind: 'agent', agent: L.split('@')[0], dev: L.split('@')[1] } : { kind: 'you' }, settings: {},
   };
 }
 

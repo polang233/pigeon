@@ -93,7 +93,7 @@ export const rulesFromWire = (list, hits = {}) => (Array.isArray(list) ? list : 
 export const agyModelsOf = am => (Array.isArray(obj(obj(am).antigravity).models) ? am.antigravity.models : [])
   .filter(m => m && m.id).map(m => [String(m.id), (Array.isArray(m.efforts) ? m.efforts : []).filter(e => TH[e]).join(' '), String(m.name || m.id) + (m.tag && m.tag !== 'New' ? `（${m.tag}）` : '')]);
 // 第一次用这一版时加上的几条规则（线上的样子）。原来“生图先交给 Codex”是 Codex 设置里的开关，现在是第一条规则，开关关着的这条也关着。
-// 交给的那家没装时这条不往提示里写（见 promptText），装上了自己就生效
+// 交给的那家没装时这条不往提示里写（见 promptText），装上了自己就生效。交给的正好是指挥时，提示里写成“你自己做”
 export function defaultRules(settings) {
   const preferImages = obj(obj(settings).codex).preferForImages !== false;
   return [
@@ -101,20 +101,29 @@ export function defaultRules(settings) {
     // 做声音要能听成品，Claude 听不见，照做；分析音频 Claude 自己算也够准，只是建议
     { id: 'seed-audio-make', when: '做声音：音效、提示音、配乐、配音、语音（要能听成品）', kw: '做个音效 做音效 做声音 提示音 音效 配乐 配音 作曲 铃声 语音合成 tts bgm 合成声音', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'must' },
     { id: 'seed-audio', when: '听音频、分析音频：有几段、有没有爆音、听感怎么样', kw: '听一下 听听 音频 声音 爆音 杂音 咔哒 wav mp3 m4a audio', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    // 要创想的活 Antigravity 更合适；Claude Code 也能做一部分，写成额度不够时改派给它（Claude 当指挥时提示里写“它额度不够时你自己做”）
+    { id: 'seed-create', when: '创作内容、设计新东西：文案、故事、起名、新界面、新玩法这类要创想的活', kw: '创作 创意 构思 脑暴 头脑风暴 起名 取名 想名字 文案 写故事 编故事 剧情 世界观 新玩法 原创 灵感 slogan 设计一款 设计个新 设计新 新设计 新点子', to: 'antigravity@local', fb: 'claude@local', ask: false, on: true, mode: 'suggest' },
     { id: 'seed-review', when: '复审、复核：让另一个 agent 再看一遍改动，审查可以宽松些', kw: '复审 复核 再审 二审 再看一遍 帮我审 审一下 review', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
     { id: 'seed-quick', when: '简单、要快的小活', kw: '简单小活 快速改 顺手改 随手改 小改', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    // 规划、拆解交给 Claude Code。它是指挥时就是“你自己做”；它不是指挥、又还接不了活时，这条不往提示里写
+    { id: 'seed-plan', when: '规划、统筹、拆解任务：定方案、排步骤、把大活拆成几件分给别人', kw: '规划 统筹 拆解 拆成几 拆分任务 拆任务 分工 排期 定计划 做计划 排计划 路线图 roadmap', to: 'claude@local', fb: '', ask: false, on: true, mode: 'suggest' },
   ];
 }
-// 还没加过默认规则的设置：加上（已经有同 id 的不重复加），记下 seeded
+// 默认规则的版本：dispatch.seeded 记加到了第几版。1 是最早的五条；2 加了创作（交给 Antigravity）和规划（交给 Claude Code）
+export const SEED_VERSION = 2;
+const SEED_ADDED = { 1: ['seed-image', 'seed-audio-make', 'seed-audio', 'seed-review', 'seed-quick'], 2: ['seed-create', 'seed-plan'] };
+// 还没加到这一版的设置：只补上之后几版新加的（已经有同 id、或者自己写过同一类的不加），记下 seeded。
+// 用户删掉过的旧默认规则不会因为升级又冒出来
 export function seedRules(settings) {
-  const d = at(settings, ['dispatch']);
-  if (d.seeded) return false;
+  const d = at(settings, ['dispatch']), from = Number(d.seeded) || 0;
+  if (from >= SEED_VERSION) return false;
   const old = (Array.isArray(d.rules) ? d.rules : []).filter(r => r && typeof r === 'object');
   const have = new Set(old.map(r => r.id)), text = old.map(r => `${r.when || ''} ${r.kw || ''}`).join(' ');
-  // 已经有同一类的规则（自己写过“生图”“音频”“复审”）就不再加那条
-  const same = { 'seed-image': /生图|画图|插画|图标/, 'seed-audio-make': /音效|配乐|提示音|做声音/, 'seed-audio': /音频|听/, 'seed-review': /复审|复核|审查|review/i, 'seed-quick': /简单|快速/ };
-  d.rules = [...old, ...defaultRules(settings).filter(r => !have.has(r.id) && !(same[r.id] && same[r.id].test(text)))];
-  d.seeded = 1;
+  const want = new Set(Object.entries(SEED_ADDED).filter(([v]) => +v > from).flatMap(([, ids]) => ids));
+  // 已经有同一类的规则（自己写过“生图”“音频”“复审”“规划”）就不再加那条
+  const same = { 'seed-image': /生图|画图|插画|图标/, 'seed-audio-make': /音效|配乐|提示音|做声音/, 'seed-audio': /音频|听/, 'seed-review': /复审|复核|审查|review/i, 'seed-quick': /简单|快速/, 'seed-create': /创作|创意|文案|起名/, 'seed-plan': /规划|统筹|拆解|拆分/ };
+  d.rules = [...old, ...defaultRules(settings).filter(r => want.has(r.id) && !have.has(r.id) && !(same[r.id] && same[r.id].test(text)))];
+  d.seeded = SEED_VERSION;
   return true;
 }
 // mode：suggest 只是建议、由指挥判断；must 照做：命中就交给它，除非用户明确说不要

@@ -1,6 +1,7 @@
 import Foundation
 
 /// 分派规则的匹配。纯函数，和网页 `web/src/core/route.js` 跑同一份用例 `tests/fixtures/dispatch-cases.json`。
+/// 交给的正好是指挥自己：这条的意思是“指挥自己做”，不管在不在能接活的名单里都算数，不问用户，提示里写成“你自己做”。
 enum Dispatch {
     struct Rule: Sendable, Equatable {
         var id: String
@@ -22,6 +23,8 @@ enum Dispatch {
         /// 在线的 "agent@设备"；nil 表示不限
         var alive: Set<String>?
         var confirmRemote = true
+        /// 当前指挥的 "agent@设备"；用户自己当指挥时是 nil
+        var lead: String?
     }
 
     struct Suggestion: Sendable, Equatable {
@@ -55,7 +58,7 @@ enum Dispatch {
     }
 
     static func suggest(text: String, to: String?, _ ctx: Context) -> Suggestion {
-        func isAlive(_ key: String) -> Bool { ctx.alive?.contains(key) ?? true }
+        func isAlive(_ key: String) -> Bool { key == ctx.lead || (ctx.alive?.contains(key) ?? true) }
         var result = Suggestion()
         for rule in ctx.rules where rule.on && matches(text, rule.kw) && isAlive(rule.to) {
             result.rule = rule.id
@@ -64,7 +67,7 @@ enum Dispatch {
                 result.suggested = rule.fb
                 result.fb = true
             }
-            result.ask = rule.ask || (!isLocal(result.suggested) && ctx.confirmRemote)
+            result.ask = result.suggested != ctx.lead && (rule.ask || (!isLocal(result.suggested) && ctx.confirmRemote))
             break
         }
         if let to, !to.isEmpty {
@@ -73,6 +76,15 @@ enum Dispatch {
             else { result.kind = "override" }
         }
         return result
+    }
+
+    /// 设置里的 `lead` 换成 "agent@设备"：没写就是本机的 Claude Code，用户自己当指挥是 nil
+    static func leadKey(settings: [String: Any]) -> String? {
+        let lead = settings["lead"] as? [String: Any] ?? [:]
+        if (lead["kind"] as? String) == "you" { return nil }
+        let agent = (lead["agent"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "claude"
+        let loft = (lead["loft"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "local"
+        return "\(agent == "dsh" ? "deepseek" : agent)@\(loft)"
     }
 
     /// 读设置里的 `dispatch.rules`
@@ -89,8 +101,7 @@ enum Dispatch {
     /// 生成写进 `~/.pigeon/dispatch.json` 供 Claude Code 读取的派活建议文本，脱离主窗口 WebView 也能独立计算。
     static func promptText(settings: [String: Any], alive: Set<String>, quota: [String: Double] = [:],
                            low: Double? = nil, loftNames: [String: String] = [:]) -> String {
-        let lead = settings["lead"] as? [String: Any] ?? [:]
-        if (lead["kind"] as? String) == "you" { return "" }
+        guard let me = leadKey(settings: settings) else { return "" }
         let devices = settings["devices"] as? [String: Any] ?? [:]
         let customNames = devices["names"] as? [String: String] ?? [:]
         let post = settings["post"] as? [String: Any] ?? [:]
@@ -124,20 +135,28 @@ enum Dispatch {
             v.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(v)) : String(v)
         }
 
-        let active = rules(from: settings).filter { $0.on && !$0.when.isEmpty && alive.contains($0.to) }
+        // 指挥自己也算数（自己做）
+        func ok(_ key: String) -> Bool { !key.isEmpty && (key == me || alive.contains(key)) }
+        let active = rules(from: settings).filter { $0.on && !$0.when.isEmpty && ok($0.to) }
         if active.isEmpty { return "" }
 
         let lines = active.map { r in
-            var v = "- \(r.when) → \(nameOf(r.to))"
+            let isSelf = r.to == me
+            var v = "- \(r.when) → \(isSelf ? "你自己做，不用交出去" : nameOf(r.to))"
             if let q = quota[r.to], q < lowThreshold {
-                if !r.fb.isEmpty, alive.contains(r.fb) {
-                    v += "。它的额度现在只剩 \(fmtQuota(q))%，先交给 \(nameOf(r.fb))"
+                let who = isSelf ? "你" : "它"
+                if ok(r.fb) {
+                    v += "。\(who)的额度现在只剩 \(fmtQuota(q))%，先\(r.fb == me ? "你自己做" : "交给 \(nameOf(r.fb))")"
                 } else {
-                    v += "。它的额度现在只剩 \(fmtQuota(q))%"
+                    v += "。\(who)的额度现在只剩 \(fmtQuota(q))%"
                 }
+            } else if r.fb == me {
+                v += "。它额度不够时你自己做"
             }
-            if r.ask || (!isLocal(r.to) && confirmRemote) { v += "。发之前要用户确认" }
-            if r.mode == "must" { v += "。照做：用户的话里出现这类活就交给它，除非用户明确说不要" }
+            if !isSelf, r.ask || (!isLocal(r.to) && confirmRemote) { v += "。发之前要用户确认" }
+            if r.mode == "must" {
+                v += isSelf ? "。照做：这类活你自己做，除非用户明确说要交出去" : "。照做：用户的话里出现这类活就交给它，除非用户明确说不要"
+            }
             return v
         }
         let askLine = confirmRemote ? "\n- 往别的电脑派活，Pigeon 会先问用户，\(crossTimeout) 秒没人点就不发" : ""
@@ -168,6 +187,6 @@ enum Dispatch {
         let lowSetting = ((settings["quota"] as? [String: Any])?["low"] as? NSNumber)?.doubleValue
         let confirm = (settings["post"] as? [String: Any])?["confirmRemote"] as? Bool
         return Context(rules: rules(from: settings), low: input.low ?? lowSetting ?? 20, quota: input.quota,
-                       alive: input.alive, confirmRemote: confirm != false)
+                       alive: input.alive, confirmRemote: confirm != false, lead: leadKey(settings: settings))
     }
 }

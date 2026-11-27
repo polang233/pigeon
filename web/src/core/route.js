@@ -1,6 +1,7 @@
 // 分派规则怎么判、写进指挥提示里的原文。纯函数，不碰 DOM（测试见 test/route.test.mjs）。
 // 规则是给指挥看的建议：从上到下找第一条命中的；交给的那家额度低于 st.LOW 时，按“额度不够时”那一栏改派。
-import { agOf, dvOf, isYou, askOn, nameOf, canTake } from './names.js';
+// 交给的正好是指挥自己：这条的意思是“指挥自己做”，不派出去，也不问用户（提示里写成“你自己做”）。
+import { agOf, dvOf, isYou, askOn, nameOf, canTake, leadKey } from './names.js';
 
 // 关键词按空格、顿号、逗号分开，任意一个出现就算命中（不分大小写）。没写关键词的规则永远不命中
 export const kwRe = r => {
@@ -11,8 +12,12 @@ export const qLeft = (st, k) => st.SUB[k]?.left;
 export const lowQ = (st, k) => qLeft(st, k) != null && qLeft(st, k) < st.LOW;
 // 现在能交给的对象：每台设备上开着、能接收的 agent
 export const targets = st => Object.keys(st.DEV).flatMap(d => (st.CONN[d] || []).filter(canTake).map(c => `${c.a}@${d}`));
-// 交给的那家还在不在（设备移除了、关了、或者它不能接收就不在）
-export const alive = (st, k) => !!k && !!st.DEV[dvOf(k)] && (st.CONN[dvOf(k)] || []).some(c => c.a === agOf(k) && canTake(c));
+// 能把活交给它：设备还在，它开着、能接收
+export const takes = (st, k) => !!k && !!st.DEV[dvOf(k)] && (st.CONN[dvOf(k)] || []).some(c => c.a === agOf(k) && canTake(c));
+// 是不是指挥自己（你自己当指挥时没有这回事）
+export const isSelf = (st, k) => !!k && st.lead?.kind === 'agent' && k === leadKey(st);
+// 规则里交给的那家还算不算数：能接收的，或者就是指挥自己（自己做）。设备移除了、关了、不能接收又不是指挥，就不算
+export const alive = (st, k) => takes(st, k) || (isSelf(st, k) && !!st.DEV[dvOf(k)]);
 
 // 一句任务走一遍规则，记下每一条是怎么判的：off 关着、miss 没命中、gone 交给的不在了、hit 命中、fb 命中但额度不够改派
 export function routeOf(st, text) {
@@ -29,8 +34,8 @@ export function routeOf(st, text) {
   return { r: null, steps };
 }
 
-// 发之前要不要问用户：规则写了问，或者交给别的电脑（不在本机）、并且协作的规矩里“跨设备发送前先问我”开着
-export const asks = (st, r, k) => !!r.ask || (dvOf(k) !== st.home && askOn(st, 'cross'));
+// 发之前要不要问用户：规则写了问，或者交给别的电脑（不在本机）、并且协作的规矩里“跨设备发送前先问我”开着。指挥自己做的不发，不问
+export const asks = (st, r, k) => !isSelf(st, k) && (!!r.ask || (dvOf(k) !== st.home && askOn(st, 'cross')));
 
 // 契约里 POST /api/dispatch/suggest 的回答：{ rule, suggested, fb, ask }，给了 to 才有 kind（rule、quota、override、lead）。
 // 应用那边跑同一份用例 tests/fixtures/dispatch-cases.json
@@ -45,11 +50,15 @@ export function suggest(st, text, to) {
 // 你自己当指挥时没有提示可写，返回 null；没有一条开着、能交出去的规则时返回空串（不往提示里写）
 export function promptText(st) {
   if (isYou(st)) return null;
+  // 提示是写给指挥看的：交给它自己的写成“你自己做”
+  const who = k => (isSelf(st, k) ? '你自己做' : nameOf(st, k));
   const lines = st.RULES.filter(r => r.on && r.when && alive(st, r.to)).map(r => {
-    let v = `- ${r.when} → ${nameOf(st, r.to)}`;
-    if (lowQ(st, r.to)) v += alive(st, r.fb) ? `。它的额度现在只剩 ${qLeft(st, r.to)}%，先交给 ${nameOf(st, r.fb)}` : `。它的额度现在只剩 ${qLeft(st, r.to)}%`;
+    const self = isSelf(st, r.to);
+    let v = `- ${r.when} → ${self ? '你自己做，不用交出去' : nameOf(st, r.to)}`;
+    if (lowQ(st, r.to)) v += alive(st, r.fb) ? `。${self ? '你' : '它'}的额度现在只剩 ${qLeft(st, r.to)}%，先${isSelf(st, r.fb) ? '你自己做' : `交给 ${who(r.fb)}`}` : `。${self ? '你' : '它'}的额度现在只剩 ${qLeft(st, r.to)}%`;
+    else if (isSelf(st, r.fb)) v += '。它额度不够时你自己做';
     if (asks(st, r, r.to)) v += '。发之前要用户确认';
-    if (r.must) v += '。照做：用户的话里出现这类活就交给它，除非用户明确说不要';
+    if (r.must) v += self ? '。照做：这类活你自己做，除非用户明确说要交出去' : '。照做：用户的话里出现这类活就交给它，除非用户明确说不要';
     return v;
   });
   if (!lines.length) return '';

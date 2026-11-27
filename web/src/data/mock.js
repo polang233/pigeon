@@ -105,6 +105,9 @@ export function createMock(now = Date.now()) {
     { id: 'r3', when: '要在 Windows 上跑的构建和测试', kw: 'windows win exe 构建 测试 msvc', to: 'codex@win', fb: 'claude@win', ask: true, on: true, n: 5, over: 1 },
     { id: 'r4', when: '边界清楚的界面改动', kw: '界面 页面 css 表单 样式', to: 'cursor@mac', fb: 'claude@mac', ask: false, on: true, n: 3, over: 0 },
     { id: 'r5', when: '大批量、重复的便宜活', kw: '批量 全部替换 翻译 重命名 压缩', to: 'dsh@mac', fb: '', ask: false, on: true, n: 2, over: 0 },
+    // 要创想的活交给 Antigravity，它额度不够时 Claude Code 也能做；规划、拆解交给 Claude Code（它是指挥时就是“自己做”）
+    { id: 'r6', when: '创作内容、设计新东西', kw: '创作 创意 文案 起名 故事 新玩法 设计新', to: 'antigravity@mac', fb: 'claude@mac', ask: false, on: true, n: 2, over: 0 },
+    { id: 'r7', when: '规划、统筹、拆解任务', kw: '规划 统筹 拆解 分工 排期 路线图', to: 'claude@mac', fb: '', ask: false, on: true, n: 4, over: 0 },
   ];
   // 协作的规矩。kind：sw 开关，pick 下拉（v 是选中的，opts 是可选的），lock 不能关。
   // cross、relay、split 三个开关对应契约设置里的 post.confirmRemote、post.askRelay、post.askSplit：关掉哪条，那类事就不进等你的一队，直接做
