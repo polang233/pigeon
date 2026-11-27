@@ -40,7 +40,7 @@ enum Detector {
 
     private static func detectClaude(runningIDs: Set<String>, lastHookAt: Date?, now: Date) -> AgentStatus {
         let cli = which("claude") != nil
-        let app = exists("/Applications/Claude.app")
+        let app = appExists("Claude.app")
         let hookRecent = lastHookAt.map { now.timeIntervalSince($0) <= hookWindow } ?? false
         let appRunning = runningIDs.contains(claudeBundleID)
         let running = hookRecent || appRunning
@@ -59,10 +59,16 @@ enum Detector {
         return AgentStatus(installed: cli || app || running, running: running, detail: detail)
     }
 
+    private static var currentHomePath: String {
+        if let h = ProcessInfo.processInfo.environment["HOME"], !h.isEmpty { return h }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
     private static func detectCodex(runningIDs: Set<String>) -> AgentStatus {
         let cli = which("codex") != nil
         let framework = exists("/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework")
-        let codexApp = exists("/Applications/Codex.app")
+            || exists("\(currentHomePath)/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework")
+        let codexApp = appExists("Codex.app")
         let appRunning = runningIDs.contains(codexBundleID)
         let cliRunning = !appRunning && processRunning(named: "codex")
         let running = appRunning || cliRunning
@@ -84,46 +90,149 @@ enum Detector {
     }
 
     private static func detectCursor(runningIDs: Set<String>) -> AgentStatus {
-        let installed = exists("/Applications/Cursor.app") || which("cursor") != nil
+        let installed = appExists("Cursor.app") || which("cursor") != nil
         let running = runningIDs.contains(cursorBundleID)
         let detail = running ? "Cursor 正在运行" : (installed ? "已安装，没打开" : "没找到 Cursor")
         return AgentStatus(installed: installed || running, running: running, detail: detail)
     }
 
     private static func detectDeepSeek(runningIDs: Set<String>) -> AgentStatus {
-        let installed = exists("/Applications/DeepSeek Harness.app")
+        let app = appExists("DeepSeek Harness.app")
+        let cli = which("dsh") != nil
         let running = runningIDs.contains(deepseekBundleID)
-        let detail = running ? "DeepSeek Harness 正在运行" : (installed ? "已安装，没打开" : "没找到 DeepSeek Harness")
-        return AgentStatus(installed: installed || running, running: running, detail: detail)
+        let detail: String
+        if running {
+            detail = "DeepSeek Harness 正在运行"
+        } else if cli {
+            detail = app ? "命令行 dsh 可用，不用开应用" : "已安装 dsh 命令行"
+        } else if app {
+            detail = "已安装，没打开"
+        } else {
+            detail = "没找到 DeepSeek Harness"
+        }
+        return AgentStatus(installed: app || cli || running, running: running, detail: detail)
     }
 
     private static func detectAntigravity(runningIDs: Set<String>) -> AgentStatus {
-        let installed = exists("/Applications/Antigravity.app")
+        let app = appExists("Antigravity.app")
+        let agy = which("agy") != nil
         let running = runningIDs.contains(antigravityBundleID)
-        let detail = running ? "Antigravity 正在运行" : (installed ? "已安装，没打开：给它派活前要先打开" : "没找到 Antigravity")
-        return AgentStatus(installed: installed || running, running: running, detail: detail)
+        let detail: String
+        if running && agy {
+            detail = "Antigravity 正在运行（命令行 agy 也可用）"
+        } else if running {
+            detail = "Antigravity 正在运行"
+        } else if agy {
+            detail = "命令行 agy 可用，不用开应用"
+        } else if app {
+            detail = "已安装，没打开：给它派活前要先打开（或装命令行 agy）"
+        } else {
+            detail = "没找到 Antigravity 或 agy 命令"
+        }
+        return AgentStatus(installed: app || agy || running, running: running, detail: detail)
     }
 
     private static func exists(_ path: String) -> Bool {
         FileManager.default.fileExists(atPath: path)
     }
 
-    /// GUI 应用拿到的 PATH 很短，这里补上常见安装位置；不启动 login shell。
-    static func which(_ name: String) -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":").map(String.init)
-        dirs += [
+    private static func appExists(_ name: String) -> Bool {
+        exists("/Applications/\(name)") || exists("\(currentHomePath)/Applications/\(name)")
+    }
+
+    /// GUI 应用拿到的 PATH 很短，这里补上常见安装位置和版本管理器（nvm / fnm / mise / asdf / nodenv）；不启动 login shell。
+    static func extraBinDirs(home: String) -> [String] {
+        var dirs = [
             "/usr/local/bin", "/opt/homebrew/bin",
             "\(home)/.local/bin", "\(home)/.npm-global/bin",
             "\(home)/.claude/local", "\(home)/.bun/bin", "\(home)/.volta/bin", "\(home)/bin",
+            "\(home)/.asdf/shims", "\(home)/.local/share/mise/shims", "\(home)/.nodenv/shims",
+            "\(home)/.fnm/current/bin", "\(home)/Library/Application Support/fnm/current/bin",
         ]
+        dirs += nvmBinDirs(home: home)
+        dirs += fnmBinDirs(base: "\(home)/.local/share/fnm/node-versions")
+        dirs += fnmBinDirs(base: "\(home)/Library/Application Support/fnm/node-versions")
+        return dirs
+    }
+
+    private static func nvmBinDirs(home: String) -> [String] {
+        let versionsDir = "\(home)/.nvm/versions/node"
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: versionsDir) else { return [] }
+        let sorted = names.filter { $0.hasPrefix("v") }.sorted { compareSemver($0, $1) == .orderedDescending }
+        var out: [String] = []
+        if let alias = (try? String(contentsOfFile: "\(home)/.nvm/alias/default", encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !alias.isEmpty {
+            let norm = alias.hasPrefix("v") ? alias : "v\(alias)"
+            if let hit = sorted.first(where: { $0 == norm || $0.hasPrefix(norm + ".") }) {
+                out.append("\(versionsDir)/\(hit)/bin")
+            }
+        }
+        for v in sorted {
+            let bin = "\(versionsDir)/\(v)/bin"
+            if !out.contains(bin) { out.append(bin) }
+        }
+        return out
+    }
+
+    private static func fnmBinDirs(base: String) -> [String] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: base) else { return [] }
+        return names.sorted { compareSemver($0, $1) == .orderedDescending }
+            .map { "\(base)/\($0)/installation/bin" }
+    }
+
+    private static func compareSemver(_ a: String, _ b: String) -> ComparisonResult {
+        func parts(_ s: String) -> [Int] {
+            s.drop(while: { $0 == "v" || $0 == "V" }).split(separator: ".").map { Int($0) ?? 0 }
+        }
+        let pa = parts(a), pb = parts(b)
+        for i in 0..<max(pa.count, pb.count) {
+            let va = i < pa.count ? pa[i] : 0, vb = i < pb.count ? pb[i] : 0
+            if va != vb { return va < vb ? .orderedAscending : .orderedDescending }
+        }
+        return .orderedSame
+    }
+
+    static func which(_ name: String) -> String? {
+        let home = currentHomePath
+        var dirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":").map(String.init)
+        dirs += extraBinDirs(home: home)
         var seen = Set<String>()
         for dir in dirs where !dir.isEmpty && seen.insert(dir).inserted {
             let path = (dir as NSString).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
         return nil
+    }
+
+    private static let nodeCacheLock = NSLock()
+    nonisolated(unsafe) private static var nodeCache: [String: (version: String, zstd: Bool)] = [:]
+
+    static func parseNodeZstdSupport(_ version: String) -> Bool {
+        let clean = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = (clean.hasPrefix("v") ? String(clean.dropFirst()) : clean).split(separator: ".").map { Int($0) ?? 0 }
+        let major = parts.count > 0 ? parts[0] : 0
+        let minor = parts.count > 1 ? parts[1] : 0
+        return major > 22 || (major == 22 && minor >= 15)
+    }
+
+    static func nodeInfo(at path: String?) -> (ok: Bool, path: String, version: String, zstd: Bool) {
+        guard let path, !path.isEmpty else { return (false, "", "", false) }
+        nodeCacheLock.lock()
+        if let cached = nodeCache[path] {
+            nodeCacheLock.unlock()
+            return (true, path, cached.version, cached.zstd)
+        }
+        nodeCacheLock.unlock()
+        let r = Runner.run(executable: path, arguments: ["-v"], stdin: nil, environment: ProcessInfo.processInfo.environment, timeout: 3)
+        let ver = r.status == 0 ? r.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        let zstd = !ver.isEmpty && parseNodeZstdSupport(ver)
+        if !ver.isEmpty {
+            nodeCacheLock.lock()
+            nodeCache[path] = (ver, zstd)
+            nodeCacheLock.unlock()
+        }
+        return (true, path, ver, zstd)
     }
 
     static func processRunning(named target: String) -> Bool {

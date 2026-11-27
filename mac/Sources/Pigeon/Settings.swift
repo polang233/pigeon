@@ -101,6 +101,12 @@ enum Settings {
         return (perch?["notch"] as? Bool) ?? (perch?["enabled"] as? Bool) ?? true
     }
 
+    /// 全局快捷键 ⌥ 空格（`perch.hotkey`）。没写过时默认开启
+    static func hotkeyEnabled() -> Bool {
+        let perch = object()["perch"] as? [String: Any]
+        return (perch?["hotkey"] as? Bool) ?? true
+    }
+
     struct CodexModel: Encodable {
         var slug: String
         var name: String

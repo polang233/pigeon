@@ -17,15 +17,21 @@ final class StatusBar: NSObject, NSMenuDelegate {
     private let notchEnabled: () -> Bool
     private let setNotch: (Bool) -> Void
     private let togglePanel: (NSRect?) -> Void
+    private let compose: (NSRect?) -> Void
+    private let setAutostart: (Bool) -> Void
 
     init(showWindow: @escaping () -> Void, detect: @escaping () -> Void,
          notchEnabled: @escaping () -> Bool, setNotch: @escaping (Bool) -> Void,
-         togglePanel: @escaping (NSRect?) -> Void) {
+         togglePanel: @escaping (NSRect?) -> Void,
+         compose: @escaping (NSRect?) -> Void,
+         setAutostart: @escaping (Bool) -> Void) {
         self.showWindow = showWindow
         self.detect = detect
         self.notchEnabled = notchEnabled
         self.setNotch = setNotch
         self.togglePanel = togglePanel
+        self.compose = compose
+        self.setAutostart = setAutostart
         super.init()
         menu.delegate = self
         item.button?.imagePosition = .imageLeading
@@ -63,6 +69,8 @@ final class StatusBar: NSObject, NSMenuDelegate {
     }
 
     /// 图标在屏幕上的位置，面板从它下面展开
+    func panelAnchor() -> NSRect? { anchor() }
+
     private func anchor() -> NSRect? {
         guard let button = item.button, let window = button.window else { return nil }
         return window.convertToScreen(button.convert(button.bounds, to: nil))
@@ -138,11 +146,23 @@ final class StatusBar: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "打开 Pigeon 窗口", action: #selector(openWindow(_:)), keyEquivalent: "").target = self
+        let composeItem = NSMenuItem(title: "快速派活（⌥ 空格）", action: #selector(openCompose(_:)), keyEquivalent: "")
+        composeItem.target = self
+        menu.addItem(composeItem)
         let notch = NSMenuItem(title: "在刘海上显示", action: #selector(toggleNotch(_:)), keyEquivalent: "")
         notch.target = self
         notch.state = notchEnabled() ? .on : .off
         notch.toolTip = "关掉后，点菜单栏上这个图标展开同一个面板"
         menu.addItem(notch)
+        let snap = LoginItem.snapshot()
+        let autostartSupported = (snap["supported"] as? Bool) == true
+        let auto = NSMenuItem(title: "登录时自动启动",
+                              action: autostartSupported ? #selector(toggleAutostart(_:)) : nil,
+                              keyEquivalent: "")
+        if autostartSupported { auto.target = self }
+        auto.state = (snap["enabled"] as? Bool) == true ? .on : .off
+        auto.toolTip = autostartSupported ? "开机登录后自动在后台运行 Pigeon" : "安装为 Pigeon.app 后可开启登录自启"
+        menu.addItem(auto)
         menu.addItem(withTitle: "检测连接", action: #selector(runDetect(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Pigeon", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -155,8 +175,13 @@ final class StatusBar: NSObject, NSMenuDelegate {
     }
 
     @objc private func openWindow(_ sender: Any?) { showWindow() }
+    @objc private func openCompose(_ sender: Any?) { compose(anchor()) }
     @objc private func runDetect(_ sender: Any?) { detect() }
     @objc private func toggleNotch(_ sender: Any?) { setNotch(!notchEnabled()) }
+    @objc private func toggleAutostart(_ sender: Any?) {
+        let on = (LoginItem.snapshot()["enabled"] as? Bool) == true
+        setAutostart(!on)
+    }
     @objc private func openWaiting(_ sender: NSMenuItem) {
         Opener.waiting(session: sender.representedObject as? String ?? "", fallback: showWindow)
     }

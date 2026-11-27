@@ -35,6 +35,58 @@ import Testing
         #expect(s.rule == "r1")
         #expect(s.ask)  // 不在本机，默认要问
     }
+
+    @Test func promptTextGeneration() {
+        let settings: [String: Any] = [
+            "lead": ["kind": "agent", "agent": "claude", "loft": "local"],
+            "devices": ["names": ["win": "台式机"]],
+            "post": ["confirmRemote": true, "crossTimeoutSec": 90],
+            "dispatch": ["rules": [
+                ["id": "r1", "when": "生图", "kw": "画图", "to": "codex@local", "fb": "deepseek@local", "ask": false, "on": true, "mode": "must"],
+                ["id": "r2", "when": "远程", "kw": "win", "to": "codex@win", "fb": "", "ask": false, "on": true, "mode": "suggest"],
+            ]],
+        ]
+        let prompt = Dispatch.promptText(settings: settings, alive: ["codex@local", "deepseek@local", "codex@win"],
+                                         quota: ["codex@local": 15], low: 20)
+        #expect(prompt.contains("标了“照做”的要照做"))
+        #expect(prompt.contains("生图 → Codex（本机）。它的额度现在只剩 15%，先交给 DeepSeek Harness（本机）。照做"))
+        #expect(prompt.contains("远程 → Codex（台式机）。发之前要用户确认"))
+
+        let youSettings: [String: Any] = ["lead": ["kind": "you"], "dispatch": settings["dispatch"]!]
+        #expect(Dispatch.promptText(settings: youSettings, alive: ["codex@local"]).isEmpty)
+    }
+}
+
+@Suite struct DetectorAndWatchTests {
+    @Test func extraBinDirsAndNodeVersion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("det-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/versions/node/v20.11.0/bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/versions/node/v22.16.0/bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".nvm/alias"), withIntermediateDirectories: true)
+        try "22.16.0\n".write(to: root.appendingPathComponent(".nvm/alias/default"), atomically: true, encoding: .utf8)
+
+        let dirs = Detector.extraBinDirs(home: root.path)
+        #expect(dirs.contains("\(root.path)/.asdf/shims"))
+        #expect(dirs.contains("\(root.path)/.local/share/mise/shims"))
+        #expect(dirs.contains("\(root.path)/.nodenv/shims"))
+        #expect(dirs.contains("\(root.path)/.fnm/current/bin"))
+        let i22 = dirs.firstIndex(of: "\(root.path)/.nvm/versions/node/v22.16.0/bin")!
+        let i20 = dirs.firstIndex(of: "\(root.path)/.nvm/versions/node/v20.11.0/bin")!
+        #expect(i22 < i20)
+
+        #expect(Detector.parseNodeZstdSupport("v22.15.0"))
+        #expect(Detector.parseNodeZstdSupport("v24.1.0"))
+        #expect(!Detector.parseNodeZstdSupport("v22.14.9"))
+        #expect(!Detector.parseNodeZstdSupport("v20.18.0"))
+    }
+
+    @Test func watchPartyAgentNames() {
+        #expect(Watch.Party.agentName("deepseek") == "DeepSeek Harness")
+        #expect(Watch.Party.agentName("antigravity") == "Antigravity")
+        #expect(Watch.Party.agentName("cursor") == "Cursor")
+        #expect(Watch.Party.agentName("codex") == "Codex")
+    }
 }
 
 @Suite struct ActivityTests {

@@ -19,6 +19,8 @@ final class NotchBridge {
     private var agents: Agents?
     private var settings: [String: Any] = [:]
     private var codexModels: [Settings.CodexModel] = []
+    /// 每个对话的附加信息（经哪条路、工作目录），跳回对话时用
+    private var sessionMeta: [String: (via: String, cwd: String)] = [:]
     /// 在刘海上看过的回信（只记在内存里）
     private var readBands: Set<String> = []
     private var rebuildPending = false
@@ -45,6 +47,16 @@ final class NotchBridge {
     func update(lofts data: Data) {
         let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         lofts = root?["lofts"] as? [[String: Any]] ?? []
+        var meta: [String: (via: String, cwd: String)] = [:]
+        for loft in lofts {
+            let dev = loft["id"] as? String ?? ""
+            for s in loft["sessions"] as? [[String: Any]] ?? [] {
+                if let sid = s["id"] as? String, !sid.isEmpty {
+                    meta["\(dev)|\(sid)"] = (via: s["via"] as? String ?? "", cwd: s["cwd"] as? String ?? "")
+                }
+            }
+        }
+        sessionMeta = meta
         scheduleRebuild()
     }
 
@@ -76,6 +88,16 @@ final class NotchBridge {
 
     /// 点菜单栏图标：在图标下面展开或收起同一个面板
     func toggleFromMenuBar(anchor: NSRect?) { notch.toggleFromMenuBar(anchor: anchor) }
+
+    /// 全局快捷键（⌥ 空格）或菜单「快速派活」：在刘海或菜单栏下切换快速派活面板
+    func toggleCompose(anchor: NSRect? = nil) {
+        if let anchor { notch.setMenuBarAnchor(anchor) }
+        if notch.state == .compose {
+            notch.collapse()
+        } else {
+            notch.show(.compose, takeFocus: true)
+        }
+    }
 
     /// 同一轮里来的几次变化合成一次重算
     private func scheduleRebuild() {
@@ -121,7 +143,11 @@ final class NotchBridge {
             Notifier.focusClaude(fallback: { [showWindow] in showWindow("") })
             return
         }
-        let body: [String: Any] = ["loft": target.device, "agent": target.agent.rawValue, "session": target.session]
+        var body: [String: Any] = ["loft": target.device, "agent": target.agent.rawValue, "session": target.session]
+        if target.agent == .antigravity, let meta = sessionMeta["\(target.device)|\(target.session)"], meta.via == "cli" {
+            body["via"] = "cli"
+            body["cwd"] = meta.cwd
+        }
         hub.open(Self.data(body)) { _ in }
     }
 
@@ -131,7 +157,10 @@ final class NotchBridge {
             "text": request.text, "model": request.model, "effort": request.effort?.rawValue ?? "",
             "why": ["reason": "你在 Pigeon 里自己派的"],
         ]
-        if request.session.isEmpty, let project = defaultProject(loft: request.to.device) { body["project"] = project }
+        if request.session.isEmpty {
+            if !request.cwd.isEmpty { body["cwd"] = request.cwd }
+            if let project = defaultProject(loft: request.to.device) { body["project"] = project }
+        }
         let hub = self.hub
         let payload = Self.data(body)
         let out: Data = await withCheckedContinuation { c in hub.send(payload) { c.resume(returning: $0) } }
@@ -145,7 +174,8 @@ final class NotchBridge {
         let payload = Self.data(["text": text])
         let out: Data = await withCheckedContinuation { c in hub.suggest(payload) { c.resume(returning: $0) } }
         let reply = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any] ?? [:]
-        guard let key = TargetKey(reply["suggested"] as? String ?? ""), key.agent == .codex else { return nil }
+        guard let key = TargetKey(reply["suggested"] as? String ?? ""),
+              [.codex, .deepseek, .antigravity].contains(key.agent) else { return nil }
         return key
     }
 
@@ -230,13 +260,15 @@ final class NotchBridge {
         }
         let replies = snapshot.replies.map { r -> Reply in
             let answered = endpoint(r.to)
+            let canJump = answered.agent == .codex ? !answered.session.isEmpty : [.deepseek, .antigravity].contains(answered.agent)
             return Reply(band: r.band, from: answered, to: endpoint(r.from), title: r.preview, answer: r.answer, at: r.at,
                          unread: !readBands.contains(r.band), canForward: false,
-                         canJump: answered.agent == .codex && !answered.session.isEmpty, duration: Watch.duration(r.took))
+                         canJump: canJump, duration: Watch.duration(r.took))
         }
 
         // 派活面板
         let codexDefault = (settings["codex"] as? [String: Any]) ?? [:]
+        let customModels = devices["customModels"] as? [String: [String]] ?? [:]
         let modelOptions = codexModels.map { ModelOption(id: $0.slug, efforts: $0.efforts.compactMap(Effort.init(rawValue:))) }
         func refs(_ loft: String, _ agent: AgentKind = .codex) -> [SessionRef] {
             sessions.filter { $0.device == loft && $0.agent == agent && $0.parent.isEmpty }.prefix(20).map { SessionRef(id: $0.id, title: $0.title) }
@@ -271,9 +303,34 @@ final class NotchBridge {
                 compose.append(ComposeDevice(id: id, name: deviceName(id), isLocal: true, agents: list))
             } else {
                 guard !Set(off[id] ?? []).contains("codex") else { continue }
-                // 别的电脑上只有 Codex。命令行已经能给远程新开的对话指定模型，这里还没接上（见 docs/TODO.md），先不列模型
+                let saved = defaults["codex@\(id)"] ?? [:]
+                let mine = (customModels["codex@\(id)"] ?? [])
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { name in !name.isEmpty && !modelOptions.contains(where: { $0.id == name }) }
+                    .map { ModelOption(id: $0, efforts: Effort.allCases, note: "自定义模型") }
+                let remoteModels = modelOptions + mine
+                let defModel = Self.text(saved["model"]) ?? remoteModels.first?.id ?? ""
+                let defEffort = Effort(rawValue: Self.text(saved["effort"]) ?? "")
                 compose.append(ComposeDevice(id: id, name: deviceName(id), isLocal: false, online: loft["online"] as? Bool ?? true,
-                                             agents: [ComposeAgent(agent: .codex, sessions: refs(id))]))
+                                             agents: [ComposeAgent(agent: .codex, models: remoteModels, defaultModel: defModel, defaultEffort: defEffort, sessions: refs(id))]))
+            }
+        }
+        var localProjects: [ProjectRef] = []
+        var seenPaths: Set<String> = []
+        func addProject(path rawPath: String, name rawName: String? = nil) {
+            let clean = (rawPath as NSString).standardizingPath
+            guard !clean.isEmpty, !seenPaths.contains(clean), localProjects.count < 15 else { return }
+            seenPaths.insert(clean)
+            let fallback = URL(fileURLWithPath: clean).lastPathComponent
+            let name = Self.text(rawName) ?? (fallback.isEmpty ? clean : fallback)
+            localProjects.append(ProjectRef(name: name, path: clean))
+        }
+        if let localLoft = shown.first(where: { ($0["id"] as? String) == "local" }) {
+            for p in localLoft["projects"] as? [[String: Any]] ?? [] {
+                if let path = p["path"] as? String { addProject(path: path, name: p["name"] as? String) }
+            }
+            for s in localLoft["sessions"] as? [[String: Any]] ?? [] {
+                if let cwd = s["cwd"] as? String { addProject(path: cwd) }
             }
         }
         let hasLocalCodex = compose.first { $0.isLocal }?.agents.contains { $0.agent == .codex && $0.enabled } ?? false
@@ -288,7 +345,7 @@ final class NotchBridge {
         return NotchModel(
             paused: ((settings["paused"] as? [String: Any])?["all"] as? Bool) ?? false,
             lead: lead, agents: local, sessions: sessions, queue: items, prompts: prompts, notes: notes, replies: replies,
-            compose: ComposeData(devices: compose, defaultTarget: defaultTarget, crossNeedsConfirm: (post["confirmRemote"] as? Bool) ?? true),
+            compose: ComposeData(devices: compose, projects: localProjects, defaultTarget: defaultTarget, crossNeedsConfirm: (post["confirmRemote"] as? Bool) ?? true),
             settings: NotchSettings(secrets: SecretsMode(rawValue: (settings["secrets"] as? [String: Any])?["mode"] as? String ?? "") ?? .warn,
                                     crossTimeoutSec: timeout > 0 ? timeout : 90))
     }

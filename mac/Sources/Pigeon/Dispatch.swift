@@ -10,6 +10,7 @@ enum Dispatch {
         var fb = ""
         var ask = false
         var on = true
+        var mode = "suggest"
     }
 
     struct Context: Sendable {
@@ -80,8 +81,69 @@ enum Dispatch {
         return list.map { r in
             Rule(id: r["id"] as? String ?? "", when: r["when"] as? String ?? "", kw: r["kw"] as? String ?? "",
                  to: r["to"] as? String ?? "", fb: r["fb"] as? String ?? "",
-                 ask: r["ask"] as? Bool ?? false, on: r["on"] as? Bool ?? true)
+                 ask: r["ask"] as? Bool ?? false, on: r["on"] as? Bool ?? true,
+                 mode: r["mode"] as? String ?? "suggest")
         }
+    }
+
+    /// 生成写进 `~/.pigeon/dispatch.json` 供 Claude Code 读取的派活建议文本，脱离主窗口 WebView 也能独立计算。
+    static func promptText(settings: [String: Any], alive: Set<String>, quota: [String: Double] = [:],
+                           low: Double? = nil, loftNames: [String: String] = [:]) -> String {
+        let lead = settings["lead"] as? [String: Any] ?? [:]
+        if (lead["kind"] as? String) == "you" { return "" }
+        let devices = settings["devices"] as? [String: Any] ?? [:]
+        let customNames = devices["names"] as? [String: String] ?? [:]
+        let post = settings["post"] as? [String: Any] ?? [:]
+        let confirmRemote = (post["confirmRemote"] as? Bool) != false
+        let rawTimeout = (post["crossTimeoutSec"] as? NSNumber)?.intValue ?? 90
+        let crossTimeout = rawTimeout > 0 ? rawTimeout : 90
+        let lowThreshold = low ?? ((settings["quota"] as? [String: Any])?["low"] as? NSNumber)?.doubleValue ?? 20
+
+        func agentName(_ a: String) -> String {
+            switch a {
+            case "claude": "Claude Code"
+            case "codex": "Codex"
+            case "cursor": "Cursor"
+            case "deepseek", "dsh": "DeepSeek Harness"
+            case "antigravity": "Antigravity"
+            default: a
+            }
+        }
+        func nameOf(_ key: String) -> String {
+            if key == "you" { return "你" }
+            let parts = key.split(separator: "@", maxSplits: 1).map(String.init)
+            let a = parts.first ?? key
+            let d = parts.count > 1 ? parts[1] : "local"
+            let devLabel: String
+            if let n = customNames[d], !n.isEmpty { devLabel = n }
+            else if d == "local" { devLabel = "本机" }
+            else { devLabel = loftNames[d] ?? d }
+            return "\(agentName(a))（\(devLabel)）"
+        }
+        func fmtQuota(_ v: Double) -> String {
+            v.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(v)) : String(v)
+        }
+
+        let active = rules(from: settings).filter { $0.on && !$0.when.isEmpty && alive.contains($0.to) }
+        if active.isEmpty { return "" }
+
+        let lines = active.map { r in
+            var v = "- \(r.when) → \(nameOf(r.to))"
+            if let q = quota[r.to], q < lowThreshold {
+                if !r.fb.isEmpty, alive.contains(r.fb) {
+                    v += "。它的额度现在只剩 \(fmtQuota(q))%，先交给 \(nameOf(r.fb))"
+                } else {
+                    v += "。它的额度现在只剩 \(fmtQuota(q))%"
+                }
+            }
+            if r.ask || (!isLocal(r.to) && confirmRemote) { v += "。发之前要用户确认" }
+            if r.mode == "must" { v += "。照做：用户的话里出现这类活就交给它，除非用户明确说不要" }
+            return v
+        }
+        let askLine = confirmRemote ? "\n- 往别的电脑派活，Pigeon 会先问用户，\(crossTimeout) 秒没人点就不发" : ""
+        let hasMust = active.contains { $0.mode == "must" }
+        let header = "派活建议（Pigeon 写进来的\(hasMust ? "。标了“照做”的要照做，其余只是建议，由你判断" : "，只是建议，最后由你判断")）："
+        return "\(header)\n\(lines.joined(separator: "\n"))\n- 其他的你自己做，或者自己决定交给谁\(askLine)\n派活时附一句理由；没照上面的建议做，也说明为什么。"
     }
 
     /// 网页用 `PUT /api/dispatch` 推来的东西，放在内存里

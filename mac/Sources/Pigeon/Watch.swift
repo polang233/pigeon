@@ -61,6 +61,9 @@ struct Watch {
             switch agent {
             case "claude": "Claude"
             case "codex": "Codex"
+            case "deepseek": "DeepSeek Harness"
+            case "antigravity": "Antigravity"
+            case "cursor": "Cursor"
             case "you", "": "你"
             default: agent
             }

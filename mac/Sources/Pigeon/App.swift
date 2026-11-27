@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var statusBar: StatusBar!
     private var notifier: Notifier!
     private var notch: NotchBridge!
+    private var hotkey: GlobalHotKey?
     private var serverReady = false
     private let night = NSColor(srgbRed: 0x1d / 255.0, green: 0x2b / 255.0, blue: 0x38 / 255.0, alpha: 1)
 
@@ -57,9 +58,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         statusBar = StatusBar(showWindow: show, detect: { [weak self] in self?.hub?.detectNow(); return },
                               notchEnabled: { Settings.notchEnabled() },
                               setNotch: { [weak self] on in self?.setNotchEnabled(on) },
-                              togglePanel: { [weak self] anchor in self?.notch.toggleFromMenuBar(anchor: anchor) })
+                              togglePanel: { [weak self] anchor in self?.notch.toggleFromMenuBar(anchor: anchor) },
+                              compose: { [weak self] anchor in self?.notch.toggleCompose(anchor: anchor) },
+                              setAutostart: { [weak self] on in self?.setAutostartEnabled(on) })
         notifier = Notifier(showWindow: show)
         notch.onBadge = { [weak self] count in self?.statusBar.setBadge(count) }
+        if Paths.envValue("PIGEON_SNAPSHOT_DIR") == nil {
+            let hk = GlobalHotKey { [weak self] in
+                guard let self else { return }
+                self.notch.toggleCompose(anchor: self.statusBar.panelAnchor())
+            }
+            hk.setEnabled(Settings.hotkeyEnabled())
+            hotkey = hk
+        }
 
         // 本机服务的每一种变化都转给菜单栏和刘海。回调在服务自己的队列上，这里换到主线程
         hub.onWatch = { [weak self] snapshot, alert in
@@ -74,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             Task { @MainActor in
                 self?.notch.reloadSettings()
                 self?.statusBar.refresh()
+                self?.hotkey?.setEnabled(Settings.hotkeyEnabled())
             }
         }
         hub.onQueue = { [weak self] data in Task { @MainActor in self?.notch.update(queue: data) } }
@@ -118,6 +130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func serverDidStart() {
         serverReady = true
         log("Pigeon 已启动：\(Hub.origin)/ ，网页目录 \(hub.webRoot.path)")
+        if Paths.envValue("PIGEON_SNAPSHOT_DIR") == nil {
+            MCPInstall.refreshWrapperIfPresent(scriptsDir: PluginScripts.locate())
+        }
+        hub.performLocalLoftsRefresh()
         webView?.load(URLRequest(url: URL(string: Hub.origin + "/")!))
         if let dir = Paths.envValue("PIGEON_SNAPSHOT_DIR") {
             let delay = Double(Paths.envValue("PIGEON_SNAPSHOT_DELAY") ?? "") ?? 5
@@ -268,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     @objc private func detectConnections(_ sender: Any?) {
         hub?.detectNow()
+        hub?.performLocalLoftsRefresh()
     }
 
     @objc private func toggleNotch(_ sender: Any?) {
@@ -281,6 +298,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             perch["notch"] = on
             root["perch"] = perch
         }
+    }
+
+    private func setAutostartEnabled(_ on: Bool) {
+        let res = LoginItem.setEnabled(on)
+        if res.status == 200 {
+            hub?.broadcastAutostart(res.body)
+        }
+        statusBar.refresh()
     }
 
     /// 打开主窗口并翻到某一页（刘海上的“在窗口里看”）。页面还没加载好时只打开窗口
