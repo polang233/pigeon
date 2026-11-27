@@ -285,3 +285,42 @@ test('Antigravity 的模型：从应用给的列表来，系列 + 几档思考�
   assert.deepEqual(levelsOf(st, 'antigravity', 'gemini-4-neon'), ['low', 'high', 'xhigh']);
   assert.deepEqual(levelsOf(st, 'antigravity', 'orch'), [], '不分档的');
 });
+
+test('默认规则关键词不误伤普通句子，仍能命中真实意图', async () => {
+  const { defaultRules, rulesFromWire } = await import('../src/backend/adapt.js');
+  const { suggest } = await import('../src/core/route.js');
+  const rules = rulesFromWire(defaultRules({})).map((r, i) => ({ ...r, must: defaultRules({})[i].mode === 'must' }));
+  const st = { home: 'local', DEV: { local: {} }, CONN: { local: [{ a: 'codex', on: true, inn: 'yes' }, { a: 'dsh', on: true, inn: 'yes' }, { a: 'antigravity', on: true, inn: 'yes' }] }, RULES: rules, RULES2: [], SUB: {}, LOW: 20, settings: {} };
+  assert.equal(suggest(st, '帮我画流程图并简单解释一下').rule, '');
+  assert.equal(suggest(st, '画一张登录页插图').rule, 'seed-image');
+  assert.equal(suggest(st, '顺手改一下这个按钮').rule, 'seed-quick');
+});
+
+test('统一 MCP 已接入时：codex、antigravity 双向可发可收，cursor 标为已接上且可当指挥', () => {
+  const base = raw();
+  base.detect.antigravity = { installed: true };
+  base.mcp = {
+    wrapper: '/tmp/pigeon-mcp',
+    nodeOk: true,
+    clients: {
+      codex: { installed: true, configPath: '/tmp/codex.toml' },
+      antigravity: { installed: true, configPath: '/tmp/agy.json' },
+      cursor: { installed: true, configPath: '/tmp/cursor.json' },
+    },
+  };
+  base.settings.devices.off = {};
+  const st = mapLive(base, NOW);
+  const cx = st.CONN.local.find(c => c.a === 'codex');
+  const ag = st.CONN.local.find(c => c.a === 'antigravity');
+  const cur = st.CONN.local.find(c => c.a === 'cursor');
+  assert.equal(cx.out, 'yes');
+  assert.ok(cx.how.includes('mcp'));
+  assert.equal(ag.out, 'yes');
+  assert.ok(ag.how.includes('mcp'));
+  assert.equal(cur.out, 'yes');
+  assert.equal(cur.na, undefined);
+  assert.deepEqual(cur.how, ['mcp']);
+  assert.ok(leadOptions(st).includes('codex@local'));
+  assert.ok(leadOptions(st).includes('antigravity@local'));
+  assert.ok(leadOptions(st).includes('cursor@local'));
+});

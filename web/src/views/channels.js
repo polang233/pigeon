@@ -6,7 +6,7 @@ import { html, raw } from '../html.js';
 import { icon, brand } from '../icons.js';
 import { $, part, patch, reduce } from '../dom.js';
 import { AG } from '../core/labels.js';
-import { by, cross, shortDev, jumpLabel, isYou } from '../core/names.js';
+import { by, cross, shortDev, jumpLabel, isYou, canTake } from '../core/names.js';
 import { channelsOf, streamOf, replyCount, mentionsOf, mentionAt, targetsOf } from '../core/channels.js';
 import { g, taskSt, stTag, devIc, secretBody, secretNote, modelTag } from './parts.js';
 import { whyChip, whyHTML, ctxHTML, stepsHTML, canRetry, mountTasks, mdBlock, fullOf, fullHTML, wantFull } from './tasks.js';
@@ -16,6 +16,7 @@ import { toast, after } from './toast.js';
 let store, st, ui, root = null, unTasks = null, CH = [], cur = null;
 const opened = new Set(); // 消息流里展开了详情的任务
 let menu = { open: false, list: [], i: 0, at: -1 }; // @ 的候选框
+const live = () => st.mode === 'live';
 
 const chans = () => (CH = channelsOf(st, ui.chan.extra));
 const current = () => ui.chan.id === 'all' ? null : CH.find(c => c.id === ui.chan.id) || CH.find(c => c.tasks.length) || CH[0] || null;
@@ -42,7 +43,7 @@ function chlistHTML() {
       ${c.running ? html`<i class="chrun" data-tip="${c.running} 个在干活"></i>` : ''}
       ${c.waiting ? html`<i class="flag wait" data-tip="${c.waiting} 件等你">${c.waiting}</i>` : n && !on ? html`<i class="chun num">${n}</i>` : ''}</button>`;
   };
-  return html`<aside class="chlist" data-part="chlist"><div class="chlist-h" data-drag><b>频道</b><span class="sp"></span><button class="ghost icon-btn" type="button" data-action="chan-new" data-tip="新建频道，挑几个对话拉进来">${icon('plus')}</button></div>
+  return html`<aside class="chlist" data-part="chlist"><div class="chlist-h" data-drag><b>频道</b><span class="sp"></span>${live() ? '' : html`<button class="ghost icon-btn" type="button" data-action="chan-new" data-tip="新建频道，挑几个对话拉进来">${icon('plus')}</button>`}</div>
     <div class="chis">${busy.map(item)}${idle.length ? html`<details class="chidle" ${idle.some(c => c0 && c0.id === c.id) ? raw('open') : ''}><summary>没有任务的项目 · ${idle.length}</summary>${idle.map(item)}</details>` : ''}</div>
     <button type="button" class="chi all" data-action="chan" data-id="all" ${ui.chan.id === 'all' ? raw('aria-current="page"') : ''}><span class="chic">${icon('tasks')}</span><span class="chn">全部任务</span><span class="num mut">${st.T.length}</span></button></aside>`;
 }
@@ -89,7 +90,10 @@ const noteMsg = m => html`<article class="msg note" id="m-${m.id}"><span class="
 
 function streamHTML(c) {
   const msgs = streamOf(st, c, notesOf(c));
-  const intro = html`<div class="sysline">${icon('folder')}<span>${c.key ? `按项目目录“${c.name}”自动建的频道：目录名一样的对话都在这里，跨电脑也算。` : '这些任务的对话没有项目目录，先放在这里。'}没 @ 谁的消息交给指挥。</span></div>`;
+  const hint = live()
+    ? (c.key ? `按项目目录“${c.name}”自动归集往来；在下面 @ 一个能接活的 agent，可直接在这个项目目录里派活。` : '这些任务的对话没有项目目录，先放在这里。在下面 @ 一个能接活的 agent 派活。')
+    : `${c.key ? `按项目目录“${c.name}”自动建的频道：目录名一样的对话都在这里，跨电脑也算。` : '这些任务的对话没有项目目录，先放在这里。'}没 @ 谁的消息交给指挥。`;
+  const intro = html`<div class="sysline">${icon('folder')}<span>${hint}</span></div>`;
   const body = msgs.length ? msgs.map(m => m.kind === 'task' ? taskMsg(m) : m.kind === 'reply' ? replyMsg(m) : noteMsg(m))
     : html`<div class="empty pad"><p>这个频道还没有消息。在下面 @ 一个 agent 派活，或者写一句留言。</p></div>`;
   return html`<div class="stream" data-part="stream" role="log" aria-label="${c.name} 的消息">${intro}<div class="dayline"><span>今天</span></div>${body}</div>`;
@@ -97,18 +101,20 @@ function streamHTML(c) {
 
 /* ---------- 中间：输入框 ---------- */
 function picksHTML(c) {
-  const picks = ui.chan.picks, note = ui.chan.mode === 'note';
+  const picks = ui.chan.picks, note = !live() && ui.chan.mode === 'note';
   const auto = targetsOf(st, c, []);
+  const autoCanTake = auto.length && canTake((st.CONN[auto[0].dev] || []).find(x => x.a === auto[0].agent));
   const chip = (m, i) => html`<span class="pick">${g(m.agent, 'sm')}<b>${m.label}</b><small>${m.fresh ? '新开对话' : m.sub}${m.dev !== st.home ? ` · ${devShort(m.dev)}` : ''}</small><button type="button" class="px" data-action="chan-unpick" data-i="${i}" aria-label="不交给 ${m.label}">${icon('x')}</button></span>`;
   const who = note ? html`<span class="mut">只记在频道里，不送给任何 agent</span>`
     : picks.length ? picks.map(chip)
+    : live() && !autoCanTake ? html`<span class="mut">输入 <code>@</code> 或点右下角 @ 选一个能接活的 agent</span>`
     : auto.length ? html`<span class="pick auto" data-tip="没 @ 谁时交给指挥，它按分派规则再交给合适的">${g(auto[0].agent, 'sm')}<b>指挥 ${auto[0].label}</b><small>没 @ 谁时交给它</small></span>`
     : html`<span class="warn-t">你自己当指挥，要 @ 一个接活的</span>`;
   return html`<div class="cmp-top" data-part="picks"><span class="mut">${note ? '留言' : '交给'}</span>${who}<span class="sp"></span>
-    <div class="seg sm">${[['task', '派活'], ['note', '留言']].map(([k, l]) => html`<button type="button" data-action="chan-mode" data-m="${k}" aria-pressed="${ui.chan.mode === k ? 'true' : 'false'}">${l}</button>`)}</div></div>`;
+    ${live() ? '' : html`<div class="seg sm">${[['task', '派活'], ['note', '留言']].map(([k, l]) => html`<button type="button" data-action="chan-mode" data-m="${k}" aria-pressed="${ui.chan.mode === k ? 'true' : 'false'}">${l}</button>`)}</div>`}</div>`;
 }
 const composerHTML = c => html`<div class="composer" data-part="composer">${picksHTML(c)}
-  <div class="cmp-box"><textarea id="chan-input" data-focus="chan-input" rows="2" placeholder="${ui.chan.mode === 'note' ? '写一句留言，只记在频道里' : '@ 交给谁，写下要做的事；不 @ 就交给指挥'}" aria-label="在 ${c.name} 里发消息"></textarea>
+  <div class="cmp-box"><textarea id="chan-input" data-focus="chan-input" rows="2" placeholder="${!live() && ui.chan.mode === 'note' ? '写一句留言，只记在频道里' : live() ? '@ 选一个能接活的 agent，在这个项目里派活' : '@ 交给谁，写下要做的事；不 @ 就交给指挥'}" aria-label="在 ${c.name} 里发消息"></textarea>
     <div class="mention" id="mention" role="listbox" hidden></div>
     <div class="cmp-act"><span class="mut kbd">⌘↩ 发出</span><button class="ghost icon-btn" type="button" data-action="chan-at" data-tip="@ 交给谁">${icon('at')}</button><button class="btn" type="button" data-action="chan-send">${icon('send')}发出</button></div></div></div>`;
 
@@ -127,10 +133,10 @@ function peopleHTML(c) {
     <div class="people-h"><b>成员</b><span class="sp"></span><button class="px" type="button" data-action="chan-people" aria-label="收起成员">${icon('x')}</button></div>
     <h3>指挥</h3>${L ? row(L, '') : html`<div class="prow"><span class="g you">${brand('you')}</span><div class="pmain"><b>你</b><small>你自己派活</small></div></div>`}
     ${devs.map(d => html`<h3>${devIc(st, d)}${st.DEV[d]?.name || d} · ${byDev[d].length}</h3>${byDev[d].map(s => row(s, ''))}`)}
-    ${isYou(st) ? '' : html`<h3>你</h3><div class="prow"><span class="g you">${brand('you')}</span><div class="pmain"><b>你</b><small>在频道里留言、@ 谁派活</small></div></div>`}
-    <details class="pull"><summary class="ghost">${icon('plus')}拉进来</summary>
+    ${isYou(st) ? '' : html`<h3>你</h3><div class="prow"><span class="g you">${brand('you')}</span><div class="pmain"><b>你</b><small>在频道里${live() ? '@ 谁派活' : '留言、@ 谁派活'}</small></div></div>`}
+    ${live() ? '' : html`<details class="pull"><summary class="ghost">${icon('plus')}拉进来</summary>
       ${rest.length ? rest.map(s => html`<button type="button" class="prow pick-in" data-action="chan-pull" data-s="${s.id}">${ava(s, s.state)}<span class="pmain"><b>${AG[s.agent].name}</b><small class="ell">${s.title} · ${devShort(s.dev)}</small></span></button>`) : html`<p class="mut">别的对话都在这个频道里了</p>`}
-    </details></aside>`;
+    </details>`}</aside>`;
 }
 
 /* ---------- 画 ---------- */
@@ -233,9 +239,13 @@ function send() {
   const text = ta.value.trim();
   if (!text) { ta.focus(); return; }
   const done = () => { ta.value = ''; store.chanDraft(''); autosize(ta); ui.chan.picks = []; store.emit('ui.chan.picks'); };
-  if (ui.chan.mode === 'note') { store.chanNote(c.id, text); done(); return; }
+  if (!live() && ui.chan.mode === 'note') { store.chanNote(c.id, text); done(); return; }
   const targets = targetsOf(st, c, ui.chan.picks);
-  if (!targets.length) { toast('你自己当指挥时，要 @ 一个接活的'); ta.focus(); return; }
+  if (!targets.length || (live() && !targets.some(m => canTake((st.CONN[m.dev] || []).find(x => x.a === m.agent))))) {
+    toast(live() ? '请先 @ 一个能接活的 agent（Codex、DeepSeek Harness 或 Antigravity）' : '你自己当指挥时，要 @ 一个接活的');
+    ta.focus();
+    return;
+  }
   after(store.chanSend({ targets, text, chan: c }), r => {
     if (!r || r.empty) return;
     done();

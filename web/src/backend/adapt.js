@@ -97,12 +97,12 @@ export const agyModelsOf = am => (Array.isArray(obj(obj(am).antigravity).models)
 export function defaultRules(settings) {
   const preferImages = obj(obj(settings).codex).preferForImages !== false;
   return [
-    { id: 'seed-image', when: '生图、改图（插画、图标、头图、像素图、抠图）', kw: '画 图片 插画 插图 配图 头图 图标 头像 海报 壁纸 封面 贴图 素材 像素图 抠图 去背景 logo icon image illustration sprite', to: 'codex@local', fb: '', ask: false, on: preferImages, mode: 'must' },
+    { id: 'seed-image', when: '生图、改图（插画、图标、头图、像素图、抠图）', kw: '画图 画一张 画个 图片 插画 插图 配图 头图 图标 头像 海报 壁纸 封面 贴图 素材 像素图 抠图 去背景 logo icon image illustration sprite', to: 'codex@local', fb: '', ask: false, on: preferImages, mode: 'must' },
     // 做声音要能听成品，Claude 听不见，照做；分析音频 Claude 自己算也够准，只是建议
     { id: 'seed-audio-make', when: '做声音：音效、提示音、配乐、配音、语音（要能听成品）', kw: '做个音效 做音效 做声音 提示音 音效 配乐 配音 作曲 铃声 语音合成 tts bgm 合成声音', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'must' },
     { id: 'seed-audio', when: '听音频、分析音频：有几段、有没有爆音、听感怎么样', kw: '听一下 听听 音频 声音 爆音 杂音 咔哒 wav mp3 m4a audio', to: 'antigravity@local', fb: '', ask: false, on: true, mode: 'suggest' },
     { id: 'seed-review', when: '复审、复核：让另一个 agent 再看一遍改动，审查可以宽松些', kw: '复审 复核 再审 二审 再看一遍 帮我审 审一下 review', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
-    { id: 'seed-quick', when: '简单、要快的小活', kw: '简单 快速 顺手 小改 随手', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
+    { id: 'seed-quick', when: '简单、要快的小活', kw: '简单小活 快速改 顺手改 随手改 小改', to: 'deepseek@local', fb: '', ask: false, on: true, mode: 'suggest' },
   ];
 }
 // 还没加过默认规则的设置：加上（已经有同 id 的不重复加），记下 seeded
@@ -153,17 +153,24 @@ function osOf(l) {
 const effortOk = e => (TH[e] ? e : '');
 const modelOf = (models, k) => { const m = obj(obj(models)[keyToWire(k)]); return { model: String(m.model || ''), think: m.model && String(m.model).startsWith('group/') ? '' : effortOk(m.effort) }; };
 
-// 本机：检测到装了的才列。Claude Code 能发出、还不能接收；Codex、DeepSeek Harness、Antigravity 能接收、只能回信；Cursor 还没接上
-function localConn(detect, off, models, agyCli = false) {
+// 本机：检测到装了的才列。Claude Code 能发出、还不能接收；Codex、Antigravity 接了统一 MCP 后也能主动发出；Cursor 接入 MCP 后能作为指挥发出。
+function localConn(detect, off, models, agyCli = false, mcp = null) {
   const d = detect ? obj(detect) : null, has = a => !d || !!obj(d[toWire(a)]).installed, out = [];
   const det = a => (d ? obj(d[toWire(a)]) : {});
   const isOff = a => (Array.isArray(off) ? off : []).includes(toWire(a));
+  const hasMcp = a => !!obj(obj(mcp).clients)[a]?.installed;
   if (has('claude')) out.push({ a: 'claude', how: ['plugin', 'hook'], out: 'yes', inn: 'nope', on: !isOff('claude'), model: '', think: '', det: det('claude') });
-  if (has('codex')) out.push({ a: 'codex', how: ['codexapp'], out: 'nope', inn: 'yes', on: !isOff('codex'), ...modelOf(models, `codex@${HOME}`), det: det('codex') });
-  // DeepSeek Harness 经它的命令行、Antigravity 经 agentapi：能收活、能回信，还不能自己派活
+  if (has('codex')) out.push({ a: 'codex', how: hasMcp('codex') ? ['codexapp', 'mcp'] : ['codexapp'], out: hasMcp('codex') ? 'yes' : 'nope', inn: 'yes', on: !isOff('codex'), ...modelOf(models, `codex@${HOME}`), det: det('codex') });
+  // DeepSeek Harness 经它的命令行、Antigravity 经 agentapi/命令行：能收活、能回信
   if (d && det('dsh').installed) out.push({ a: 'dsh', how: ['cli'], out: 'nope', inn: 'yes', on: !isOff('dsh'), ...modelOf(models, `dsh@${HOME}`), det: det('dsh') });
-  if (d && det('antigravity').installed) out.push({ a: 'antigravity', how: agyCli ? ['cli', 'agentapi'] : ['agentapi'], out: 'nope', inn: 'yes', on: !isOff('antigravity'), ...modelOf(models, `antigravity@${HOME}`), det: det('antigravity') });
-  if (d && det('cursor').installed) out.push({ a: 'cursor', how: [], out: 'nope', inn: 'nope', on: false, na: true, det: det('cursor') });
+  if (d && det('antigravity').installed) {
+    const base = agyCli ? ['cli', 'agentapi'] : ['agentapi'];
+    out.push({ a: 'antigravity', how: hasMcp('antigravity') ? [...base, 'mcp'] : base, out: hasMcp('antigravity') ? 'yes' : 'nope', inn: 'yes', on: !isOff('antigravity'), ...modelOf(models, `antigravity@${HOME}`), det: det('antigravity') });
+  }
+  if (d && det('cursor').installed) {
+    if (hasMcp('cursor')) out.push({ a: 'cursor', how: ['mcp'], out: 'yes', inn: 'nope', on: !isOff('cursor'), model: '', think: '', det: det('cursor') });
+    else out.push({ a: 'cursor', how: [], out: 'nope', inn: 'nope', on: false, na: true, det: det('cursor') });
+  }
   return out;
 }
 // 远程：第一版只经 Codex 应用内连，Codex 是入口
@@ -194,7 +201,7 @@ export function mapLive(raw, now = Date.now()) {
     const def = name || (id === HOME ? '这台 Mac' : id), nm = cleanName(names[id]);
     DEV[id] = { name: nm || def, def, host: name || id, os: osOf(l || { id }), link: id === HOME ? 'local' : 'codex', online: (l ? l.online : true) !== false };
     if (nm && nm !== def) NAMES[id] = nm;
-    CONN[id] = id === HOME ? localConn(raw.detect, off[HOME], models, !!obj(obj(raw.agentModels).antigravity).cli) : remoteConn(id, off[id], models);
+    CONN[id] = id === HOME ? localConn(raw.detect, off[HOME], models, !!obj(obj(raw.agentModels).antigravity).cli, raw.mcp) : remoteConn(id, off[id], models);
   };
   for (const l of lofts) {
     if (l.id !== HOME && hidden.has(l.id)) { HIDDEN.push({ id: l.id, name: cleanName(names[l.id]) || l.name || l.id }); continue; }
@@ -297,6 +304,9 @@ export function mapLive(raw, now = Date.now()) {
     CODEXM: (Array.isArray(raw.codexModels) ? raw.codexModels : []).filter(m => m && m.slug).map(m => ({ slug: String(m.slug), name: String(m.name || m.slug), efforts: (Array.isArray(m.efforts) ? m.efforts : []).map(String) })),
     MAGPIE: { on: groups.length > 0, groups: groups.map(m => [String(m.id), m.context_window ? `magpie 的路由组 · 上下文 ${Math.round(m.context_window / 1000)}k` : 'magpie 的路由组']) },
     CTXW: Object.fromEntries(mpModels.filter(m => m.id && m.context_window).map(m => [String(m.id), Number(m.context_window)])),
+    SETUP: raw.setup && typeof raw.setup === 'object' ? raw.setup : null,
+    AUTOSTART: raw.autostart && typeof raw.autostart === 'object' ? raw.autostart : null,
+    MCP: raw.mcp && typeof raw.mcp === 'object' ? raw.mcp : null,
     FOUND: [], MP_FOUND: [], PLAN: [], DEMO: { openTask: '', reply: '', target: `codex@${HOME}`, clock: '' },
   };
 }

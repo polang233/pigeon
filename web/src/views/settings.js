@@ -28,12 +28,25 @@ export function mountSettings(store) {
   const seg = (key, opts) => html`<div class="seg" role="group">${opts.map(([v, l]) => html`<button type="button" data-action="set" data-k="${key}" data-v="${v}" aria-pressed="${bool(S[key] === v)}">${l}</button>`)}</div>`;
   const notifyHTML = () => html`<h3><span data-tip="Pigeon 应用发的系统通知">通知</span></h3><div class="srows">${NOTIFY.map(([k, l, tip]) => html`<div class="srow"><span ${tip ? html`data-tip="${tip}"` : ''}>${l}</span><button class="sw" type="button" role="switch" aria-checked="${bool(srv(st, ['notify', k], NOTIFY0[k]) !== false)}" data-action="srv-sw" data-path="notify.${k}" aria-label="${l}"></button></div>`)}
     <div class="srow"><span data-tip="说完一轮的通知只在超过这么久时才发，10–3600 秒">较长一轮</span><span><input class="numin" type="number" min="10" max="3600" step="1" data-action="srv-num" data-path="notify.turnMinSec" data-min="10" data-max="3600" value="${srv(st, ['notify', 'turnMinSec'], NOTIFY0.turnMinSec)}" aria-label="较长一轮是多少秒"> 秒</span></div></div>`;
+  const systemHTML = () => {
+    const auto = st.AUTOSTART;
+    const autoTip = !auto?.supported
+      ? '安装为 Pigeon.app 后可开启登录自启'
+      : auto?.requiresApproval
+        ? '请在“系统设置 → 通用 → 登录项与扩展”里允许 Pigeon'
+        : '登录 Mac 后自动在后台运行 Pigeon';
+    return html`<h3><span>桌面与快捷方式</span></h3><div class="srows">
+      <div class="srow"><span data-tip="在任何应用里按 Option + 空格，直接弹出或收起刘海快速派活">快捷键（⌥ 空格）</span><button class="sw" type="button" role="switch" aria-checked="${bool(srv(st, ['perch', 'hotkey'], true) !== false)}" data-action="srv-sw" data-path="perch.hotkey" aria-label="快捷键 ⌥ 空格"></button></div>
+      ${auto ? html`<div class="srow"><span data-tip="${autoTip}">${auto.requiresApproval ? '登录时自动启动（需系统允许）' : '登录时自动启动'}</span><button class="sw" type="button" role="switch" aria-checked="${bool(!!auto.enabled)}" data-action="autostart-sw" aria-label="登录时自动启动" ${auto.supported ? '' : 'disabled'}></button></div>` : ''}
+    </div>`;
+  };
   const draw = () => { const remote = Object.keys(st.DEV).find(d => d !== st.home); patch(pop, html`<h3>外观</h3>${seg('theme', [['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']])}
     <h3>配色</h3><div class="pals">${PALETTES.map(([v, l]) => html`<button type="button" class="pal ${S.palette === v ? 'on' : ''}" data-action="set" data-k="palette" data-v="${v}"><span class="sw4 sw-${v}"><i></i><i></i><i></i><i></i></span><b>${l}</b></button>`)}</div>
     <h3><span data-tip="浅色时是白天：太阳、云和路过的鸽群；深色时是夜晚：星星、月亮和偶尔的流星">场景</span></h3>${seg('scene', [['on', '白天黑夜'], ['off', '关']])}
     <h3>连线</h3>${seg('lines', [['pixel', '像素折线'], ['arc', '弧线']])}
     <h3><span data-tip="关掉后屏幕顶上不再有刘海面板，等你的事改在菜单栏的鸽子图标里，点一下展开同样的面板">刘海</span></h3>${seg('notch', [['on', '开'], ['off', '关']])}
     <div class="demo" role="group" aria-label="演示刘海的五种状态"><span data-tip="${live ? '刘海用内置的示例内容演示这个样子，不动真数据' : '看屏幕顶上刘海的五种样子'}">演示</span>${HUD_DEMO.map(([k, l]) => html`<button class="ghost" type="button" data-action="hud-demo" data-state="${k}">${l}</button>`)}</div>
+    ${live ? systemHTML() : ''}
     ${live ? '' : html`<div class="demo" role="group" aria-label="演示：来一件要问你的事"><span>演示</span><button class="ghost" type="button" data-action="demo-in" data-kind="relay">来一件转派</button><button class="ghost" type="button" data-action="demo-in" data-kind="split">来一件拆活</button></div>
     ${remote ? html`<div class="demo"><span>演示</span><button class="ghost" type="button" role="switch" aria-checked="${bool(!online(st, remote))}" data-action="demo-offline" data-dev="${remote}">${shortDev(st, remote)} 断开</button></div>` : ''}`}
     <h3><span data-tip="指挥台头像右下角的小圆盘。默认不显示，鼠标移到 agent 上时在提示里看">订阅额度</span></h3>${seg('quota', [['hover', '悬停时看'], ['always', '一直显示']])}
@@ -48,12 +61,13 @@ export function mountSettings(store) {
     pop.classList.toggle('on', on); btn.setAttribute('aria-expanded', on);
   };
   store.on(['ui.settingsOpen'], sync);
-  store.on(['settings', 'DEV', 'SRV'], () => { if (st.ui.settingsOpen) draw(); });
+  store.on(['settings', 'DEV', 'SRV', 'AUTOSTART'], () => { if (st.ui.settingsOpen) draw(); });
 
   registerAll({
     settings: () => store.toggleSettings(),
     set: ({ d }) => after(store.setSetting(d.k, d.v)),
     'hud-demo': ({ d }) => after(store.notchDemo(d.state), msg => { if (msg) toast(msg); }),
+    'autostart-sw': ({ el }) => after(store.setAutostart(el.getAttribute('aria-checked') !== 'true'), msg => { if (msg) toast(msg); }),
     // 演示：那台断开 / 连上
     'demo-offline': ({ d }) => store.setOnline(d.dev, !online(st, d.dev)),
     // 应用设置里的开关、数字、下拉（通知、交给 Codex 的活、中继对话……）：data-path 是“notify.done”这样的路径
