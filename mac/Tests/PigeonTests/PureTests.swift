@@ -19,6 +19,7 @@ import Testing
             ctx.alive = Set((c["alive"] as? [String]) ?? [])
             for (k, v) in c["quota"] as? [String: Any] ?? [:] { ctx.quota[k] = (v as? NSNumber)?.doubleValue }
             ctx.confirmRemote = c["confirmRemote"] as? Bool ?? true
+            ctx.lead = c["lead"] as? String
             let got = Dispatch.suggest(text: c["text"] as? String ?? "", to: c["to"] as? String, ctx)
             let exp = c["expect"] as? [String: Any] ?? [:]
             #expect(got.rule == exp["rule"] as? String, "\(name): rule")
@@ -54,6 +55,32 @@ import Testing
 
         let youSettings: [String: Any] = ["lead": ["kind": "you"], "dispatch": settings["dispatch"]!]
         #expect(Dispatch.promptText(settings: youSettings, alive: ["codex@local"]).isEmpty)
+    }
+
+    /// 交给的正好是指挥：写成“你自己做”，不在能接活的名单里也写，不写要确认；改派写的是指挥时写“它额度不够时你自己做”
+    @Test func promptTextForLeadItself() {
+        let rules: [[String: Any]] = [
+            ["id": "p", "when": "规划、拆解", "kw": "规划", "to": "claude@local", "fb": "", "ask": true, "on": true, "mode": "suggest"],
+            ["id": "c", "when": "创作", "kw": "创作", "to": "antigravity@local", "fb": "claude@local", "ask": false, "on": true, "mode": "suggest"],
+        ]
+        let settings: [String: Any] = ["dispatch": ["rules": rules]]  // 没写 lead：本机的 Claude Code
+        let prompt = Dispatch.promptText(settings: settings, alive: ["antigravity@local"])
+        #expect(prompt.contains("- 规划、拆解 → 你自己做，不用交出去\n"))
+        #expect(prompt.contains("- 创作 → Antigravity（本机）。它额度不够时你自己做\n"))
+        let low = Dispatch.promptText(settings: settings, alive: ["antigravity@local"], quota: ["antigravity@local": 8], low: 20)
+        #expect(low.contains("创作 → Antigravity（本机）。它的额度现在只剩 8%，先你自己做"))
+
+        // 指挥换成 Codex：Claude Code 不在能接活的名单里，规划那条不写，创作那条也不提它
+        let codexLead: [String: Any] = ["lead": ["kind": "agent", "agent": "codex", "loft": "local"], "dispatch": ["rules": rules]]
+        let other = Dispatch.promptText(settings: codexLead, alive: ["antigravity@local", "codex@local"])
+        #expect(!other.contains("规划"))
+        #expect(other.contains("- 创作 → Antigravity（本机）\n"))
+
+        // 给派出去的活打标签：建议指挥自己做、它却派了出去，算改判
+        var ctx = Dispatch.context(settings: settings, input: Dispatch.Input())
+        ctx.alive = ["antigravity@local"]
+        let s = Dispatch.suggest(text: "规划一下", to: "antigravity@local", ctx)
+        #expect(s.rule == "p" && s.suggested == "claude@local" && !s.ask && s.kind == "override")
     }
 }
 

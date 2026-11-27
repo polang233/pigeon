@@ -11,11 +11,14 @@ export const hitsRule = (rule, text) => {
   return kwList(rule.kw).some(k => t.includes(k));
 };
 
-// 命中的规则（开着的、有关键词的、交给的那家还在的），按规则的先后
-export function ruleHits(rules, text, { alive = null } = {}) {
+// 命中的规则（开着的、有关键词的、交给的那家还在的），按规则的先后。
+// self 是当前指挥（agent@设备）：交给它自己的规则是“自己做”，不用点名交给谁，不算命中
+export function ruleHits(rules, text, { alive = null, self = '' } = {}) {
   return (Array.isArray(rules) ? rules : []).map((r, i) => ({ r, i }))
-    .filter(({ r }) => r && r.on !== false && r.to && kwList(r.kw).length && hitsRule(r, text) && (!alive || alive.includes(r.to)));
+    .filter(({ r }) => r && r.on !== false && r.to && r.to !== self && kwList(r.kw).length && hitsRule(r, text) && (!alive || alive.includes(r.to)));
 }
+// 设置里的 lead 换成 agent@设备：没写就是本机的 Claude Code，用户自己当指挥是空串
+export const leadKeyOf = lead => (lead && lead.kind === 'you' ? '' : `${(lead && lead.agent) || 'claude'}@${(lead && lead.loft) || 'local'}`);
 
 const split = key => { const k = String(key || ''), at = k.lastIndexOf('@'); return at > 0 ? [k.slice(0, at), k.slice(at + 1)] : [k, 'local']; };
 export function targetName(key, names = {}) {

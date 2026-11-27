@@ -4,6 +4,7 @@
 
 ## 未发布
 
+- 分派规则：流向图左边画的是当前指挥（你、Claude Code 或别的 agent）。新加两条默认规则：规划、统筹、拆解任务交给 Claude Code；创作内容、设计新东西交给 Antigravity，它额度不够时改派 Claude Code。交给的正好是指挥时算“指挥自己做”，提示里写“你自己做”，不派出去也不问你。已经加过默认规则的只补这两条，原来的不动。
 - **正式分发与首装体验（P3）**：新增 `mac/scripts/build-dmg.sh` 一键生成可分发的 `build/Pigeon-<版本>.dmg` 安装包（带 `Applications` 拖入快捷方式）；设置面板「桌面与快捷方式」支持直接录制自定义全局快捷键（`perch.hotkeySpec`，默认 `⌥ 空格`）；连接检查清单内嵌「默认指挥」切换。
 - **统一 MCP 服务与多 Agent 一键接入**：新增零依赖 `pigeon mcp` 服务（8 个工具与 `pigeon://rules` / `pigeon://lofts` 资源），接入页新增「一键接入 Codex / Antigravity / Cursor」开关与检查清单快捷按钮，安全改写配置并保留原有设置，让 Codex、Antigravity、Cursor 都能读取分派规则、主动向其他 agent 派活并按真实发件身份可视化。
 - **桌面伴侣体验**：支持登录时自动启动（`SMAppService`，设置与菜单栏可开关）、全局快捷键 `⌥ 空格` 随时呼出刘海快速派活、刘海本机新开对话可选项目目录与自定义远程模型名，以及 `pigeon run` 持久化与重启孤儿恢复（`~/.pigeon/runs/*.meta.json`）。

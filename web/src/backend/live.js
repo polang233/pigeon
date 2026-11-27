@@ -4,7 +4,7 @@
 // 不假装成功：接口回错就把它的错误交给页面去提示（返回被拒绝的 Promise，或者调 notify）。
 //
 // 用到的接口见 docs/CONTRACT.md；具体哪几个字段，写在每个函数旁边。
-import { mapLive, mergeNote, mergeRun, rulesToWire, RULE2_PATH, at, setAt, keyToWire, toWire, dispatchBody, seedRules } from './adapt.js';
+import { mapLive, mergeNote, mergeRun, rulesToWire, RULE2_PATH, at, setAt, keyToWire, toWire, dispatchBody, seedRules, SEED_VERSION } from './adapt.js';
 import { settingsWriter } from './settings.js';
 import { by, tById, isPaused, validLead, cleanName, levelsOf, midLevel, removalImpact, jumpLabel, customModelsOf } from '../core/names.js';
 import { promptText, targets } from '../core/route.js';
@@ -218,8 +218,9 @@ function createLive(ctx, { raw, notes, runs, view, loadAll, trim, notify }) {
     }
   }
   connect();
-  // 第一次用这一版：加上默认的几条分派规则（生图给 Codex、音频给 Antigravity、复审和简单的活给 DeepSeek Harness）
-  if (!obj0(raw.settings.dispatch).seeded) bg(patch(s => { seedRules(s); }));
+  // 第一次用这一版：加上默认的几条分派规则（生图给 Codex，音频、创作给 Antigravity，复审和简单的活给 DeepSeek Harness，规划给 Claude Code）。
+  // 加过旧版的只补新加的那几条
+  if ((Number(obj0(raw.settings.dispatch).seeded) || 0) < SEED_VERSION) bg(patch(s => { seedRules(s); }));
   // 对话列表一分钟再读一次（远程电脑上的变化不一定有推送）
   setInterval(() => { if (!down) get('/api/lofts').then(v => { if (v && Array.isArray(v.lofts)) { raw.lofts = v; rebuildSoon(); } }, () => {}); }, 60000);
   // 时间说法（几分钟前、用了多久）跟着走

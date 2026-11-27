@@ -1,5 +1,5 @@
 {
-  "说明": "分派规则怎么判的共用用例。网页（web/src/core/route.js 的 routeOf）和应用（POST /api/dispatch/suggest）都要跑过。判法见 docs/CONTRACT.md 的“分派规则的建议”。expect 里 rule、suggested 为空串表示没有规则命中；kind 只在给了 to 时比较。",
+  "说明": "分派规则怎么判的共用用例。网页（web/src/core/route.js 的 routeOf）和应用（POST /api/dispatch/suggest）都要跑过。判法见 docs/CONTRACT.md 的“分派规则的建议”。expect 里 rule、suggested 为空串表示没有规则命中；kind 只在给了 to 时比较。lead 是当前指挥（agent@设备，没写就是用户自己当指挥）：交给的正好是指挥时算“指挥自己做”，不管 alive 里有没有它都算数，也不问用户。",
   "low": 20,
   "rules": [
     { "id": "r1", "when": "生图、改图", "kw": "图 画 icon logo", "to": "codex@local", "fb": "", "ask": false, "on": true },
@@ -9,7 +9,9 @@
     { "id": "r5", "when": "交给的那家不在了", "kw": "批量", "to": "deepseek@local", "fb": "", "ask": false, "on": true },
     { "id": "r6", "when": "没写关键词", "kw": "", "to": "codex@local", "fb": "", "ask": false, "on": true },
     { "id": "r7", "when": "规则自己写了要问", "kw": "发布 release", "to": "codex@local", "fb": "", "ask": true, "on": true },
-    { "id": "r8", "when": "批量的活，排在后面的那条", "kw": "批量 重命名", "to": "codex@local", "fb": "", "ask": false, "on": true }
+    { "id": "r8", "when": "批量的活，排在后面的那条", "kw": "批量 重命名", "to": "codex@local", "fb": "", "ask": false, "on": true },
+    { "id": "r9", "when": "规划、拆解（交给 Claude Code，写了要问）", "kw": "规划 拆解", "to": "claude@local", "fb": "", "ask": true, "on": true },
+    { "id": "r10", "when": "创作（额度不够时改派 Claude Code）", "kw": "创作 文案", "to": "antigravity@local", "fb": "claude@local", "ask": false, "on": true }
   ],
   "cases": [
     { "name": "第一条命中", "text": "画一个应用图标", "alive": ["codex@local", "claude@local", "codex@win"], "quota": { "codex@local": 60 }, "confirmRemote": true,
@@ -51,6 +53,20 @@
     { "name": "没照建议派：kind 是 override", "text": "画一个图标", "to": "codex@win", "alive": ["codex@local", "codex@win"], "quota": {}, "confirmRemote": true,
       "expect": { "rule": "r1", "suggested": "codex@local", "fb": false, "ask": false, "kind": "override" } },
     { "name": "没有规则命中：kind 是 lead", "text": "解释一下这个函数", "to": "codex@local", "alive": ["codex@local"], "quota": {}, "confirmRemote": true,
-      "expect": { "rule": "", "suggested": "", "fb": false, "ask": false, "kind": "lead" } }
+      "expect": { "rule": "", "suggested": "", "fb": false, "ask": false, "kind": "lead" } },
+    { "name": "交给的正好是指挥：指挥自己做，不在 alive 里也算，规则写了问也不问", "text": "规划一下下周的活", "lead": "claude@local", "alive": ["codex@local"], "quota": {}, "confirmRemote": true,
+      "expect": { "rule": "r9", "suggested": "claude@local", "fb": false, "ask": false } },
+    { "name": "交给的不是指挥、又接不了活：跳过", "text": "规划一下下周的活", "lead": "codex@local", "alive": ["codex@local"], "quota": {}, "confirmRemote": true,
+      "expect": { "rule": "", "suggested": "", "fb": false, "ask": false } },
+    { "name": "交给的不是指挥、能接活：照常交，写了问就问", "text": "规划一下下周的活", "lead": "codex@local", "alive": ["codex@local", "claude@local"], "quota": {}, "confirmRemote": true,
+      "expect": { "rule": "r9", "suggested": "claude@local", "fb": false, "ask": true } },
+    { "name": "建议指挥自己做，它却派了出去：kind 是 override", "text": "拆解这个需求", "to": "codex@local", "lead": "claude@local", "alive": ["codex@local"], "quota": {}, "confirmRemote": true,
+      "expect": { "rule": "r9", "suggested": "claude@local", "fb": false, "ask": false, "kind": "override" } },
+    { "name": "额度不够改派给指挥自己", "text": "写一段文案", "lead": "claude@local", "alive": ["antigravity@local"], "quota": { "antigravity@local": 10 }, "confirmRemote": true,
+      "expect": { "rule": "r10", "suggested": "claude@local", "fb": true, "ask": false } },
+    { "name": "改派写的是指挥自己，额度够时照常交", "text": "写一段文案", "lead": "claude@local", "alive": ["antigravity@local"], "quota": {}, "confirmRemote": true,
+      "expect": { "rule": "r10", "suggested": "antigravity@local", "fb": false, "ask": false } },
+    { "name": "改派写的是 Claude Code，它不是指挥、又接不了活：照常派", "text": "创作一首诗", "lead": "codex@local", "alive": ["antigravity@local", "codex@local"], "quota": { "antigravity@local": 10 }, "confirmRemote": true,
+      "expect": { "rule": "r10", "suggested": "antigravity@local", "fb": false, "ask": false } }
   ]
 }
